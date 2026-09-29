@@ -2,11 +2,15 @@
 
 import argparse
 import json
+import os
 import re
 import shutil
+import signal
+import stat
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -14,12 +18,33 @@ from urllib.parse import urljoin, urlsplit
 
 DATA_DIR = Path(__file__).resolve().parents[1] / "data"
 MAX_BYTES = 50 * 1024 * 1024
-MAX_SECONDS = 90
+TEMP_BUDGET = 60 * 1024 * 1024
+TOTAL_SECONDS = 150
+POLL_SECONDS = 0.1
+MAX_CAPTURE = 1024 * 1024
+FRAME_BYTES = 64 * 64 * 3
+MAX_AUDIO_BYTES = 16000 * 2
 CANONICAL_HOSTS = {"www.tiktok.com", "tiktok.com", "m.tiktok.com"}
 SHORT_HOSTS = {"vm.tiktok.com", "vt.tiktok.com"}
 VIDEO_PATH = re.compile(r"/@[A-Za-z0-9._-]+/video/[0-9]+/?\Z")
 SHORT_PATH = re.compile(r"/[A-Za-z0-9]+/?\Z")
 SHORT_WEB_PATH = re.compile(r"/t/[A-Za-z0-9]+/?\Z")
+
+
+class ProbeTimeout(Exception):
+    pass
+
+
+class SizeLimit(Exception):
+    pass
+
+
+class ProcessCleanupError(Exception):
+    pass
+
+
+class ToolOutputError(Exception):
+    pass
 
 
 def validate_url(raw: str) -> tuple[str, bool]:
@@ -42,21 +67,34 @@ def validate_url(raw: str) -> tuple[str, bool]:
     return f"https://{host}{parsed.path}", short
 
 
-class TikTokRedirects(urllib.request.HTTPRedirectHandler):
+class NoRedirects(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, request, fp, code, msg, headers, newurl):
-        target = urljoin(request.full_url, newurl)
-        validate_url(target)
-        return super().redirect_request(request, fp, code, msg, headers, target)
+        return None
 
 
-def resolve_short(url: str) -> str:
-    opener = urllib.request.build_opener(TikTokRedirects)
-    request = urllib.request.Request(url, method="HEAD")
-    with opener.open(request, timeout=10) as response:
-        canonical, short = validate_url(response.url)
-    if short:
-        raise ValueError("Short link did not resolve to a video")
-    return canonical
+def remaining(deadline: float, stage_limit: float) -> float:
+    left = min(stage_limit, deadline - time.monotonic())
+    if left <= 0:
+        raise ProbeTimeout
+    return left
+
+
+def resolve_short(url: str, deadline: float) -> str:
+    opener = urllib.request.build_opener(NoRedirects)
+    for _ in range(6):
+        try:
+            with opener.open(urllib.request.Request(url, method="HEAD"), timeout=remaining(deadline, 10)) as response:
+                canonical, short = validate_url(response.url)
+                if short:
+                    raise ValueError("Short link did not resolve to a video")
+                return canonical
+        except urllib.error.HTTPError as exc:
+            if exc.code not in {301, 302, 303, 307, 308} or not exc.headers.get("Location"):
+                raise
+            url, short = validate_url(urljoin(url, exc.headers["Location"]))
+            if not short:
+                return url
+    raise ValueError("Too many short-link redirects")
 
 
 def ytdlp_base() -> list[str]:
@@ -70,8 +108,73 @@ def ytdlp_base() -> list[str]:
     ]
 
 
-def invoke(args: list[str], timeout: int = MAX_SECONDS) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(args, capture_output=True, text=True, timeout=timeout, check=False)
+def directory_size(root: Path) -> int:
+    total = 0
+    for folder, _, files in os.walk(root, followlinks=False):
+        for name in files:
+            try:
+                entry = os.stat(Path(folder) / name, follow_symlinks=False)
+            except FileNotFoundError:
+                continue
+            if stat.S_ISREG(entry.st_mode):
+                total += entry.st_size
+    return total
+
+
+def terminate_tree(process: subprocess.Popen) -> None:
+    if process.poll() is None:
+        try:
+            if os.name == "nt":
+                killed = subprocess.run(
+                    ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10, check=False,
+                )
+                if killed.returncode and process.poll() is None:
+                    raise ProcessCleanupError
+            else:
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass  # The owned group exited between poll and termination.
+            process.wait(timeout=10)
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise ProcessCleanupError from exc
+        if process.poll() is None:
+            raise ProcessCleanupError
+
+
+def run_command(args: list[str], temp: Path, name: str, deadline: float, stage_limit: float) -> subprocess.CompletedProcess[bytes]:
+    expires = time.monotonic() + remaining(deadline, stage_limit)
+    stdout_path, stderr_path = temp / f"{name}.out", temp / f"{name}.err"
+    with stdout_path.open("wb") as stdout, stderr_path.open("wb") as stderr:
+        process = subprocess.Popen(
+            args, stdin=subprocess.DEVNULL, stdout=stdout, stderr=stderr,
+            start_new_session=os.name != "nt",
+            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0,
+        )
+        try:
+            while process.poll() is None:
+                if directory_size(temp) > TEMP_BUDGET:
+                    raise SizeLimit
+                if time.monotonic() >= expires:
+                    raise ProbeTimeout
+                time.sleep(POLL_SECONDS)
+            if directory_size(temp) > TEMP_BUDGET:
+                raise SizeLimit
+        except BaseException:
+            try:
+                terminate_tree(process)
+            except ProcessCleanupError as exc:
+                raise ProcessCleanupError from exc
+            raise
+    if stdout_path.stat().st_size > MAX_CAPTURE:
+        raise ToolOutputError
+    output = stdout_path.read_bytes()
+    with stderr_path.open("rb") as stderr:
+        diagnostic = stderr.read(65536).decode("utf-8", errors="replace")
+    stdout_path.unlink()
+    stderr_path.unlink()
+    return subprocess.CompletedProcess(args, process.returncode, output, diagnostic)
 
 
 def failure_detail(stderr: str) -> str:
@@ -83,83 +186,114 @@ def failure_detail(stderr: str) -> str:
     return "extractor returned an error; raw output withheld"
 
 
+def inspect_reference(url: str, temp: Path, deadline: float, result: dict, ffmpeg: str, ffprobe: str) -> None:
+    base = ytdlp_base()
+    metadata = run_command(base + ["--dump-single-json", "--skip-download", url], temp, "metadata", deadline, 30)
+    if metadata.returncode:
+        result.update(failure_category="metadata_failed", diagnostic=failure_detail(metadata.stderr))
+        return
+    info = json.loads(metadata.stdout)
+    if not isinstance(info, dict) or info.get("_type") in {"playlist", "multi_video"}:
+        result.update(failure_category="unsupported_input", diagnostic="Extractor did not return one video")
+        return
+    video_id = str(info.get("id", ""))
+    if not video_id.isdecimal():
+        result.update(failure_category="invalid_metadata", diagnostic="No numeric video identity")
+        return
+    result["metadata"] = {"id": video_id, "duration_seconds": info.get("duration")}
+    if video_id != urlsplit(url).path.rstrip("/").rsplit("/", 1)[-1]:
+        result.update(failure_category="identity_mismatch", diagnostic="Extracted video ID differs from requested URL")
+        return
+    output = str(temp / "reference.%(ext)s")
+    download = run_command(base + ["--ffmpeg-location", str(Path(ffmpeg).parent), "-o", output, url], temp, "download", deadline, 90)
+    if download.returncode:
+        result.update(retrieval="failed", failure_category="download_failed", diagnostic=failure_detail(download.stderr))
+        return
+    files = [path for path in temp.iterdir() if path.is_file() and path.name.startswith("reference.") and not path.name.endswith((".part", ".ytdl"))]
+    if len(files) != 1 or files[0].stat().st_size > MAX_BYTES:
+        result.update(retrieval="failed", failure_category="size_or_output_limit", diagnostic="Expected one media file at most 50 MiB")
+        return
+    result["retrieval"] = "succeeded"
+    media = files[0]
+    probe = run_command([ffprobe, "-v", "error", "-show_entries", "format=duration:stream=codec_type,codec_name,width,height", "-of", "json", str(media)], temp, "probe", deadline, 15)
+    if probe.returncode:
+        result.update(failure_category="probe_failed", diagnostic="ffprobe could not read the file")
+        return
+    details = json.loads(probe.stdout)
+    if not isinstance(details, dict) or not isinstance(details.get("format", {}), dict):
+        raise ToolOutputError
+    streams = details["streams"]
+    if not isinstance(streams, list) or any(not isinstance(stream, dict) for stream in streams):
+        raise ToolOutputError
+    video = next((stream for stream in streams if stream.get("codec_type") == "video"), None)
+    audio = next((stream for stream in streams if stream.get("codec_type") == "audio"), None)
+    result["media"] = {"duration_seconds": details.get("format", {}).get("duration"), "width": video.get("width") if video else None, "height": video.get("height") if video else None, "video_codec": video.get("codec_name") if video else None, "audio_codec": audio.get("codec_name") if audio else None, "decoded_frame_bytes": 0, "decoded_audio_samples": 0}
+    if video is None:
+        result.update(video_decode="failed", audio="present" if audio else "absent", failure_category="no_video_stream", diagnostic="No video stream; photo/slideshow or unsupported media")
+        return
+    common = [ffmpeg, "-hide_banner", "-v", "error", "-xerror", "-abort_on", "empty_output", "-nostdin", "-i", str(media)]
+    frame = run_command(common + ["-map", "0:v:0", "-an", "-vf", "scale=64:64", "-pix_fmt", "rgb24", "-frames:v", "1", "-f", "rawvideo", "-"], temp, "frame", deadline, 15)
+    if frame.returncode == 0 and len(frame.stdout) == FRAME_BYTES:
+        result["video_decode"] = "passed"
+        result["media"]["decoded_frame_bytes"] = len(frame.stdout)
+    else:
+        result["video_decode"] = "failed"
+    if audio is None:
+        result["audio"] = "absent"
+    else:
+        sample = run_command(common + ["-map", "0:a:0", "-vn", "-t", "1", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", "-f", "s16le", "-"], temp, "audio", deadline, 15)
+        if sample.returncode == 0 and 0 < len(sample.stdout) <= MAX_AUDIO_BYTES and len(sample.stdout) % 2 == 0:
+            result["audio"] = "decoded"
+            result["media"]["decoded_audio_samples"] = len(sample.stdout) // 2
+        else:
+            result["audio"] = "decode_failed"
+    if result["video_decode"] != "passed" or result["audio"] == "decode_failed":
+        result.update(failure_category="decode_failed", diagnostic="FFmpeg produced no complete required output or reported an error")
+
+
 def run_reference(raw_url: str) -> dict:
     url, short = validate_url(raw_url)
-    result = {
-        "input": url, "canonical": None, "metadata": None,
-        "retrieval": "not_attempted", "video_decode": "not_attempted",
-        "audio": "not_checked", "media": None, "failure_category": None,
-        "diagnostic": None,
-    }
-    ffmpeg = shutil.which("ffmpeg")
-    ffprobe = shutil.which("ffprobe")
+    deadline = time.monotonic() + TOTAL_SECONDS
+    result = {"input": url, "canonical": None, "metadata": None, "retrieval": "not_attempted", "video_decode": "not_attempted", "audio": "not_checked", "media": None, "failure_category": None, "diagnostic": None}
+    ffmpeg, ffprobe = shutil.which("ffmpeg"), shutil.which("ffprobe")
     if not ffmpeg or not ffprobe:
         result.update(failure_category="missing_tools", diagnostic="FFmpeg and ffprobe must be on PATH")
         return result
     try:
         if short:
-            url = resolve_short(url)
+            url = resolve_short(url, deadline)
         result["canonical"] = url
     except (ValueError, OSError, urllib.error.URLError) as exc:
         result.update(failure_category="short_link_resolution_failed", diagnostic="Redirect did not reach a supported video" if isinstance(exc, ValueError) else type(exc).__name__)
         return result
-
+    except ProbeTimeout:
+        result.update(failure_category="timeout", diagnostic="Overall time limit exceeded during redirect")
+        return result
     DATA_DIR.mkdir(exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix="tiktok-", dir=DATA_DIR) as temp:
-        base = ytdlp_base()
-        try:
-            metadata = invoke(base + ["--dump-single-json", "--skip-download", url], 30)
-            if metadata.returncode:
-                result.update(failure_category="metadata_failed", diagnostic=failure_detail(metadata.stderr))
-                return result
-            info = json.loads(metadata.stdout)
-            if not isinstance(info, dict) or info.get("_type") in {"playlist", "multi_video"}:
-                result.update(failure_category="unsupported_input", diagnostic="Extractor did not return one video")
-                return result
-            video_id = str(info.get("id", ""))
-            if not video_id.isdecimal():
-                result.update(failure_category="invalid_metadata", diagnostic="No numeric video identity")
-                return result
-            result["metadata"] = {"id": video_id, "duration_seconds": info.get("duration")}
-            output = str(Path(temp) / "reference.%(ext)s")
-            download = invoke(base + ["--ffmpeg-location", str(Path(ffmpeg).parent), "-o", output, url])
-            if download.returncode:
-                result.update(retrieval="failed", failure_category="download_failed", diagnostic=failure_detail(download.stderr))
-                return result
-            files = [path for path in Path(temp).iterdir() if path.is_file() and path.name.startswith("reference.") and not path.name.endswith((".part", ".ytdl"))]
-            if len(files) != 1 or files[0].stat().st_size > MAX_BYTES:
-                result.update(retrieval="failed", failure_category="size_or_output_limit", diagnostic="Expected one media file at most 50 MiB")
-                return result
-            result["retrieval"] = "succeeded"
-            media = files[0]
-            probe = invoke([ffprobe, "-v", "error", "-show_entries", "format=duration:stream=codec_type,codec_name,width,height", "-of", "json", str(media)], 15)
-            if probe.returncode:
-                result.update(failure_category="probe_failed", diagnostic="ffprobe could not read the file")
-                return result
-            details = json.loads(probe.stdout)
-            streams = details.get("streams", [])
-            video = next((stream for stream in streams if stream.get("codec_type") == "video"), None)
-            audio = next((stream for stream in streams if stream.get("codec_type") == "audio"), None)
-            result["media"] = {"duration_seconds": details.get("format", {}).get("duration"), "width": video.get("width") if video else None, "height": video.get("height") if video else None, "video_codec": video.get("codec_name") if video else None, "audio_codec": audio.get("codec_name") if audio else None}
-            if video is None:
-                result.update(video_decode="failed", audio="present" if audio else "absent", failure_category="no_video_stream", diagnostic="No video stream; photo/slideshow or unsupported media")
-                return result
-            frame = invoke([ffmpeg, "-v", "error", "-nostdin", "-i", str(media), "-map", "0:v:0", "-frames:v", "1", "-f", "null", "-"], 15)
-            result["video_decode"] = "passed" if frame.returncode == 0 else "failed"
-            if audio is None:
-                result["audio"] = "absent"
-            else:
-                sample = invoke([ffmpeg, "-v", "error", "-nostdin", "-i", str(media), "-map", "0:a:0", "-t", "1", "-f", "null", "-"], 15)
-                result["audio"] = "decoded" if sample.returncode == 0 else "decode_failed"
-            if result["video_decode"] != "passed" or result["audio"] == "decode_failed":
-                result.update(failure_category="decode_failed", diagnostic="FFmpeg could not decode a required stream")
-            return result
-        except subprocess.TimeoutExpired:
-            result.update(failure_category="timeout", diagnostic="Process exceeded its time limit")
-            return result
-        except (json.JSONDecodeError, OSError, ValueError):
-            result.update(failure_category="invalid_tool_output", diagnostic="Tool output could not be inspected")
-            return result
+    temp = Path(tempfile.mkdtemp(prefix="tiktok-", dir=DATA_DIR))
+    process_stopped = True
+    try:
+        inspect_reference(url, temp, deadline, result, ffmpeg, ffprobe)
+    except ProbeTimeout:
+        result.update(failure_category="timeout", diagnostic="Overall or stage time limit exceeded")
+    except SizeLimit:
+        result.update(retrieval="failed", failure_category="temporary_size_limit", diagnostic="Temporary files exceeded 60 MiB")
+    except ProcessCleanupError:
+        process_stopped = False
+        result.update(failure_category="cleanup_failed", diagnostic="Process tree could not be confirmed stopped; temporary directory retained")
+    except KeyboardInterrupt:
+        result.update(failure_category="interrupted", diagnostic="Probe interrupted; owned process tree stopped")
+    except (json.JSONDecodeError, UnicodeError, OSError, ValueError, TypeError, KeyError, ToolOutputError):
+        result.update(failure_category="invalid_tool_output", diagnostic="Tool output could not be inspected")
+    finally:
+        if process_stopped:
+            try:
+                shutil.rmtree(temp)
+            except OSError:
+                result.update(failure_category="cleanup_failed", diagnostic="Temporary directory could not be removed", temporary_directory=str(temp))
+        else:
+            result["temporary_directory"] = str(temp)
+    return result
 
 
 def main() -> int:
@@ -171,7 +305,7 @@ def main() -> int:
     except ValueError as exc:
         parser.error(str(exc))
     print(json.dumps(result, indent=2))
-    return 0 if result["video_decode"] == "passed" and result["audio"] in {"decoded", "absent"} else 1
+    return 0 if result["video_decode"] == "passed" and result["audio"] in {"decoded", "absent"} and result["failure_category"] is None else 1
 
 
 if __name__ == "__main__":
