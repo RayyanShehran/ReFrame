@@ -2,14 +2,14 @@
 
 ## Milestone 1: development foundation
 
-The repository contains a responsive Next.js shell, live FastAPI health check with retry, typed health endpoint, explicit development CORS origins, locked npm and uv dependencies, focused tests, and CI validation.
+The responsive Next.js shell and FastAPI health endpoint remain in place. Frontend and backend foundation checks run in CI.
 
-Validation on Windows with Node 22.16.0 and Python 3.12.14: frontend lint, typecheck, five Vitest tests, and production build passed; backend two pytest tests, Ruff lint, and Ruff format check passed. Manual browser testing showed connected with the API running, unavailable after stopping it and reloading, and connected after restarting it and selecting Retry. GitHub Actions status is separate and must be checked after push.
+## Milestone 2: TikTok reference-access feasibility
+
+Reframe's intended inputs are a TikTok link for the reference and, separately, uploaded user clips. Neither input is available in the app yet. A developer-only probe under `tools/` retrieved and decoded video and audio from one public TikTok documentation sample on 2026-09-29. Another canonical sample failed at metadata extraction, and tested short-link fixtures resolved to TikTok's home page. See [the evidence and limits](TIKTOK_REFERENCE_FEASIBILITY.md).
+
+The decision is **proceed experimentally**: local technical feasibility is demonstrated for one link. Production-host reliability, rights and platform permission, and a working fresh short link remain unresolved. The architect will choose any production ingestion approach after reviewing this evidence.
 
 ## Limitations
 
-Health confirms API availability only. There is no upload, reference analysis, Style Blueprint schema, media storage, worker, edit planning, or rendering.
-
-## Proposed next milestone
-
-Media ingestion and validation, subject to the architect's implementation brief.
+The app has no TikTok reference input, uploaded user-clip input, reference analysis, Style Blueprint schema, media storage, worker, edit planning, or rendering. The feasibility probe is not an API or production importer. Ordinary app startup and CI do not require FFmpeg.

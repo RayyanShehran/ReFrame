@@ -1,0 +1,5 @@
+[project]
+name = "reframe-tiktok-feasibility"
+version = "0.1.0"
+requires-python = ">=3.12,<3.13"
+dependencies = ["yt-dlp==2026.8.19"]

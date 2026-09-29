@@ -1,6 +1,6 @@
 # Reframe
 
-Reframe is an early foundation for turning a reference edit into an editable style and, eventually, applying it to your own footage. Milestone 1 contains a frontend shell and a live API connectivity check only.
+Reframe is being built to take a TikTok link as the reference edit and, separately, user-uploaded clips as footage to edit. Reference access and media editing are not available in the app yet. The current frontend shell checks live API connectivity; the developer-only TikTok feasibility spike is documented in [TikTok reference feasibility](docs/TIKTOK_REFERENCE_FEASIBILITY.md).
 
 ## Prerequisites
 

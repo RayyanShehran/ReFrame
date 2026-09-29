@@ -40,3 +40,18 @@ jobs:
       - run: uv run --locked pytest
       - run: uv run --locked ruff check .
       - run: uv run --locked ruff format --check .
+
+  tiktok-spike:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: tools
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: '0.12.20'
+          python-version: '3.12'
+          enable-cache: true
+      - run: uv sync --locked
+      - run: uv run --locked python -m unittest discover -s tests -p 'test_tiktok_reference.py'
