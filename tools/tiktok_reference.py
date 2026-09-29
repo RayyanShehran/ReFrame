@@ -47,6 +47,133 @@ class ToolOutputError(Exception):
     pass
 
 
+if os.name == "nt":
+    import _winapi
+    import ctypes
+    import msvcrt
+    from ctypes import wintypes
+
+    class _JobLimits(ctypes.Structure):
+        class _Basic(ctypes.Structure):
+            _fields_ = [
+                ("PerProcessUserTimeLimit", ctypes.c_longlong), ("PerJobUserTimeLimit", ctypes.c_longlong),
+                ("LimitFlags", wintypes.DWORD), ("MinimumWorkingSetSize", ctypes.c_size_t),
+                ("MaximumWorkingSetSize", ctypes.c_size_t), ("ActiveProcessLimit", wintypes.DWORD),
+                ("Affinity", ctypes.c_size_t), ("PriorityClass", wintypes.DWORD), ("SchedulingClass", wintypes.DWORD),
+            ]
+
+        class _Io(ctypes.Structure):
+            _fields_ = [(name, ctypes.c_ulonglong) for name in (
+                "ReadOperationCount", "WriteOperationCount", "OtherOperationCount",
+                "ReadTransferCount", "WriteTransferCount", "OtherTransferCount",
+            )]
+
+        _fields_ = [
+            ("BasicLimitInformation", _Basic), ("IoInfo", _Io),
+            ("ProcessMemoryLimit", ctypes.c_size_t), ("JobMemoryLimit", ctypes.c_size_t),
+            ("PeakProcessMemoryUsed", ctypes.c_size_t), ("PeakJobMemoryUsed", ctypes.c_size_t),
+        ]
+
+    class _JobAccounting(ctypes.Structure):
+        _fields_ = [(name, ctypes.c_longlong) for name in (
+            "TotalUserTime", "TotalKernelTime", "ThisPeriodTotalUserTime", "ThisPeriodTotalKernelTime",
+        )] + [(name, wintypes.DWORD) for name in (
+            "TotalPageFaultCount", "TotalProcesses", "ActiveProcesses", "TotalTerminatedProcesses",
+        )]
+
+    _kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    for _name, _args, _result in [
+        ("CreateJobObjectW", [ctypes.c_void_p, wintypes.LPCWSTR], wintypes.HANDLE),
+        ("SetInformationJobObject", [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD], wintypes.BOOL),
+        ("AssignProcessToJobObject", [wintypes.HANDLE, wintypes.HANDLE], wintypes.BOOL),
+        ("QueryInformationJobObject", [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD, ctypes.c_void_p], wintypes.BOOL),
+        ("TerminateJobObject", [wintypes.HANDLE, wintypes.UINT], wintypes.BOOL),
+        ("ResumeThread", [wintypes.HANDLE], wintypes.DWORD),
+    ]:
+        _call = getattr(_kernel, _name)
+        _call.argtypes, _call.restype = _args, _result
+
+    class _WindowsOwnedProcess:
+        def __init__(self, args: list[str], stdin, stdout, stderr):
+            self.job = _kernel.CreateJobObjectW(None, None)
+            if not self.job:
+                raise ctypes.WinError(ctypes.get_last_error())
+            self.handle = None
+            self.returncode = None
+            thread = None
+            handles = []
+            try:
+                limits = _JobLimits()
+                limits.BasicLimitInformation.LimitFlags = 0x2000  # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+                if not _kernel.SetInformationJobObject(self.job, 9, ctypes.byref(limits), ctypes.sizeof(limits)):
+                    raise ctypes.WinError(ctypes.get_last_error())
+                for stream in (stdin, stdout, stderr):
+                    handles.append(_winapi.DuplicateHandle(
+                        _winapi.GetCurrentProcess(), msvcrt.get_osfhandle(stream.fileno()),
+                        _winapi.GetCurrentProcess(), 0, True, _winapi.DUPLICATE_SAME_ACCESS,
+                    ))
+                startup = subprocess.STARTUPINFO()
+                startup.dwFlags |= _winapi.STARTF_USESTDHANDLES
+                startup.hStdInput, startup.hStdOutput, startup.hStdError = handles
+                startup.lpAttributeList = {"handle_list": handles}
+                self.handle, thread, self.pid, _ = _winapi.CreateProcess(
+                    None, subprocess.list2cmdline(args), None, None, True,
+                    0x4, None, None, startup,  # CREATE_SUSPENDED: no child can spawn before assignment.
+                )
+                if not _kernel.AssignProcessToJobObject(self.job, self.handle):
+                    raise ctypes.WinError(ctypes.get_last_error())
+                if _kernel.ResumeThread(thread) == 0xFFFFFFFF:
+                    raise ctypes.WinError(ctypes.get_last_error())
+            except BaseException as original:
+                stopped = True
+                if self.handle is not None:
+                    try:
+                        _winapi.TerminateProcess(self.handle, 1)
+                        stopped = _winapi.WaitForSingleObject(self.handle, 10000) == _winapi.WAIT_OBJECT_0
+                    except OSError:
+                        stopped = False
+                try:
+                    self.close()
+                except OSError:
+                    stopped = False
+                if not stopped:
+                    raise ProcessCleanupError from original
+                raise
+            finally:
+                if thread is not None:
+                    _winapi.CloseHandle(thread)
+                for handle in handles:
+                    _winapi.CloseHandle(handle)
+
+        def poll(self):
+            if self.returncode is None and _winapi.WaitForSingleObject(self.handle, 0) == _winapi.WAIT_OBJECT_0:
+                self.returncode = _winapi.GetExitCodeProcess(self.handle)
+            return self.returncode
+
+        def wait(self, timeout=10):
+            if _winapi.WaitForSingleObject(self.handle, int(timeout * 1000)) != _winapi.WAIT_OBJECT_0:
+                raise ProcessCleanupError
+            return self.poll()
+
+        def active(self):
+            state = _JobAccounting()
+            if not _kernel.QueryInformationJobObject(self.job, 1, ctypes.byref(state), ctypes.sizeof(state), None):
+                raise ctypes.WinError(ctypes.get_last_error())
+            return state.ActiveProcesses
+
+        def terminate(self):
+            if self.active() and not _kernel.TerminateJobObject(self.job, 1):
+                raise ctypes.WinError(ctypes.get_last_error())
+
+        def close(self):
+            if self.handle is not None:
+                _winapi.CloseHandle(self.handle)
+                self.handle = None
+            if self.job is not None:
+                _winapi.CloseHandle(self.job)
+                self.job = None
+
+
 def validate_url(raw: str) -> tuple[str, bool]:
     if raw != raw.strip() or any(ord(char) < 32 for char in raw):
         raise ValueError("URL contains whitespace or control characters")
@@ -122,38 +249,49 @@ def directory_size(root: Path) -> int:
 
 
 def terminate_tree(process: subprocess.Popen) -> None:
-    if process.poll() is None:
-        try:
+    try:
+        if os.name == "nt":
+            process.terminate()
+        else:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass  # The group may contain only its exited leader.
+        process.wait(timeout=10)
+        expires = time.monotonic() + 10
+        while True:
             if os.name == "nt":
-                killed = subprocess.run(
-                    ["taskkill", "/PID", str(process.pid), "/T", "/F"],
-                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10, check=False,
-                )
-                if killed.returncode and process.poll() is None:
-                    raise ProcessCleanupError
+                alive = process.active() != 0
             else:
                 try:
-                    os.killpg(process.pid, signal.SIGKILL)
+                    os.killpg(process.pid, 0)
+                    alive = True
                 except ProcessLookupError:
-                    pass  # The owned group exited between poll and termination.
-            process.wait(timeout=10)
-        except (OSError, subprocess.TimeoutExpired) as exc:
-            raise ProcessCleanupError from exc
-        if process.poll() is None:
-            raise ProcessCleanupError
+                    alive = False
+            if not alive:
+                return
+            if time.monotonic() >= expires:
+                raise ProcessCleanupError
+            time.sleep(POLL_SECONDS)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise ProcessCleanupError from exc
+
+
+def parent_exited(process) -> bool:
+    if os.name == "nt":
+        return process.poll() is not None
+    # WNOWAIT leaves the leader's PID reserved until its group is terminated.
+    return os.waitid(os.P_PID, process.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT) is not None
 
 
 def run_command(args: list[str], temp: Path, name: str, deadline: float, stage_limit: float) -> subprocess.CompletedProcess[bytes]:
     expires = time.monotonic() + remaining(deadline, stage_limit)
     stdout_path, stderr_path = temp / f"{name}.out", temp / f"{name}.err"
-    with stdout_path.open("wb") as stdout, stderr_path.open("wb") as stderr:
-        process = subprocess.Popen(
-            args, stdin=subprocess.DEVNULL, stdout=stdout, stderr=stderr,
-            start_new_session=os.name != "nt",
-            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0,
-        )
+    with open(os.devnull, "rb") as stdin, stdout_path.open("wb") as stdout, stderr_path.open("wb") as stderr:
+        process = (_WindowsOwnedProcess(args, stdin, stdout, stderr) if os.name == "nt" else
+                   subprocess.Popen(args, stdin=stdin, stdout=stdout, stderr=stderr, start_new_session=True))
         try:
-            while process.poll() is None:
+            while not parent_exited(process):
                 if directory_size(temp) > TEMP_BUDGET:
                     raise SizeLimit
                 if time.monotonic() >= expires:
@@ -167,13 +305,29 @@ def run_command(args: list[str], temp: Path, name: str, deadline: float, stage_l
             except ProcessCleanupError as exc:
                 raise ProcessCleanupError from exc
             raise
+        else:
+            terminate_tree(process)
+        finally:
+            if os.name == "nt":
+                try:
+                    process.close()
+                except OSError as exc:
+                    raise ProcessCleanupError from exc
     if stdout_path.stat().st_size > MAX_CAPTURE:
         raise ToolOutputError
     output = stdout_path.read_bytes()
     with stderr_path.open("rb") as stderr:
         diagnostic = stderr.read(65536).decode("utf-8", errors="replace")
-    stdout_path.unlink()
-    stderr_path.unlink()
+    for path in (stdout_path, stderr_path):
+        expires = time.monotonic() + 2
+        while True:
+            try:
+                path.unlink()
+                break
+            except PermissionError as exc:
+                if time.monotonic() >= expires:
+                    raise ProcessCleanupError from exc
+                time.sleep(POLL_SECONDS)
     return subprocess.CompletedProcess(args, process.returncode, output, diagnostic)
 
 
@@ -287,10 +441,16 @@ def run_reference(raw_url: str) -> dict:
         result.update(failure_category="invalid_tool_output", diagnostic="Tool output could not be inspected")
     finally:
         if process_stopped:
-            try:
-                shutil.rmtree(temp)
-            except OSError:
-                result.update(failure_category="cleanup_failed", diagnostic="Temporary directory could not be removed", temporary_directory=str(temp))
+            expires = time.monotonic() + 2
+            while True:
+                try:
+                    shutil.rmtree(temp)
+                    break
+                except OSError:
+                    if time.monotonic() >= expires:
+                        result.update(failure_category="cleanup_failed", diagnostic="Temporary directory could not be removed", temporary_directory=str(temp))
+                        break
+                    time.sleep(POLL_SECONDS)
         else:
             result["temporary_directory"] = str(temp)
     return result

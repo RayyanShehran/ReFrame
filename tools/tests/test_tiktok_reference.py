@@ -195,9 +195,42 @@ class ProbeTests(unittest.TestCase):
         time.sleep(2.1)
         self.assertFalse(escaped.exists(), "owned child survived process-tree termination")
 
+    def test_parent_exit_does_not_leave_child_running(self):
+        command_dir = self.data / "command"
+        command_dir.mkdir()
+        ready = self.data / "child-ready"
+        gate = self.data / "release-child"
+        escaped = self.data / "escaped-after-parent-exit"
+        def release_child():
+            gate.write_text("release")
+            expires = time.monotonic() + 2
+            while time.monotonic() < expires and not escaped.exists():
+                time.sleep(0.01)
+
+        self.addCleanup(release_child)
+        child = "import pathlib,sys,time; ready=pathlib.Path(sys.argv[1]); gate=pathlib.Path(sys.argv[2]); ready.write_text('ready'); exec('while not gate.exists(): time.sleep(0.01)'); pathlib.Path(sys.argv[3]).write_text('escaped')"
+        parent = "import pathlib,subprocess,sys,time; ready=pathlib.Path(sys.argv[1]); subprocess.Popen([sys.executable,'-c',sys.argv[4],sys.argv[1],sys.argv[2],sys.argv[3]]); exec('while not ready.exists(): time.sleep(0.01)')"
+        result = spike.run_command(
+            [sys.executable, "-c", parent, str(ready), str(gate), str(escaped), child],
+            command_dir, "parent-first", time.monotonic() + 5, 5,
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertTrue(ready.exists(), "child did not signal startup")
+        gate.write_text("release")
+        expires = time.monotonic() + 0.5
+        while time.monotonic() < expires and not escaped.exists():
+            time.sleep(0.01)
+        self.assertFalse(escaped.exists(), "child survived after its parent exited")
+
     def test_cleanup_failure_is_reported(self):
         fake, _ = self.fake_commands()
         with patch.object(spike, "run_command", side_effect=fake), patch.object(spike.shutil, "rmtree", side_effect=OSError):
+            result = spike.run_reference(URL)
+        self.assertEqual(result["failure_category"], "cleanup_failed")
+        self.assertTrue(Path(result["temporary_directory"]).exists())
+
+    def test_unconfirmed_process_termination_retains_temp(self):
+        with patch.object(spike, "inspect_reference", side_effect=spike.ProcessCleanupError):
             result = spike.run_reference(URL)
         self.assertEqual(result["failure_category"], "cleanup_failed")
         self.assertTrue(Path(result["temporary_directory"]).exists())
