@@ -1,6 +1,6 @@
 # Reframe
 
-Reframe is being built to take a TikTok link as the reference edit and, separately, user-uploaded clips as footage to edit. Reference access and media editing are not available in the app yet. The current frontend shell checks live API connectivity; the developer-only TikTok feasibility spike is documented in [TikTok reference feasibility](docs/TIKTOK_REFERENCE_FEASIBILITY.md).
+Reframe takes a TikTok link as the reference edit and, separately, will later take user-uploaded clips as footage to edit. The app can inspect public TikTok reference metadata and select one reference in memory. It does not download or analyze video. The developer-only media feasibility spike is documented in [TikTok reference feasibility](docs/TIKTOK_REFERENCE_FEASIBILITY.md).
 
 ## Prerequisites
 
@@ -41,6 +41,10 @@ npm run dev
 
 Open <http://127.0.0.1:3000>. To change ports, pass another `--port` to uvicorn or `npm run dev -- --port 3001`, update `NEXT_PUBLIC_API_BASE_URL`, and set `REFRAME_ALLOWED_ORIGINS` in the backend shell to include the frontend origin (for example `$env:REFRAME_ALLOWED_ORIGINS='http://127.0.0.1:3001'`). Restart both applications after changing environment values.
 
+Paste a full HTTPS TikTok video URL such as `https://www.tiktok.com/@scout2015/video/6718335390845095173`, select **Check reference**, then **Use this reference**. The app shows public title and creator metadata from TikTok's [oEmbed API](https://developers.tiktok.com/docs/en/embed-videos). Bare `tiktok.com` and `m.tiktok.com` video links are normalized to `www.tiktok.com`; tracking parameters are removed. Short links are not supported. Selection is held only in browser memory: refreshing the page clears it. Metadata availability depends on TikTok and does not imply permission to reuse media.
+
+The API endpoint is `POST /api/references/inspect` with JSON `{"url":"https://www.tiktok.com/@scout2015/video/6718335390845095173"}`. Success returns provider, string video ID, canonical URL, nullable title and author, `metadata_status: "available"`, and `analysis_status: "not_started"`. Errors use `{"error":{"code":"...","message":"..."}}`. The backend contacts only `https://www.tiktok.com/oembed`; it does not fetch or store reference media.
+
 ## Validate
 
 ```powershell
@@ -53,6 +57,8 @@ cd ..\backend
 uv run --locked pytest
 uv run --locked ruff check .
 uv run --locked ruff format --check .
+cd ..\tools
+uv run --locked python -m unittest discover -s tests -p 'test_tiktok_reference.py'
 ```
 
 If the page says **API unavailable**, confirm the backend window is running and <http://127.0.0.1:8000/health> returns `{"status":"ok","service":"reframe-api"}`. Check that the frontend API URL points to that host and port and that the frontend origin is allowed by the backend. Then select **Retry**.

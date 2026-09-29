@@ -14,15 +14,28 @@ body { margin: 0; background: #101413; color: #f0eee7; font-family: Arial, Helve
 button { border: 1px solid #a1b4a5; color: #f0eee7; background: transparent; border-radius: 999px; padding: 7px 14px; cursor: pointer; }
 button:hover { background: #26322b; }
 button:focus-visible { outline: 3px solid #c9eb79; outline-offset: 3px; }
+button:disabled { opacity: .6; cursor: wait; }
 .hero { padding: clamp(90px, 15vh, 180px) 0 clamp(80px, 12vh, 140px); max-width: 810px; }
 .eyebrow { color: #c9eb79; text-transform: uppercase; letter-spacing: .16em; font-size: .72rem; font-weight: 700; margin: 0 0 24px; }
 h1 { font-size: clamp(3.7rem, 9vw, 7.8rem); line-height: .99; letter-spacing: -.075em; margin: 0; font-weight: 700; }
 h1 em { color: #c9eb79; font-style: normal; }
 .intro { color: #b8c4ba; max-width: 580px; font-size: clamp(1.05rem, 1.8vw, 1.35rem); line-height: 1.55; margin: 34px 0 0; }
-.empty-state { border-top: 1px solid #405047; border-bottom: 1px solid #405047; display: grid; grid-template-columns: 90px 1fr; gap: 30px; padding: 34px 0; max-width: 800px; }
-.empty-mark { width: 64px; height: 64px; border: 1px solid #718474; border-radius: 50%; display: grid; place-items: center; color: #c9eb79; font-size: 2rem; }
-.empty-state .eyebrow { margin-bottom: 8px; }
 h2 { font-size: 1.5rem; margin: 0 0 10px; letter-spacing: -.03em; }
-.empty-state p:last-child { margin: 0; color: #b8c4ba; line-height: 1.55; }
+.reference-section { border-top: 1px solid #405047; border-bottom: 1px solid #405047; padding: 34px 0; max-width: 800px; }
+.reference-section .eyebrow { margin-bottom: 8px; }
+.reference-help, .hint, .reference-card p { color: #b8c4ba; line-height: 1.55; }
+.reference-help { margin: 0 0 25px; }
+.reference-section label { display: block; font-weight: 700; margin-bottom: 10px; }
+.reference-form-row { display: flex; gap: 12px; }
+.reference-form-row input { min-width: 0; flex: 1; border: 1px solid #718474; border-radius: 8px; padding: 12px 14px; background: #1a231e; color: #f0eee7; font: inherit; }
+.reference-form-row input:focus-visible, .reference-card a:focus-visible { outline: 3px solid #c9eb79; outline-offset: 3px; }
+.reference-form-row button { white-space: nowrap; }
+.hint { font-size: .85rem; margin: 10px 0 0; }
+.error { color: #fa998a; margin: 14px 0 0; }
+.reference-card { border: 1px solid #718474; border-radius: 12px; padding: 24px; margin-top: 24px; background: #1a231e; overflow-wrap: anywhere; }
+.reference-card h3 { margin: 0; font-size: 1.35rem; }
+.reference-card a { color: #c9eb79; }
+.reference-card .analysis-note { margin-top: 20px; }
+.reference-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 20px; }
 footer { color: #8ea095; margin-top: auto; padding-top: 80px; font-size: .78rem; }
-@media (max-width: 600px) { .shell { padding: 22px 22px 35px; } .topbar { align-items: flex-start; flex-direction: column; gap: 18px; } .hero { padding: 85px 0 75px; } .empty-state { grid-template-columns: 1fr; gap: 20px; } footer { line-height: 1.6; padding-top: 70px; } }
+@media (max-width: 600px) { .shell { padding: 22px 22px 35px; } .topbar { align-items: flex-start; flex-direction: column; gap: 18px; } .hero { padding: 85px 0 75px; } .reference-form-row { flex-direction: column; align-items: stretch; } footer { line-height: 1.6; padding-top: 70px; } }
