@@ -15,7 +15,7 @@ it("starts, polls, and displays retained details", async () => {
   render(<ReferenceMedia projectId="first" />);
   fireEvent.click(await screen.findByRole("button", { name: "Retrieve reference" }));
   await screen.findByText(/Retrieving and validating/);
-  await screen.findByText(/Style analysis is not implemented/, {}, { timeout: 4000 });
+  await screen.findByText(/Reference media is available for color analysis/, {}, { timeout: 4000 });
   expect(screen.getByText("Absent")).toBeInTheDocument();
   expect(mock.mock.calls.filter(([, options]) => options.method === "POST")).toHaveLength(1);
 });

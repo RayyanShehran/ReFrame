@@ -389,10 +389,19 @@ def parent_exited(process) -> bool:
 
 
 def run_command(
-    args: list[str], temp: Path, name: str, deadline: float, stage_limit: float
+    args: list[str],
+    temp: Path,
+    name: str,
+    deadline: float,
+    stage_limit: float,
+    *,
+    output_limit: int | None = None,
+    temp_budget: int | None = None,
 ) -> subprocess.CompletedProcess[bytes]:
     check_interrupted()
     expires = time.monotonic() + remaining(deadline, stage_limit)
+    capture_limit = MAX_CAPTURE if output_limit is None else output_limit
+    directory_budget = TEMP_BUDGET if temp_budget is None else temp_budget
     stdout_path, stderr_path = temp / f"{name}.out", temp / f"{name}.err"
     with (
         open(os.devnull, "rb") as stdin,
@@ -409,12 +418,14 @@ def run_command(
         try:
             while not parent_exited(process):
                 check_interrupted()
-                if directory_size(temp) > TEMP_BUDGET:
+                if directory_size(temp) > directory_budget:
                     raise SizeLimit
+                if output_limit is not None and stdout_path.stat().st_size > capture_limit:
+                    raise ToolOutputError
                 if time.monotonic() >= expires:
                     raise ProbeTimeout
                 time.sleep(POLL_SECONDS)
-            if directory_size(temp) > TEMP_BUDGET:
+            if directory_size(temp) > directory_budget:
                 raise SizeLimit
         except BaseException:
             try:
@@ -430,7 +441,7 @@ def run_command(
                     process.close()
                 except OSError as exc:
                     raise ProcessCleanupError from exc
-    if stdout_path.stat().st_size > MAX_CAPTURE:
+    if stdout_path.stat().st_size > capture_limit:
         raise ToolOutputError
     output = stdout_path.read_bytes()
     with stderr_path.open("rb") as stderr:

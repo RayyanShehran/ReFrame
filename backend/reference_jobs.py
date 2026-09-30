@@ -255,13 +255,33 @@ def compensate(project_id, operation_id):
     target.unlink(missing_ok=True)
 
 
-async def worker(project_id, operation_id, url, stop):
+async def worker(project_id, operation_id, url, stop, analysis=False):
     global active
     failure = None
-    deadline = time.monotonic() + engine.TOTAL_SECONDS
+    if analysis:
+        import color_analysis as color
+
+        process, commit, stage, clean, fail = (
+            color.pipeline,
+            color.commit,
+            color.staging,
+            color.clean_stage,
+            color.fail_operation,
+        )
+        compensate_fn, seconds = color.compensate, color.TOTAL_SECONDS
+    else:
+        process, commit, stage, clean, fail = (
+            pipeline,
+            commit_media,
+            staging,
+            clean_stage,
+            fail_operation,
+        )
+        compensate_fn, seconds = compensate, engine.TOTAL_SECONDS
+    deadline = time.monotonic() + seconds
     try:
         processing = asyncio.create_task(
-            asyncio.to_thread(pipeline, url, staging(operation_id), stop, deadline)
+            asyncio.to_thread(process, url, stage(operation_id), stop, deadline)
         )
         try:
             path, media = await asyncio.shield(processing)
@@ -284,7 +304,7 @@ async def worker(project_id, operation_id, url, stop):
                     pass
             raise
         async with projects.operation_lock:
-            await finish_thread(commit_media, project_id, operation_id, path, media, stop, deadline)
+            await finish_thread(commit, project_id, operation_id, path, media, stop, deadline)
     except engine.RetrievalFailure as exc:
         failure = exc
     except engine.ProbeTimeout:
@@ -292,7 +312,9 @@ async def worker(project_id, operation_id, url, stop):
     except asyncio.CancelledError:
         stop.set()
         failure = engine.RetrievalFailure("interrupted", "Reference retrieval was interrupted.")
-    except (sqlite3.Error, OSError, ReferenceError):
+    except ReferenceError as exc:
+        failure = engine.RetrievalFailure(exc.code, exc.message)
+    except (sqlite3.Error, OSError):
         logger.exception("Reference retention storage failure")
         failure = engine.RetrievalFailure(
             "storage_failure", "Reference media could not be saved safely."
@@ -304,9 +326,9 @@ async def worker(project_id, operation_id, url, stop):
     finally:
         try:
             if failure and failure.cleanup_safe:
-                await finish_thread(compensate, project_id, operation_id)
+                await finish_thread(compensate_fn, project_id, operation_id)
             if not failure or failure.cleanup_safe:
-                await finish_thread(clean_stage, operation_id)
+                await finish_thread(clean, operation_id)
         except (OSError, ReferenceError):
             logger.exception("Reference staging/retention cleanup failed")
             failure = engine.RetrievalFailure(
@@ -314,7 +336,7 @@ async def worker(project_id, operation_id, url, stop):
             )
         if failure:
             try:
-                await finish_thread(fail_operation, project_id, operation_id, failure)
+                await finish_thread(fail, project_id, operation_id, failure)
             except sqlite3.Error:
                 logger.error(
                     "Reference failure state could not be saved; restart recovery required"
@@ -323,27 +345,36 @@ async def worker(project_id, operation_id, url, stop):
             active = None
 
 
-async def start(project_id):
+async def start(project_id, analysis=False):
     global active
     projects.identifier(project_id)
+    if analysis:
+        import color_analysis as color
+
+        read, begin = color.get_operation, color.begin_operation
+    else:
+        read, begin = get_operation, begin_operation
     async with start_lock:
         if project_id in closing:
             raise ReferenceError(409, "project_deleting", "Project deletion is in progress.")
-        current = await projects.storage_call(get_operation, project_id, True)
+        current = await projects.storage_call(read, project_id, True)
         if current.status in {"running", "ready"}:
             return current
         if stopping or project_id in closing or active:
             raise ReferenceError(
-                503, "reference_busy", "Another reference retrieval is running. Please retry later."
+                503, "reference_busy", "Another media job is running. Please retry later."
             )
+        await projects.storage_call(check_quarantine)
 
         async def launch():
             global active
             async with projects.operation_lock:
-                operation, url = await projects.storage_call(begin_operation, project_id)
+                operation, url = await projects.storage_call(begin, project_id)
             if url:
                 stop = threading.Event()
-                task = asyncio.create_task(worker(project_id, operation.operation_id, url, stop))
+                task = asyncio.create_task(
+                    worker(project_id, operation.operation_id, url, stop, analysis)
+                )
                 active = (project_id, operation.operation_id, stop, task)
             return operation
 
@@ -383,6 +414,9 @@ async def delete(project_id):
                     )
             if with_cleanup.operation_id:
                 await projects.storage_call(clean_stage, with_cleanup.operation_id)
+            import color_analysis as color
+
+            await projects.storage_call(color.prepare_delete, project_id)
             await projects.storage_call(projects.delete_project, project_id)
     finally:
         closing.discard(project_id)
@@ -394,6 +428,20 @@ def cleanup_confirmed(project_id):
             connection.execute(
                 "SELECT cleanup_safe FROM reference_operations WHERE project_id = ?", (project_id,)
             ).fetchone()[0]
+        )
+
+
+def check_quarantine():
+    with projects.database() as connection:
+        unsafe = connection.execute(
+            "SELECT 1 FROM reference_operations WHERE cleanup_safe = 0 "
+            "UNION ALL SELECT 1 FROM color_operations WHERE cleanup_safe = 0 LIMIT 1"
+        ).fetchone()
+    if unsafe:
+        raise ReferenceError(
+            500,
+            "cleanup_failure",
+            "Unconfirmed owned processing needs manual review before another job.",
         )
 
 

@@ -1,6 +1,6 @@
 # ReFrame
 
-ReFrame takes a TikTok link as the reference edit and a separately uploaded user-owned clip as footage. Saved projects retain one validated user clip, a fixed reference metadata snapshot and, on request, experimental reference media. The app does not edit or analyze either video. See [TikTok reference feasibility](docs/TIKTOK_REFERENCE_FEASIBILITY.md) for live evidence and limitations.
+ReFrame takes a TikTok link as the reference edit and a separately uploaded user-owned clip as footage. Saved projects retain one validated user clip, a fixed reference metadata snapshot and, on request, experimental reference media. A retained reference can produce a persisted, read-only color Style Blueprint. The app does not edit videos or analyze user footage. See [TikTok reference feasibility](docs/TIKTOK_REFERENCE_FEASIBILITY.md) for live evidence and limitations.
 
 ## Prerequisites
 
@@ -50,10 +50,11 @@ After selecting a reference, enter a project name (1–80 trimmed characters) an
 
 Run one backend process bound to `127.0.0.1`. This is a single-user development app with no authentication, suitable only for the local machine. Do not expose it to the network or run multiple workers.
 
-- `data/reframe.sqlite3`: project snapshots, clips and reference operation/media records. Python's [sqlite3 module](https://docs.python.org/3.12/library/sqlite3.html) uses separate worker-owned connections, parameterized SQL, explicit transactions, foreign keys and schema version 2; startup migrates version 1 while preserving projects and clips.
+- `data/reframe.sqlite3`: project snapshots, clips, reference media and color operation/blueprint records. Python's [sqlite3 module](https://docs.python.org/3.12/library/sqlite3.html) uses separate worker-owned connections, parameterized SQL, explicit transactions, foreign keys and schema version 3; startup migrates versions 1 and 2 while preserving projects, clips and references.
 - `data/project-staging/`: generated names for unfinished project uploads and scoped multipart spools.
 - `data/projects/<UUID>/`: separate generated names for retained user clips and reference media. Original clip filenames are display data. API responses never include filesystem paths.
 - `data/reference-staging/<operation UUID>/`: downloader fragments, media and bounded tool output for the current reference operation.
+- `data/color-staging/<operation UUID>/`: bounded offline color-processing captures, removed before a blueprint becomes ready.
 - `data/clip-inspection/`: the existing temporary-only API remains separate and deletes its uploads after inspection. It is no longer the main UI flow.
 
 Runtime data is ignored by Git and never served from `frontend/public`. Projects survive refresh and backend restart. Reopening reads the saved snapshot without contacting TikTok. It does not refresh reference metadata automatically.
@@ -76,7 +77,21 @@ The 150-second monotonic deadline caps stage limits. A 100 ms watchdog stops own
 
 Validated media is hashed, moved to its unique project destination, staging is removed, and SQLite marks it ready only if the project is active and the operation still matches. Move/commit failures compensate by removing that operation's file; failures remain explicit. Restart marks unfinished work interrupted without re-downloading, reconciles retained size/digest and cleans generated abandoned staging. Valid clips and references are preserved. If owned process termination is unconfirmed, staging is quarantined with `cleanup_failure`; retry/deletion stay blocked pending manual review, including after restart. Deletion and graceful shutdown signal and join active retrieval before removing files. Network processing does not hold the project operation lock.
 
-Browser status requests have 10-second limits and poll every 2 seconds for at most 3 minutes. Navigation stops polling and rejects stale responses while server work continues; reopen to restore status. Reference media is distinct from source footage. Retrieval reliability, content rights and production isolation remain unresolved. No style analysis, playback, rendering, reference uploads or public deployment is implemented.
+Browser status requests have 10-second limits and poll every 2 seconds for at most 3 minutes. Navigation stops polling and rejects stale responses while server work continues; reopen to restore status. Reference media is distinct from source footage. Retrieval reliability, content rights and production isolation remain unresolved. No playback, rendering, reference uploads or public deployment is implemented.
+
+## Read-only reference color blueprint
+
+Once reference media is ready, select **Analyze reference**. `POST /api/projects/{UUID}/style-blueprint` starts offline analysis and returns a typed operation with HTTP 202; `GET` at the same route restores idle/running/ready/failed status and the complete ready blueprint. No new TikTok request occurs. Retrieval and analysis share one global expensive worker; duplicate starts reuse the operation, failed attempts need explicit retry, and deletion/shutdown stop and join owned work. Restart marks unfinished analysis interrupted without restarting it. Unconfirmed process termination preserves quarantined staging and blocks new media jobs and deletion pending manual review.
+
+The [version 1 JSON schema](docs/STYLE_BLUEPRINT.schema.json) records reference identity/SHA-256, algorithm `encoded-rgb-midpoints-v1`, tool versions, sampling, color metadata/assumptions, measurements and interpretation limits. Pacing, transitions, captions and audio explicitly remain `not_analyzed`. Ready results are reused only when the retained media hash and algorithm match; status/start/recovery verify the source and invalidate missing or changed media. Ordinary project reads do not hash it. Results become visible in one SQLite transaction after confirmed processing and staging cleanup; stale/deleted/canceled operations cannot publish.
+
+Analysis samples 12 midpoint targets `(i + 0.5) * duration / 12` from the first genuine video stream, excluding attached artwork. FFmpeg normalizes timestamps, shifts by half an interval and applies nearest-rounding `fps=12/duration`, then area-resizes to 96 × 96 RGB24 without padding or autorotation. Short clips can repeat frames. Exactly **331,776 decoded bytes** are required. Every resized pixel and time sample has equal weight. RGB means are normalized to [0,1]; encoded brightness is `(0.2126R + 0.7152G + 0.0722B)/255`, with linearly interpolated 5th/50th/95th percentiles at sorted index `(N-1)*p`. Contrast is 95th minus 5th. Mean HSV saturation uses `(max-min)/max`, with black zero. Palette bins have RGB channel width 32; the five largest bins sort by count then lexicographic bin, with arithmetic mean RGB rounded half up. Proportions use **all sampled pixels**; displayed coverage can be below 100%.
+
+This version accepts tagged BT.709/sRGB ordinary SDR only (primaries BT.709; transfer BT.709, sRGB or gamma 2.2; matrix BT.709 or RGB; limited/full range). Tagged HDR/wide gamut and other color spaces are rejected without tone mapping. Incomplete tags produce a visible ordinary-SDR assumption warning, with missing YCbCr matrix/range assumed BT.709/limited. Untagged HDR cannot reliably be identified. Brightness is an encoded-pixel observation, never physical exposure; no camera settings, LUT, color temperature or creative intent is inferred.
+
+Bounds: retained source ≤50 MiB, duration ≤120 seconds, dimensions ≤4096; overall processing deadline 120 seconds, version commands 5 seconds each, probe 10 seconds, decode 60 seconds, all capped by remaining time. Ready-source hash verification has a 10-second limit. A 100 ms watchdog observes a 2 MiB staging budget with possible overshoot, not a strict filesystem quota. Stdout caps are 8 KiB for versions, 64 KiB for metadata and 331,776 bytes for RGB; stderr readback is 64 KiB. The existing Windows Job Object/POSIX process-group ownership machinery is reused. Termination/cleanup can extend beyond the processing deadline; forced backend termination or intentionally escaping POSIX groups remains outside the guarantee.
+
+Twelve samples can miss brief events; resizing, variable frame timing and tool versions affect results. Blueprint editing, footage matching, edit planning, rendering and image mode remain future milestones. See [status](docs/STATUS.md) for generated-media and browser evidence.
 
 `POST /api/clips/inspect` accepts exactly one multipart `file` field. Success includes sanitized filename, size, duration, dimensions, codec names, audio presence, optional frame rate, `validation_status: "accepted"`, and `storage_status: "not_retained"`. It uses the same safe error envelope.
 

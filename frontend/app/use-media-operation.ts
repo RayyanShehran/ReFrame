@@ -1,0 +1,70 @@
+"use client";
+
+import { useCallback, useEffect, useRef, useState } from "react";
+
+export type MediaOperation = { status: "idle" | "running" | "ready" | "failed"; message: string | null; failure_code: string | null };
+const apiBase = (process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000").replace(/\/$/, "");
+
+export function useMediaOperation<T extends MediaOperation>(projectId: string, route: string, validate: (data: unknown) => T) {
+  const [operation, setOperation] = useState<T | null>(null);
+  const [error, setError] = useState("");
+  const [revision, setRevision] = useState(0);
+  const [starting, setStarting] = useState(false);
+  const action = useRef<AbortController | null>(null);
+  const generation = useRef(0);
+  const request = useCallback(async (method: string, controller: AbortController): Promise<T> => {
+    const timer = setTimeout(() => controller.abort(), 10000);
+    try {
+      const response = await fetch(`${apiBase}/api/projects/${encodeURIComponent(projectId)}/${route}`, { method, signal: controller.signal });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data?.error?.message || "Media request failed.");
+      return validate(data);
+    } finally { clearTimeout(timer); }
+  }, [projectId, route, validate]);
+
+  useEffect(() => {
+    let live = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let controller: AbortController;
+    const deadline = Date.now() + 180000;
+    async function poll() {
+      controller = new AbortController();
+      try {
+        const result = await request("GET", controller);
+        if (!live) return;
+        setOperation(result); setError("");
+        if (result.status === "running") {
+          if (Date.now() < deadline) timer = setTimeout(poll, 2000);
+          else setError("Status polling stopped. Reopen this project to check; server processing continues.");
+        }
+      } catch (cause) {
+        if (live) setError(cause instanceof Error && cause.name !== "AbortError" ? cause.message : "Status request timed out. Reopen the project to check.");
+      }
+    }
+    void poll();
+    return () => { live = false; clearTimeout(timer); controller?.abort(); };
+  }, [request, revision]);
+
+  useEffect(() => {
+    const version = generation;
+    return () => { version.current++; action.current?.abort(); };
+  }, [projectId, route]);
+
+  async function start() {
+    if (action.current) return;
+    const controller = new AbortController();
+    action.current = controller;
+    const version = generation.current;
+    setStarting(true); setError("");
+    try {
+      const result = await request("POST", controller);
+      if (version === generation.current) { setOperation(result); setRevision(value => value + 1); }
+    } catch (cause) {
+      if (version === generation.current) setError(cause instanceof Error && cause.name !== "AbortError" ? cause.message : "Start response timed out. Reopen to check before retrying.");
+    } finally {
+      if (action.current === controller) action.current = null;
+      if (version === generation.current) setStarting(false);
+    }
+  }
+  return { operation, error, starting, start };
+}

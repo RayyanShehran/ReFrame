@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+import color_analysis
 import projects
 import reference_jobs
 from clips import ClipDetails, cleanup_stale_files, inspect_clip
@@ -36,6 +37,7 @@ async def lifespan(_app: FastAPI):
     await projects.storage_call(projects.initialize)
     reference_jobs.stopping = False
     await projects.storage_call(reference_jobs.recover)
+    await projects.storage_call(color_analysis.recover)
     try:
         yield
     finally:
@@ -113,6 +115,20 @@ async def retrieve_project_reference(project_id: str):
 @app.get("/api/projects/{project_id}/reference-media", response_model=reference_jobs.Operation)
 async def get_project_reference(project_id: str):
     return await projects.storage_call(reference_jobs.get_operation, project_id)
+
+
+@app.post(
+    "/api/projects/{project_id}/style-blueprint",
+    response_model=color_analysis.Operation,
+    status_code=202,
+)
+async def analyze_project_reference(project_id: str):
+    return await reference_jobs.start(project_id, analysis=True)
+
+
+@app.get("/api/projects/{project_id}/style-blueprint", response_model=color_analysis.Operation)
+async def get_style_blueprint(project_id: str):
+    return await projects.storage_call(color_analysis.get_operation, project_id)
 
 
 @app.post("/api/projects/{project_id}/clip", response_model=projects.ProjectDetails)
