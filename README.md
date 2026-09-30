@@ -1,6 +1,6 @@
-# Reframe
+# ReFrame
 
-Reframe takes a TikTok link as the reference edit and a separately uploaded user-owned clip as footage. The app inspects public TikTok reference metadata, then validates the technical details of one uploaded clip. It does not retain, edit, or analyze the style of either video. The developer-only media feasibility spike is documented in [TikTok reference feasibility](docs/TIKTOK_REFERENCE_FEASIBILITY.md).
+ReFrame takes a TikTok link as the reference edit and a separately uploaded user-owned clip as footage. The app inspects public TikTok reference metadata, then validates the technical details of one uploaded clip. It does not retain, edit, or analyze the style of either video. The developer-only media feasibility spike is documented in [TikTok reference feasibility](docs/TIKTOK_REFERENCE_FEASIBILITY.md).
 
 ## Prerequisites
 

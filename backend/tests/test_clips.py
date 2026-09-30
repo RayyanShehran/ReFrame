@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 import pytest
+import starlette.formparsers
 from fastapi.testclient import TestClient
 from starlette.requests import Request
 
@@ -210,6 +211,56 @@ def test_truncated_multipart_closes_unfinished_spool(monkeypatch, tmp_path):
     assert response.json()["error"]["code"] == "invalid_multipart"
     assert spools and all(spool.closed for spool in spools)
     assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize(
+    "body,opens_spool",
+    [
+        (b"--wrong\r\n", False),
+        (b"--boundary\r\nBad Header: x\r\n\r\nx\r\n--boundary--\r\n", False),
+        (
+            b'--boundary\r\nContent-Disposition: form-data; name="file"; filename="clip.mp4"\r\n'
+            b"Content-Type: video/mp4\r\n\r\nvideo\r\n--boundary\r\n"
+            b"Bad Header: x\r\n\r\nx\r\n--boundary--\r\n",
+            True,
+        ),
+    ],
+    ids=["wrong-opening-boundary", "invalid-header", "invalid-header-after-file"],
+)
+def test_multipart_syntax_failure_cleanup_and_retry(monkeypatch, tmp_path, body, opens_spool):
+    monkeypatch.setattr(clips, "DATA_DIR", tmp_path)
+    real_spool = clips.SpooledTemporaryFile
+    spools = []
+
+    def spool_factory(*args, **kwargs):
+        spool = real_spool(*args, **kwargs)
+        spools.append(spool)
+        return spool
+
+    monkeypatch.setattr(clips, "SpooledTemporaryFile", spool_factory)
+    monkeypatch.setattr(starlette.formparsers, "SpooledTemporaryFile", spool_factory)
+    response = client.post(
+        "/api/clips/inspect",
+        content=body,
+        headers={"content-type": "multipart/form-data; boundary=boundary"},
+    )
+    assert response.status_code == 422
+    assert response.json() == {
+        "error": {
+            "code": "invalid_multipart",
+            "message": "Send exactly one video file in the file field.",
+        }
+    }
+    assert bool(spools) is opens_spool
+    assert all(spool.closed for spool in spools)
+    assert list(tmp_path.iterdir()) == []
+    assert not clips.inspection_lock.locked()
+
+    fake_probe(monkeypatch)
+    assert upload().status_code == 200
+    assert all(spool.closed for spool in spools)
+    assert list(tmp_path.iterdir()) == []
+    assert not clips.inspection_lock.locked()
 
 
 def test_empty_file_and_cleanup(monkeypatch, tmp_path):

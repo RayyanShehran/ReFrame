@@ -1,4 +1,4 @@
-"""Reframe API."""
+"""ReFrame API."""
 
 import os
 from contextlib import asynccontextmanager
@@ -34,7 +34,7 @@ async def lifespan(_app: FastAPI):
     yield
 
 
-app = FastAPI(title="Reframe API", lifespan=lifespan)
+app = FastAPI(title="ReFrame API", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,

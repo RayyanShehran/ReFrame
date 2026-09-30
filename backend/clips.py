@@ -14,6 +14,7 @@ from typing import Literal
 
 from fastapi import Request
 from pydantic import BaseModel
+from python_multipart.exceptions import MultipartParseError
 from starlette.datastructures import UploadFile
 from starlette.formparsers import MultiPartException, MultiPartParser
 
@@ -251,7 +252,7 @@ async def limited_form(request: Request):
             form = await parser.parse()
             if not parser.complete:
                 raise MultiPartException("Incomplete multipart body")
-        except MultiPartException:
+        except (MultiPartException, MultipartParseError):
             raise clip_error(
                 422, "invalid_multipart", "Send exactly one video file in the file field."
             ) from None

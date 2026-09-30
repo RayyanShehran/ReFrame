@@ -1,6 +1,6 @@
 # TikTok reference-access feasibility
 
-**Decision: proceed experimentally.** On 2026-09-29, the corrected developer-only probe obtained a real media file from one public TikTok documentation example and verified nonempty decoded video and audio bytes. This is evidence of local technical feasibility for that sample. It does not prove production-host reliability, continuing extractor support, platform permission, or reuse rights. Reframe's reference input remains a TikTok link; uploaded user clips are a separate future input. The app does not analyze TikTok links yet.
+**Decision: proceed experimentally.** On 2026-09-29, the corrected developer-only probe obtained a real media file from one public TikTok documentation example and verified nonempty decoded video and audio bytes. This is evidence of local technical feasibility for that sample. It does not prove production-host reliability, continuing extractor support, platform permission, or reuse rights. ReFrame's reference input remains a TikTok link; uploaded user clips are a separate future input. The app does not analyze TikTok links yet.
 
 ## Sources reviewed (2026-09-29)
 

@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Reframe",
+  title: "ReFrame",
   description: "Bring the feel of a reference edit to your own footage.",
 };
 
