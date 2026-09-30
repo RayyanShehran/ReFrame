@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+import projects
 from clips import ClipDetails, cleanup_stale_files, inspect_clip
 from references import ReferenceDetails, ReferenceError, ReferenceRequest, inspect_reference
 
@@ -30,7 +31,8 @@ allowed_origins = [
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    cleanup_stale_files()
+    await projects.storage_call(cleanup_stale_files)
+    await projects.storage_call(projects.initialize)
     yield
 
 
@@ -38,7 +40,7 @@ app = FastAPI(title="ReFrame API", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
-    allow_methods=["GET", "POST"],
+    allow_methods=["GET", "POST", "DELETE"],
     allow_headers=["Content-Type"],
 )
 
@@ -71,3 +73,28 @@ async def inspect(request: ReferenceRequest) -> ReferenceDetails:
 @app.post("/api/clips/inspect", response_model=ClipDetails)
 async def inspect_uploaded_clip(request: Request) -> ClipDetails:
     return await inspect_clip(request)
+
+
+@app.post("/api/projects", response_model=projects.ProjectDetails, status_code=201)
+async def create_project(request: projects.ProjectRequest):
+    return await projects.create_project(request)
+
+
+@app.get("/api/projects", response_model=list[projects.ProjectDetails])
+async def list_projects():
+    return await projects.storage_call(projects.list_projects)
+
+
+@app.get("/api/projects/{project_id}", response_model=projects.ProjectDetails)
+async def get_project(project_id: str):
+    return await projects.storage_call(projects.get_project, project_id)
+
+
+@app.delete("/api/projects/{project_id}", status_code=204)
+async def delete_project(project_id: str):
+    await projects.remove_project(project_id)
+
+
+@app.post("/api/projects/{project_id}/clip", response_model=projects.ProjectDetails)
+async def upload_project_clip(project_id: str, request: Request):
+    return await projects.upload_clip(project_id, request)
