@@ -1,6 +1,7 @@
 """Reframe API."""
 
 import os
+from contextlib import asynccontextmanager
 from typing import Literal
 
 from fastapi import FastAPI, Request
@@ -9,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from clips import ClipDetails, cleanup_stale_files, inspect_clip
 from references import ReferenceDetails, ReferenceError, ReferenceRequest, inspect_reference
 
 
@@ -25,7 +27,14 @@ allowed_origins = [
     if origin.strip()
 ]
 
-app = FastAPI(title="Reframe API")
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    cleanup_stale_files()
+    yield
+
+
+app = FastAPI(title="Reframe API", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
@@ -45,7 +54,7 @@ async def reference_error(_request: Request, exc: ReferenceError) -> JSONRespons
 async def validation_error(_request: Request, _exc: RequestValidationError) -> JSONResponse:
     return JSONResponse(
         status_code=422,
-        content={"error": {"code": "invalid_request", "message": "Provide a TikTok URL as text."}},
+        content={"error": {"code": "invalid_request", "message": "The request is invalid."}},
     )
 
 
@@ -57,3 +66,8 @@ def health() -> HealthResponse:
 @app.post("/api/references/inspect", response_model=ReferenceDetails)
 async def inspect(request: ReferenceRequest) -> ReferenceDetails:
     return await inspect_reference(request.url)
+
+
+@app.post("/api/clips/inspect", response_model=ClipDetails)
+async def inspect_uploaded_clip(request: Request) -> ClipDetails:
+    return await inspect_clip(request)
