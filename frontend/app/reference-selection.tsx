@@ -37,7 +37,7 @@ async function fetchReference(url: string, signal: AbortSignal): Promise<Referen
   return data as ReferenceDetails;
 }
 
-export function ReferenceSelection({ onSelectedChange = () => {} }: { onSelectedChange?: (videoId: string | null) => void }) {
+export function ReferenceSelection({ onSelectedChange = () => {} }: { onSelectedChange?: (videoId: string | null, url?: string) => void }) {
   const [url, setUrl] = useState("");
   const [phase, setPhase] = useState<Phase>("idle");
   const [reference, setReference] = useState<ReferenceDetails | null>(null);
@@ -116,7 +116,7 @@ export function ReferenceSelection({ onSelectedChange = () => {} }: { onSelected
       <a href={reference.canonical_url} target="_blank" rel="noopener noreferrer">View on TikTok</a>
       <p className="analysis-note">Reference details loaded. Style analysis is not available yet.</p>
       <div className="reference-actions">
-        {phase === "ready" && <button type="button" onClick={() => { setPhase("selected"); onSelectedChange(reference.video_id); }}>Use this reference</button>}
+        {phase === "ready" && <button type="button" onClick={() => { setPhase("selected"); onSelectedChange(reference.video_id, reference.canonical_url); }}>Use this reference</button>}
         {phase === "selected" && <button type="button" onClick={changeReference}>Change reference</button>}
         <button type="button" onClick={() => { invalidate(); setUrl(""); }}>Clear</button>
       </div>

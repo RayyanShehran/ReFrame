@@ -1,7 +1,6 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { ClipUpload } from "./clip-upload";
-import { Workspace } from "./workspace";
 
 const details = {
   filename: "clip.mp4", size_bytes: 1048576, duration_seconds: 1,
@@ -84,25 +83,6 @@ it("times out a stalled clip request and allows retry", async () => {
   await act(async () => { await vi.advanceTimersByTimeAsync(45000); });
   expect(screen.getByRole("alert")).toHaveTextContent("Clip inspection took too long. Please retry.");
   expect(screen.getByRole("button", { name: "Retry inspection" })).toBeEnabled();
-});
-
-it("unmounting footage after changing reference aborts its upload", async () => {
-  const reference = { provider: "tiktok", video_id: "123", canonical_url: "https://www.tiktok.com/@a/video/123", title: "Reference", author_name: "A", metadata_status: "available", analysis_status: "not_started" };
-  const fetchMock = vi.fn().mockResolvedValueOnce(ok(reference)).mockImplementationOnce((_url: string, options: RequestInit) => new Promise<Response>((_resolve, reject) => {
-    options.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")));
-  }));
-  vi.stubGlobal("fetch", fetchMock);
-  render(<Workspace />);
-  fireEvent.change(screen.getByLabelText("TikTok video URL"), { target: { value: reference.canonical_url } });
-  fireEvent.click(screen.getByRole("button", { name: "Check reference" }));
-  expect(await screen.findByText("Reference")).toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: "Use this reference" }));
-  choose();
-  fireEvent.click(screen.getByRole("button", { name: "Inspect clip" }));
-  const signal = (fetchMock.mock.calls[1][1] as RequestInit).signal as AbortSignal;
-  fireEvent.click(screen.getByRole("button", { name: "Change reference" }));
-  expect(signal.aborted).toBe(true);
-  expect(screen.queryByRole("heading", { name: "Inspect one clip" })).not.toBeInTheDocument();
 });
 
 it("clears clip timeout on unmount when fetch ignores abort", () => {

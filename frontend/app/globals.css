@@ -44,3 +44,4 @@ h2 { font-size: 1.5rem; margin: 0 0 10px; letter-spacing: -.03em; }
 .retention-note { margin-top: 22px; }
 footer { color: #8ea095; margin-top: auto; padding-top: 80px; font-size: .78rem; }
 @media (max-width: 600px) { .shell { padding: 22px 22px 35px; } .topbar { align-items: flex-start; flex-direction: column; gap: 18px; } .hero { padding: 85px 0 75px; } .reference-form-row { flex-direction: column; align-items: stretch; } footer { line-height: 1.6; padding-top: 70px; } }
+.project-list { list-style: none; padding: 0; } .project-list li { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 14px; } .project-list li span { flex: 1; min-width: 120px; overflow-wrap: anywhere; }

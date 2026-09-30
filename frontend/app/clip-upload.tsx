@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
 
-type ClipDetails = {
+export type ClipDetails = {
   filename: string;
   size_bytes: number;
   duration_seconds: number;
@@ -13,24 +13,29 @@ type ClipDetails = {
   audio_codec: string | null;
   frame_rate: number | null;
   validation_status: "accepted";
-  storage_status: "not_retained";
+  storage_status: "not_retained" | "retained";
 };
 
 const apiBase = (process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000").replace(/\/$/, "");
 
-async function inspectClip(file: File, signal: AbortSignal): Promise<ClipDetails> {
+async function inspectClip(file: File, signal: AbortSignal, projectId?: string): Promise<ClipDetails> {
   const body = new FormData();
   body.append("file", file);
-  const response = await fetch(`${apiBase}/api/clips/inspect`, { method: "POST", body, signal });
-  const data: unknown = await response.json();
+  const response = await fetch(`${apiBase}${projectId ? `/api/projects/${projectId}/clip` : "/api/clips/inspect"}`, { method: "POST", body, signal });
+  let data: unknown = await response.json();
   if (!response.ok) {
     if (typeof data === "object" && data !== null && "error" in data &&
         typeof data.error === "object" && data.error !== null && "message" in data.error &&
         typeof data.error.message === "string") throw new Error(data.error.message);
     throw new Error("Clip inspection failed. Please try again.");
   }
+  if (projectId && typeof data === "object" && data !== null && "clip" in data) data = data.clip;
+  return parseClipDetails(data, Boolean(projectId));
+}
+
+export function parseClipDetails(data: unknown, retained = false): ClipDetails {
   if (typeof data !== "object" || data === null || !("validation_status" in data) || data.validation_status !== "accepted" ||
-      !("storage_status" in data) || data.storage_status !== "not_retained" ||
+      !("storage_status" in data) || data.storage_status !== (retained ? "retained" : "not_retained") ||
       !("filename" in data) || typeof data.filename !== "string" ||
       !("size_bytes" in data) || typeof data.size_bytes !== "number" ||
       !("duration_seconds" in data) || typeof data.duration_seconds !== "number" ||
@@ -45,9 +50,9 @@ async function inspectClip(file: File, signal: AbortSignal): Promise<ClipDetails
   return data as ClipDetails;
 }
 
-export function ClipUpload() {
+export function ClipUpload({ projectId, initialDetails = null, onSaved }: { projectId?: string; initialDetails?: ClipDetails | null; onSaved?: () => void }) {
   const [file, setFile] = useState<File | null>(null);
-  const [details, setDetails] = useState<ClipDetails | null>(null);
+  const [details, setDetails] = useState<ClipDetails | null>(initialDetails);
   const [checking, setChecking] = useState(false);
   const [error, setError] = useState("");
   const active = useRef<AbortController | null>(null);
@@ -82,8 +87,8 @@ export function ClipUpload() {
     setDetails(null);
     setChecking(true);
     try {
-      const result = await inspectClip(file, controller.signal);
-      if (version.current === current) setDetails(result);
+      const result = await inspectClip(file, controller.signal, projectId);
+      if (version.current === current) { setDetails(result); onSaved?.(); }
     } catch (cause) {
       if (version.current === current) setError(timedOut ? "Clip inspection took too long. Please retry." : cause instanceof Error && cause.name !== "AbortError" ? cause.message : "Clip inspection failed. Please retry.");
     } finally {
@@ -96,17 +101,17 @@ export function ClipUpload() {
 
   return <section className="reference-section footage-section" aria-labelledby="footage-title">
     <p className="eyebrow">Your footage</p>
-    <h2 id="footage-title">Inspect one clip</h2>
+    <h2 id="footage-title">{projectId ? "Save one clip" : "Inspect one clip"}</h2>
     <p className="reference-help">MP4 or MOV, up to 100 MiB, 120 seconds, and 4096 pixels in either dimension. Audio is optional.</p>
-    <form onSubmit={check}>
+    {!(projectId && details) && <form onSubmit={check}>
       <label htmlFor="clip-file">Video clip</label>
       <div className="reference-form-row">
         <input id="clip-file" ref={input} type="file" accept=".mp4,.mov,video/mp4,video/quicktime"
           onChange={(event) => { invalidate(); setFile(event.target.files?.[0] || null); }} />
-        <button type="submit" disabled={!file || checking}>{checking ? "Inspecting…" : error ? "Retry inspection" : "Inspect clip"}</button>
+        <button type="submit" disabled={!file || checking}>{checking ? "Inspecting…" : error ? "Retry inspection" : projectId ? "Save clip" : "Inspect clip"}</button>
       </div>
       {file && <p className="hint">Selected: {file.name}</p>}
-    </form>
+    </form>}
     {checking && <p role="status" aria-live="polite">Uploading and inspecting clip…</p>}
     {error && <p className="error" role="alert">{error}</p>}
     {details && <div className="reference-card" aria-label="Accepted clip details">
@@ -116,7 +121,7 @@ export function ClipUpload() {
       <p>Dimensions: {details.width} × {details.height} · Video codec: {details.video_codec}</p>
       <p>Audio: {details.has_audio ? details.audio_codec || "Present" : "None"} · Frame rate: {details.frame_rate === null ? "Unknown" : `${details.frame_rate} fps`}</p>
     </div>}
-    {file && <button className="clear-clip" type="button" onClick={() => { invalidate(); setFile(null); if (input.current) input.current.value = ""; }}>Clear clip</button>}
-    <p className="hint retention-note">This clip is inspected, then deleted. It is not retained or edited. Upload it again after refresh or when persistent editing becomes available.</p>
+    {file && !(projectId && details) && <button className="clear-clip" type="button" onClick={() => { invalidate(); setFile(null); if (input.current) input.current.value = ""; }}>Clear clip</button>}
+    <p className="hint retention-note">{projectId ? details ? "Your clip is saved locally for this project. It is not edited. One clip per project; replacement comes later." : "Choose a clip to validate and save locally for this project. One clip per project; replacement comes later." : "This clip is inspected, then deleted. It is not retained or edited. Upload it again after refresh or when persistent editing becomes available."}</p>
   </section>;
 }
