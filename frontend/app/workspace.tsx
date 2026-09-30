@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ClipUpload, parseClipDetails, type ClipDetails } from "./clip-upload";
 import { ReferenceSelection } from "./reference-selection";
+import { ReferenceMedia } from "./reference-media";
 
 type Project = {
   id: string; name: string; created_at: string; updated_at: string;
@@ -138,7 +139,7 @@ export function Workspace() {
       {error && <p role="alert" className="error">{error}</p>}
       {deleting && <div role="dialog" aria-modal="false" aria-labelledby="delete-title" className="reference-card">
         <h3 id="delete-title">Delete “{deleting.name}”?</h3>
-        <p>This removes the saved project and its uploaded clip from this computer.</p>
+        <p>This removes the saved project, reference media and uploaded clip from this computer.</p>
         <div className="reference-actions"><button disabled={busy} onClick={() => void mutate(`/${deleting.id}`, { method: "DELETE" }, () => { if (projectId === deleting.id) open(null); setDeleting(null); })}>Confirm delete</button>
           <button disabled={busy} onClick={() => setDeleting(null)}>Cancel deletion</button></div>
       </div>}
@@ -161,6 +162,7 @@ export function Workspace() {
         <a href={current.reference.canonical_url} target="_blank" rel="noreferrer">Open reference on TikTok</a>
         <p className="hint">Saved metadata snapshot from {current.reference_inspected_at}. The reference is fixed for this project.</p>
       </div>
+      {current.status === "active" && <ReferenceMedia key={current.id} projectId={current.id} />}
       {current.status === "deleting" ? <p role="alert">Deletion is incomplete. Retry deletion from the project list.</p> :
         current.clip_status === "empty" || current.clip_status === "ready" ?
           <ClipUpload key={`${current.id}-${current.clip_status}`} projectId={current.id} initialDetails={current.clip} onSaved={() => setRevision((value) => value + 1)} /> :

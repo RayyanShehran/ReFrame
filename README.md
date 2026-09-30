@@ -1,12 +1,12 @@
 # ReFrame
 
-ReFrame takes a TikTok link as the reference edit and a separately uploaded user-owned clip as footage. The app inspects public TikTok reference metadata, then validates the technical details of one uploaded clip. Saved projects retain one validated user clip locally and a snapshot of reference metadata. The app does not edit or analyze the style of either video. The developer-only media feasibility spike is documented in [TikTok reference feasibility](docs/TIKTOK_REFERENCE_FEASIBILITY.md).
+ReFrame takes a TikTok link as the reference edit and a separately uploaded user-owned clip as footage. Saved projects retain one validated user clip, a fixed reference metadata snapshot and, on request, experimental reference media. The app does not edit or analyze either video. See [TikTok reference feasibility](docs/TIKTOK_REFERENCE_FEASIBILITY.md) for live evidence and limitations.
 
 ## Prerequisites
 
 - Node.js 22 LTS and npm 10 (developed with Node 22.16.0, npm 10.9.2)
 - Python 3.12 and uv 0.12.20 (developed with Python 3.12.14)
-- FFprobe on `PATH` for clip inspection, and FFmpeg on `PATH` to run the generated-media integration tests. Install the [FFmpeg Windows build linked by FFmpeg.org](https://ffmpeg.org/download.html#build-windows) and add its `bin` directory to `PATH`, or use `winget install "FFmpeg (Essentials Build)"` where WinGet is available. On Ubuntu: `sudo apt-get update && sudo apt-get install -y ffmpeg`.
+- FFprobe on `PATH` for clip inspection; FFmpeg and FFprobe for reference retrieval and generated-media tests. Install the [FFmpeg Windows build linked by FFmpeg.org](https://ffmpeg.org/download.html#build-windows) and add its `bin` directory to `PATH`, or use `winget install "FFmpeg (Essentials Build)"` where WinGet is available. On Ubuntu: `sudo apt-get update && sudo apt-get install -y ffmpeg`.
 - PowerShell
 
 Dependency versions are pinned in `frontend/package-lock.json` and `backend/uv.lock`. No Docker, external database server, cloud credential, or AI key is required. SQLite is provided by Python. The health and reference metadata endpoints work without FFprobe; the clip endpoint returns a safe unavailable error when it is missing.
@@ -50,9 +50,10 @@ After selecting a reference, enter a project name (1–80 trimmed characters) an
 
 Run one backend process bound to `127.0.0.1`. This is a single-user development app with no authentication, suitable only for the local machine. Do not expose it to the network or run multiple workers.
 
-- `data/reframe.sqlite3`: project names, canonical reference URL/string ID, reference snapshot and UTC inspection timestamp, clip metadata, SHA-256 and lifecycle state. Python's [sqlite3 module](https://docs.python.org/3.12/library/sqlite3.html) uses separate worker-owned connections, parameterized SQL, explicit transactions, foreign keys and schema version 1.
+- `data/reframe.sqlite3`: project snapshots, clips and reference operation/media records. Python's [sqlite3 module](https://docs.python.org/3.12/library/sqlite3.html) uses separate worker-owned connections, parameterized SQL, explicit transactions, foreign keys and schema version 2; startup migrates version 1 while preserving projects and clips.
 - `data/project-staging/`: generated names for unfinished project uploads and scoped multipart spools.
-- `data/projects/<UUID>/`: generated media names for retained validated clips. Original filenames are display data. API responses never include filesystem paths.
+- `data/projects/<UUID>/`: separate generated names for retained user clips and reference media. Original clip filenames are display data. API responses never include filesystem paths.
+- `data/reference-staging/<operation UUID>/`: downloader fragments, media and bounded tool output for the current reference operation.
 - `data/clip-inspection/`: the existing temporary-only API remains separate and deletes its uploads after inspection. It is no longer the main UI flow.
 
 Runtime data is ignored by Git and never served from `frontend/public`. Projects survive refresh and backend restart. Reopening reads the saved snapshot without contacting TikTok. It does not refresh reference metadata automatically.
@@ -63,7 +64,19 @@ Startup deletes only owned abandoned staging files and clears staging records. I
 
 Project API: `POST /api/projects` with `{"name":"My project","reference_url":"<full TikTok URL>"}` re-inspects the reference server-side; `GET /api/projects` lists newest updated first; `GET /api/projects/{UUID}` reopens; `POST /api/projects/{UUID}/clip` accepts multipart `file`; `DELETE /api/projects/{UUID}` removes retained files and metadata. Upload/delete operations are serialized in this process. Saved clip metadata includes `storage_status: "retained"`, SHA-256 and a UTC save timestamp. No playback/media-serving endpoint is implemented.
 
-The API endpoint is `POST /api/references/inspect` with JSON `{"url":"https://www.tiktok.com/@scout2015/video/6718335390845095173"}`. Success returns provider, string video ID, canonical URL, nullable title and author, `metadata_status: "available"`, and `analysis_status: "not_started"`. Errors use `{"error":{"code":"...","message":"..."}}`. The backend contacts only `https://www.tiktok.com/oembed`; it does not fetch or store reference media.
+The metadata endpoint is `POST /api/references/inspect` with JSON `{"url":"https://www.tiktok.com/@scout2015/video/6718335390845095173"}`. Success returns provider, string video ID, canonical URL, nullable title and author, `metadata_status: "available"`, and `analysis_status: "not_started"`. Errors use `{"error":{"code":"...","message":"..."}}`. Metadata inspection contacts only TikTok oEmbed; it does not retrieve media.
+
+## Experimental reference media
+
+In a saved project, select **Retrieve reference**. `POST /api/projects/{UUID}/reference-media` uses only that project's saved canonical URL and returns 202 with an operation ID/status. `GET` at the same route restores persisted idle/running/ready/failed status. One lifecycle-owned retrieval runs globally; duplicate starts reuse the same operation, other projects receive 503 busy, ready media is reused, and failed work needs an explicit retry with a new operation ID. No automatic download retry loop or queue is added; the reviewed downloader's bounded internal retries remain.
+
+The pinned yt-dlp 2026.8.19, FFmpeg and FFprobe run through the same internal containment engine as the temporary-only developer CLI. Retrieval checks numeric identity before download, one nonempty file at most 50 MiB, a genuine video stream, finite positive duration at most 120 seconds, dimensions at most 4096 pixels, exactly 12,288 decoded RGB frame bytes and nonempty PCM samples when audio exists. Audio may be absent. Generated reference containers/codecs are inspected directly, independent of user-upload extension/MIME rules. Safe metadata records size, SHA-256, codecs, audio presence, dimensions, duration, UTC retrieval time, decoded counts and tool versions; raw extractor JSON, signed download URLs and logs are not retained in records.
+
+The 150-second monotonic deadline caps stage limits. A 100 ms watchdog stops owned processing above 60 MiB aggregate staging; this is polling, not a filesystem quota, so writes/termination may overshoot. Tool stdout readback is bounded to 1 MiB, stderr to 64 KiB. Windows uses a private Job Object assigned before resuming the suspended process; POSIX retains its process group identity through parent exit. All owned descendants must stop before staging removal. Cleanup joins may extend beyond the processing deadline. Deliberately escaping descendants and forced termination of the backend itself are outside the graceful-shutdown guarantee.
+
+Validated media is hashed, moved to its unique project destination, staging is removed, and SQLite marks it ready only if the project is active and the operation still matches. Move/commit failures compensate by removing that operation's file; failures remain explicit. Restart marks unfinished work interrupted without re-downloading, reconciles retained size/digest and cleans generated abandoned staging. Valid clips and references are preserved. If owned process termination is unconfirmed, staging is quarantined with `cleanup_failure`; retry/deletion stay blocked pending manual review, including after restart. Deletion and graceful shutdown signal and join active retrieval before removing files. Network processing does not hold the project operation lock.
+
+Browser status requests have 10-second limits and poll every 2 seconds for at most 3 minutes. Navigation stops polling and rejects stale responses while server work continues; reopen to restore status. Reference media is distinct from source footage. Retrieval reliability, content rights and production isolation remain unresolved. No style analysis, playback, rendering, reference uploads or public deployment is implemented.
 
 `POST /api/clips/inspect` accepts exactly one multipart `file` field. Success includes sanitized filename, size, duration, dimensions, codec names, audio presence, optional frame rate, `validation_status: "accepted"`, and `storage_status: "not_retained"`. It uses the same safe error envelope.
 

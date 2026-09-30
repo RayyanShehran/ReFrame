@@ -8,6 +8,7 @@ dependencies = [
   "pydantic==2.13.5",
   "python-multipart>=0.0.20,<1",
   "uvicorn>=0.35,<1",
+  "yt-dlp==2026.8.19",
 ]
 
 [dependency-groups]

@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 import projects
+import reference_jobs
 from clips import ClipDetails, cleanup_stale_files, inspect_clip
 from references import ReferenceDetails, ReferenceError, ReferenceRequest, inspect_reference
 
@@ -33,7 +34,12 @@ allowed_origins = [
 async def lifespan(_app: FastAPI):
     await projects.storage_call(cleanup_stale_files)
     await projects.storage_call(projects.initialize)
-    yield
+    reference_jobs.stopping = False
+    await projects.storage_call(reference_jobs.recover)
+    try:
+        yield
+    finally:
+        await reference_jobs.shutdown()
 
 
 app = FastAPI(title="ReFrame API", lifespan=lifespan)
@@ -92,7 +98,21 @@ async def get_project(project_id: str):
 
 @app.delete("/api/projects/{project_id}", status_code=204)
 async def delete_project(project_id: str):
-    await projects.remove_project(project_id)
+    await reference_jobs.delete(project_id)
+
+
+@app.post(
+    "/api/projects/{project_id}/reference-media",
+    response_model=reference_jobs.Operation,
+    status_code=202,
+)
+async def retrieve_project_reference(project_id: str):
+    return await reference_jobs.start(project_id)
+
+
+@app.get("/api/projects/{project_id}/reference-media", response_model=reference_jobs.Operation)
+async def get_project_reference(project_id: str):
+    return await projects.storage_call(reference_jobs.get_operation, project_id)
 
 
 @app.post("/api/projects/{project_id}/clip", response_model=projects.ProjectDetails)
