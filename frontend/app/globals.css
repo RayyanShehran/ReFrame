@@ -28,6 +28,8 @@ h2 { font-size: 1.5rem; margin: 0 0 10px; letter-spacing: -.03em; }
 .reference-section label { display: block; font-weight: 700; margin-bottom: 10px; }
 .reference-form-row { display: flex; gap: 12px; }
 .reference-form-row input { min-width: 0; flex: 1; border: 1px solid #718474; border-radius: 8px; padding: 12px 14px; background: #1a231e; color: #f0eee7; font: inherit; }
+.reference-form-row input[type="file"] { padding: 10px; }
+.reference-form-row input[type="file"]::file-selector-button { border: 1px solid #a1b4a5; color: #f0eee7; background: #26322b; border-radius: 999px; padding: 5px 10px; margin-right: 12px; cursor: pointer; }
 .reference-form-row input:focus-visible, .reference-card a:focus-visible { outline: 3px solid #c9eb79; outline-offset: 3px; }
 .reference-form-row button { white-space: nowrap; }
 .hint { font-size: .85rem; margin: 10px 0 0; }
@@ -37,5 +39,8 @@ h2 { font-size: 1.5rem; margin: 0 0 10px; letter-spacing: -.03em; }
 .reference-card a { color: #c9eb79; }
 .reference-card .analysis-note { margin-top: 20px; }
 .reference-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 20px; }
+.footage-section { margin-top: 42px; }
+.clear-clip { margin-top: 18px; }
+.retention-note { margin-top: 22px; }
 footer { color: #8ea095; margin-top: auto; padding-top: 80px; font-size: .78rem; }
 @media (max-width: 600px) { .shell { padding: 22px 22px 35px; } .topbar { align-items: flex-start; flex-direction: column; gap: 18px; } .hero { padding: 85px 0 75px; } .reference-form-row { flex-direction: column; align-items: stretch; } footer { line-height: 1.6; padding-top: 70px; } }

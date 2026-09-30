@@ -37,24 +37,28 @@ async function fetchReference(url: string, signal: AbortSignal): Promise<Referen
   return data as ReferenceDetails;
 }
 
-export function ReferenceSelection() {
+export function ReferenceSelection({ onSelectedChange = () => {} }: { onSelectedChange?: (videoId: string | null) => void }) {
   const [url, setUrl] = useState("");
   const [phase, setPhase] = useState<Phase>("idle");
   const [reference, setReference] = useState<ReferenceDetails | null>(null);
   const [error, setError] = useState("");
   const active = useRef<AbortController | null>(null);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const version = useRef(0);
   const input = useRef<HTMLInputElement>(null);
 
-  useEffect(() => () => { version.current++; active.current?.abort(); }, []);
+  useEffect(() => () => { version.current++; active.current?.abort(); if (timeoutRef.current) clearTimeout(timeoutRef.current); }, []);
 
   function invalidate() {
     version.current++;
     active.current?.abort();
     active.current = null;
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    timeoutRef.current = null;
     setReference(null);
     setPhase("idle");
     setError("");
+    onSelectedChange(null);
   }
 
   async function check(event: FormEvent<HTMLFormElement>) {
@@ -64,6 +68,9 @@ export function ReferenceSelection() {
     const controller = new AbortController();
     active.current = controller;
     const current = ++version.current;
+    let timedOut = false;
+    const timer = setTimeout(() => { timedOut = true; controller.abort(); }, 15000);
+    timeoutRef.current = timer;
     setError("");
     setReference(null);
     setPhase("checking");
@@ -72,10 +79,12 @@ export function ReferenceSelection() {
       if (version.current === current) { setReference(details); setPhase("ready"); }
     } catch (cause) {
       if (version.current === current) {
-        setError(cause instanceof Error && cause.name !== "AbortError" ? cause.message : "Reference details could not be loaded. Please try again.");
+        setError(timedOut ? "Reference check took too long. Please try again." : cause instanceof Error && cause.name !== "AbortError" ? cause.message : "Reference details could not be loaded. Please try again.");
         setPhase("idle");
       }
     } finally {
+      clearTimeout(timer);
+      if (timeoutRef.current === timer) timeoutRef.current = null;
       if (active.current === controller) active.current = null;
     }
   }
@@ -107,7 +116,7 @@ export function ReferenceSelection() {
       <a href={reference.canonical_url} target="_blank" rel="noopener noreferrer">View on TikTok</a>
       <p className="analysis-note">Reference details loaded. Style analysis is not available yet.</p>
       <div className="reference-actions">
-        {phase === "ready" && <button type="button" onClick={() => setPhase("selected")}>Use this reference</button>}
+        {phase === "ready" && <button type="button" onClick={() => { setPhase("selected"); onSelectedChange(reference.video_id); }}>Use this reference</button>}
         {phase === "selected" && <button type="button" onClick={changeReference}>Change reference</button>}
         <button type="button" onClick={() => { invalidate(); setUrl(""); }}>Clear</button>
       </div>

@@ -10,7 +10,7 @@ const details = {
 const ok = (body = details) => ({ ok: true, json: async () => body } as Response);
 const failure = (message: string) => ({ ok: false, json: async () => ({ error: { code: "invalid_url", message } }) } as Response);
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); });
 
 function enter(value = url) {
   fireEvent.change(screen.getByRole("textbox", { name: "TikTok video URL" }), { target: { value } });
@@ -102,4 +102,27 @@ it("aborts pending work on unmount", async () => {
   const signal = fetchMock.mock.calls[0][1].signal as AbortSignal;
   view.unmount();
   await waitFor(() => expect(signal.aborted).toBe(true));
+});
+
+it("times out a stalled reference request", async () => {
+  vi.useFakeTimers();
+  vi.stubGlobal("fetch", vi.fn((_url: string, options: RequestInit) => new Promise((_resolve, reject) => {
+    options.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")));
+  })));
+  render(<ReferenceSelection />);
+  enter();
+  fireEvent.click(screen.getByRole("button", { name: "Check reference" }));
+  await act(async () => { await vi.advanceTimersByTimeAsync(15000); });
+  expect(screen.getByRole("alert")).toHaveTextContent("Reference check took too long. Please try again.");
+});
+
+it("clears the reference timeout when unmounted even if fetch ignores abort", () => {
+  vi.useFakeTimers();
+  vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>(() => {})));
+  const view = render(<ReferenceSelection />);
+  enter();
+  fireEvent.click(screen.getByRole("button", { name: "Check reference" }));
+  expect(vi.getTimerCount()).toBeGreaterThan(0);
+  view.unmount();
+  expect(vi.getTimerCount()).toBe(0);
 });

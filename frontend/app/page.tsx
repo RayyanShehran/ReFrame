@@ -1,5 +1,5 @@
 import { Connectivity } from "./connectivity";
-import { ReferenceSelection } from "./reference-selection";
+import { Workspace } from "./workspace";
 
 export default function Home() {
   return (
@@ -10,7 +10,7 @@ export default function Home() {
         <h1 id="hero-title">Your reference.<br /><em>Your story.</em></h1>
         <p className="intro">Reframe is being built to study a TikTok reference link, turn its style into choices you can shape, then apply those choices to clips you upload.</p>
       </section>
-      <ReferenceSelection />
+      <Workspace />
       <footer>TikTok link → Reference analysis → Style Blueprint → Your choices → Edit Plan → Render</footer>
     </main>
   );
