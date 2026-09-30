@@ -97,7 +97,7 @@ export function ReferenceSelection({ onSelectedChange = () => {} }: { onSelected
   return <section className="reference-section" aria-labelledby="reference-title">
     <p className="eyebrow">Start with a reference</p>
     <h2 id="reference-title">TikTok reference</h2>
-    <p className="reference-help">Paste a full TikTok video URL to load its public details. Your own clips will be a separate input later.</p>
+    <p className="reference-help">Paste a full TikTok video URL to load its public details. Upload your own footage separately after selecting a reference.</p>
     {phase !== "selected" && <form onSubmit={check} noValidate>
       <label htmlFor="tiktok-url">TikTok video URL</label>
       <div className="reference-form-row">
