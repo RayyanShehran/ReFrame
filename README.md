@@ -1,6 +1,6 @@
 # ReFrame
 
-ReFrame takes a TikTok link as the reference edit and a separately uploaded user-owned clip as footage. Saved projects retain one validated user clip, a fixed reference metadata snapshot and, on request, experimental reference media. A retained reference can produce a persisted, read-only color Style Blueprint. The app does not edit videos or analyze user footage. See [TikTok reference feasibility](docs/TIKTOK_REFERENCE_FEASIBILITY.md) for live evidence and limitations.
+ReFrame takes a TikTok link as the reference edit and a separately uploaded user-owned clip as footage. Saved projects retain one validated user clip, a fixed reference metadata snapshot and, on request, experimental reference media. A retained reference can produce persisted, read-only color and estimated pacing results. The app does not edit videos or analyze user footage. See [TikTok reference feasibility](docs/TIKTOK_REFERENCE_FEASIBILITY.md) for live evidence and limitations.
 
 ## Prerequisites
 
@@ -50,11 +50,12 @@ After selecting a reference, enter a project name (1–80 trimmed characters) an
 
 Run one backend process bound to `127.0.0.1`. This is a single-user development app with no authentication, suitable only for the local machine. Do not expose it to the network or run multiple workers.
 
-- `data/reframe.sqlite3`: project snapshots, clips, reference media and color operation/blueprint records. Python's [sqlite3 module](https://docs.python.org/3.12/library/sqlite3.html) uses separate worker-owned connections, parameterized SQL, explicit transactions, foreign keys and schema version 3; startup migrates versions 1 and 2 while preserving projects, clips and references.
+- `data/reframe.sqlite3`: project snapshots, clips, reference media and independent color/pacing operation records. Python's [sqlite3 module](https://docs.python.org/3.12/library/sqlite3.html) uses separate worker-owned connections, parameterized SQL, explicit transactions, foreign keys and schema version 4; startup migrates versions 1–3 while preserving projects, clips, references and saved color blueprints.
 - `data/project-staging/`: generated names for unfinished project uploads and scoped multipart spools.
 - `data/projects/<UUID>/`: separate generated names for retained user clips and reference media. Original clip filenames are display data. API responses never include filesystem paths.
 - `data/reference-staging/<operation UUID>/`: downloader fragments, media and bounded tool output for the current reference operation.
 - `data/color-staging/<operation UUID>/`: bounded offline color-processing captures, removed before a blueprint becomes ready.
+- `data/pacing-staging/<operation UUID>/`: bounded offline consecutive-frame detector captures, removed before pacing becomes ready.
 - `data/clip-inspection/`: the existing temporary-only API remains separate and deletes its uploads after inspection. It is no longer the main UI flow.
 
 Runtime data is ignored by Git and never served from `frontend/public`. Projects survive refresh and backend restart. Reopening reads the saved snapshot without contacting TikTok. It does not refresh reference metadata automatically.
@@ -92,6 +93,14 @@ This version accepts tagged BT.709/sRGB ordinary SDR only (primaries BT.709; tra
 Bounds: retained source ≤50 MiB, duration ≤120 seconds, dimensions ≤4096; overall processing deadline 120 seconds, version commands 5 seconds each, probe 10 seconds, decode 60 seconds, all capped by remaining time. Ready-source hash verification has a 10-second limit. A 100 ms watchdog observes a 2 MiB staging budget with possible overshoot, not a strict filesystem quota. Stdout caps are 8 KiB for versions, 64 KiB for metadata and 331,776 bytes for RGB; stderr readback is 64 KiB. The existing Windows Job Object/POSIX process-group ownership machinery is reused. Termination/cleanup can extend beyond the processing deadline; forced backend termination or intentionally escaping POSIX groups remains outside the guarantee.
 
 Twelve samples can miss brief events; resizing, variable frame timing and tool versions affect results. Blueprint editing, footage matching, edit planning, rendering and image mode remain future milestones. See [status](docs/STATUS.md) for generated-media and browser evidence.
+
+## Estimated cuts and pacing
+
+Select **Analyze pacing** when retained reference media is ready. Typed POST/GET `/api/projects/{UUID}/pacing` expose an independent operation and [pacing schema version 1](docs/PACING_BLUEPRINT.schema.json), algorithm `scdet-consecutive-v1`. Existing color JSON stays unchanged; its historical `pacing: not_analyzed` means that the color component does not analyze pacing. Pacing is added only by explicit action, and its failure/retry never clears a valid color result. Both components share the existing global worker, hash checks, atomic publication, bounded polling, stale-result rejection, graceful join and quarantine rules.
+
+FFmpeg [scdet](https://ffmpeg.org/ffmpeg-filters.html#scdet) uses explicit threshold **10** on **every consecutive decoded video frame**, with normalized PTS and no frame subsampling. Area resizing keeps the whole image, preserving aspect ratio within even-pixel rounding, maximum dimension 320 (minimum 2); YUV420P conversion uses the same SDR metadata checks/assumptions as color. No cropping, autorotation or tone mapping occurs. The result records actual processing dimensions, threshold, frame count, source hash and FFmpeg/FFprobe versions. Complete per-frame score/MAFD metadata and successful decoding are required even for zero cuts; missing, malformed, nonfinite or capped output fails explicitly. Candidates are sorted, deduplicated and strictly within the duration. Contiguous shots run from zero through candidates to the video end; mean is the arithmetic mean, median averages the central two for even counts, and cuts/minute is `60 * cut_count / duration`. Zero cuts means one estimated shot.
+
+Pacing bounds: overall 120 seconds; versions 5 seconds each, probe 10 and detector 90, capped by remaining time; stdout 8 KiB/version, 64 KiB/probe and 1 MiB/detector; stderr readback 64 KiB; 2 MiB staging watchdog polled every 100 ms (possible overshoot, not a quota); at most 1,000 candidates, including duplicates/endpoints before filtering. Exceeding any bound fails the entire operation rather than returning partial findings. High-frame-rate clips can hit the output cap. The UI shows estimated counts/statistics and an expandable shot-duration table, restored after refresh. Flashes/motion can cause false positives and similar-looking shots can hide cuts. **This is not transition-type recognition**; transitions, captions and audio remain `not_analyzed`.
 
 `POST /api/clips/inspect` accepts exactly one multipart `file` field. Success includes sanitized filename, size, duration, dimensions, codec names, audio presence, optional frame rate, `validation_status: "accepted"`, and `storage_status: "not_retained"`. It uses the same safe error envelope.
 

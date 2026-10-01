@@ -5,6 +5,7 @@ import json
 import math
 import re
 import shutil
+import sys
 import time
 import uuid
 from typing import Annotated, Literal
@@ -17,6 +18,8 @@ import reference_jobs as jobs
 from references import ReferenceError
 
 ALGORITHM = "encoded-rgb-midpoints-v1"
+TABLE = "color_operations"
+STAGING = "color-staging"
 TOTAL_SECONDS = 120
 FRAME_SIZE = 96
 SAMPLES = 12
@@ -210,25 +213,28 @@ def source(project_id, stop=None, deadline=None):
     }
 
 
-def staging(operation_id):
-    return projects.DATA_DIR / "color-staging" / projects.identifier(operation_id)
+def staging(operation_id, *, component=None):
+    module = component or sys.modules[__name__]
+    return projects.DATA_DIR / module.STAGING / projects.identifier(operation_id)
 
 
-def clean_stage(operation_id):
+def clean_stage(operation_id, *, component=None):
+    module = component or sys.modules[__name__]
     try:
-        path = staging(operation_id)
+        path = module.staging(operation_id)
         if path.exists():
             shutil.rmtree(path)
     except OSError:
         raise ReferenceError(
-            500, "cleanup_failure", "Color analysis staging could not be removed."
+            500, "cleanup_failure", "Analysis staging could not be removed."
         ) from None
 
 
-def fail_operation(project_id, operation_id, failure):
+def fail_operation(project_id, operation_id, failure, *, component=None):
+    module = component or sys.modules[__name__]
     with projects.database() as connection:
         connection.execute(
-            "UPDATE color_operations SET state='failed', blueprint=NULL, finished_at=?, "
+            f"UPDATE {module.TABLE} SET state='failed', blueprint=NULL, finished_at=?, "
             "failure_code=?, message=?, cleanup_safe=? WHERE project_id=? AND operation_id=?",
             (
                 projects.now(),
@@ -241,40 +247,44 @@ def fail_operation(project_id, operation_id, failure):
         )
 
 
-def get_operation(project_id, require_active=False):
+def get_operation(project_id, require_active=False, *, component=None):
+    module = component or sys.modules[__name__]
     projects.identifier(project_id)
     with projects.database() as connection:
         project = projects.row_project(connection, project_id)
         if require_active and project["status"] != "active":
             raise ReferenceError(409, "project_deleting", "Retry project deletion first.")
         row = connection.execute(
-            "SELECT * FROM color_operations WHERE project_id=?", (project_id,)
+            f"SELECT * FROM {module.TABLE} WHERE project_id=?", (project_id,)
         ).fetchone()
     if not row:
-        return Operation()
+        return module.Operation()
     blueprint = None
     if row["state"] == "ready":
         try:
             current = source(project_id)
             if row["source_hash"] != current["identity"].media_sha256:
                 raise ReferenceError(409, "source_changed", "The analysis source has changed.")
-            if row["algorithm_version"] != ALGORITHM:
+            if row["algorithm_version"] != module.ALGORITHM:
                 raise ReferenceError(
-                    409, "algorithm_changed", "The color algorithm changed. Analyze again."
+                    409, "algorithm_changed", "The analysis algorithm changed. Analyze again."
                 )
-            blueprint = Blueprint.model_validate_json(row["blueprint"])
-            if blueprint.source != current["identity"] or blueprint.algorithm_version != ALGORITHM:
+            blueprint = module.Blueprint.model_validate_json(row["blueprint"])
+            if (
+                blueprint.source != current["identity"]
+                or blueprint.algorithm_version != module.ALGORITHM
+            ):
                 raise ValueError("Source or algorithm mismatch")
         except (ReferenceError, ValueError, engine.ProbeTimeout) as exc:
             failure = engine.RetrievalFailure(
                 exc.code if isinstance(exc, ReferenceError) else "blueprint_invalid",
                 exc.message
                 if isinstance(exc, ReferenceError)
-                else "The saved color result is invalid. Retry explicitly.",
+                else "The saved analysis result is invalid. Retry explicitly.",
             )
-            fail_operation(project_id, row["operation_id"], failure)
-            return get_operation(project_id, require_active)
-    return Operation(
+            module.fail_operation(project_id, row["operation_id"], failure)
+            return module.get_operation(project_id, require_active)
+    return module.Operation(
         operation_id=row["operation_id"],
         status=row["state"],
         started_at=row["started_at"],
@@ -285,29 +295,30 @@ def get_operation(project_id, require_active=False):
     )
 
 
-def begin_operation(project_id):
-    current = get_operation(project_id, True)
+def begin_operation(project_id, *, component=None):
+    module = component or sys.modules[__name__]
+    current = module.get_operation(project_id, True)
     if current.status in {"running", "ready"}:
         return current, None
     current_source = source(project_id)
     if current.operation_id:
-        prepare_delete(project_id)
+        module.prepare_delete(project_id)
     operation_id = str(uuid.uuid4())
     with projects.database() as connection:
         projects.row_project(connection, project_id)
-        connection.execute("DELETE FROM color_operations WHERE project_id=?", (project_id,))
+        connection.execute(f"DELETE FROM {module.TABLE} WHERE project_id=?", (project_id,))
         connection.execute(
-            "INSERT INTO color_operations(project_id,operation_id,state,started_at,"
+            f"INSERT INTO {module.TABLE}(project_id,operation_id,state,started_at,"
             "source_hash,algorithm_version) VALUES (?,?,'running',?,?,?)",
             (
                 project_id,
                 operation_id,
                 projects.now(),
                 current_source["identity"].media_sha256,
-                ALGORITHM,
+                module.ALGORITHM,
             ),
         )
-    return get_operation(project_id), current_source
+    return module.get_operation(project_id), current_source
 
 
 def measure(raw, stop=None, deadline=None):
@@ -417,93 +428,94 @@ def inspect_colors(stream):
     )
 
 
+def inspect_video(path, directory, deadline):
+    ffmpeg, ffprobe = shutil.which("ffmpeg"), shutil.which("ffprobe")
+    if not ffmpeg or not ffprobe:
+        raise engine.RetrievalFailure(
+            "missing_tools", "Reference analysis needs FFmpeg and FFprobe."
+        )
+    versions = {}
+    for label, executable in [("ffmpeg", ffmpeg), ("ffprobe", ffprobe)]:
+        result = engine.run_command(
+            [executable, "-version"],
+            directory,
+            label + "-version",
+            deadline,
+            5,
+            output_limit=8192,
+            temp_budget=TEMP_BUDGET,
+        )
+        match = re.match(r"\w+ version ([\w.+-]{1,80})", result.stdout.decode().splitlines()[0])
+        if result.returncode or not match:
+            raise engine.ToolOutputError
+        versions[label] = match.group(1)
+    result = engine.run_command(
+        [
+            ffprobe,
+            "-v",
+            "error",
+            "-protocol_whitelist",
+            "file",
+            "-show_streams",
+            "-show_format",
+            "-of",
+            "json",
+            str(path),
+        ],
+        directory,
+        "color-probe",
+        deadline,
+        10,
+        output_limit=65536,
+        temp_budget=TEMP_BUDGET,
+    )
+    if result.returncode:
+        raise engine.RetrievalFailure(
+            "probe_failed", "Retained reference media could not be inspected."
+        )
+    details = json.loads(result.stdout)
+    streams = details["streams"]
+    if not isinstance(streams, list) or any(
+        not isinstance(s, dict) or not isinstance(s.get("disposition", {}), dict) for s in streams
+    ):
+        raise engine.ToolOutputError
+    video = next(
+        (
+            s
+            for s in streams
+            if s.get("codec_type") == "video" and not s.get("disposition", {}).get("attached_pic")
+        ),
+        None,
+    )
+    if video is None:
+        raise engine.RetrievalFailure("no_video_stream", "No genuine video stream is available.")
+    if type(video.get("index")) is not int or video["index"] < 0:
+        raise engine.ToolOutputError
+    duration = float(video.get("duration", details.get("format", {}).get("duration")))
+    if (
+        not math.isfinite(duration)
+        or not 0 < duration <= 120
+        or any(
+            type(video.get(key)) is not int or not 0 < video[key] <= 4096
+            for key in ("width", "height")
+        )
+    ):
+        raise engine.RetrievalFailure(
+            "validation_limit", "Reference duration/dimensions are outside analysis limits."
+        )
+    metadata = inspect_colors(video)
+    return ffmpeg, versions, video, duration, metadata
+
+
 def pipeline(current_source, directory, stop, deadline):
     directory.mkdir(parents=True, exist_ok=False)
     engine._control.stop = stop
     try:
         guard(stop, deadline)
-        ffmpeg, ffprobe = shutil.which("ffmpeg"), shutil.which("ffprobe")
-        if not ffmpeg or not ffprobe:
-            raise engine.RetrievalFailure(
-                "missing_tools", "Color analysis needs FFmpeg and FFprobe."
-            )
-        versions = {}
-        for label, executable in [("ffmpeg", ffmpeg), ("ffprobe", ffprobe)]:
-            result = engine.run_command(
-                [executable, "-version"],
-                directory,
-                label + "-version",
-                deadline,
-                5,
-                output_limit=8192,
-                temp_budget=TEMP_BUDGET,
-            )
-            match = re.match(r"\w+ version ([\w.+-]{1,80})", result.stdout.decode().splitlines()[0])
-            if result.returncode or not match:
-                raise engine.ToolOutputError
-            versions[label] = match.group(1)
         path = current_source["path"]
         if digest(path, stop, deadline) != current_source["identity"].media_sha256:
             raise ReferenceError(409, "source_changed", "The retained reference has changed.")
-        result = engine.run_command(
-            [
-                ffprobe,
-                "-v",
-                "error",
-                "-protocol_whitelist",
-                "file",
-                "-show_streams",
-                "-show_format",
-                "-of",
-                "json",
-                str(path),
-            ],
-            directory,
-            "color-probe",
-            deadline,
-            10,
-            output_limit=65536,
-            temp_budget=TEMP_BUDGET,
-        )
-        if result.returncode:
-            raise engine.RetrievalFailure(
-                "probe_failed", "Retained reference media could not be inspected."
-            )
-        details = json.loads(result.stdout)
-        streams = details["streams"]
-        if not isinstance(streams, list) or any(
-            not isinstance(s, dict) or not isinstance(s.get("disposition", {}), dict)
-            for s in streams
-        ):
-            raise engine.ToolOutputError
-        video = next(
-            (
-                s
-                for s in streams
-                if s.get("codec_type") == "video"
-                and not s.get("disposition", {}).get("attached_pic")
-            ),
-            None,
-        )
-        if video is None:
-            raise engine.RetrievalFailure(
-                "no_video_stream", "No genuine video stream is available."
-            )
-        if type(video.get("index")) is not int or video["index"] < 0:
-            raise engine.ToolOutputError
-        duration = float(video.get("duration", details.get("format", {}).get("duration")))
-        if (
-            not math.isfinite(duration)
-            or not 0 < duration <= 120
-            or any(
-                type(video.get(key)) is not int or not 0 < video[key] <= 4096
-                for key in ("width", "height")
-            )
-        ):
-            raise engine.RetrievalFailure(
-                "validation_limit", "Reference duration/dimensions are outside analysis limits."
-            )
-        metadata = inspect_colors(video)
+        ffmpeg, versions, video, duration, metadata = inspect_video(path, directory, deadline)
         # Normalize stream PTS and shift midpoint targets onto the fps filter's zero-based grid.
         filters = (
             f"setpts=PTS-STARTPTS-{duration / 24:.12f}/TB,"
@@ -607,21 +619,22 @@ def pipeline(current_source, directory, stop, deadline):
         engine._control.stop = None
 
 
-def commit(project_id, operation_id, current_source, blueprint, stop, deadline):
+def commit(project_id, operation_id, current_source, blueprint, stop, deadline, *, component=None):
+    module = component or sys.modules[__name__]
     guard(stop, deadline)
     latest = source(project_id, stop, deadline)
     if (
         latest["reference_operation_id"] != current_source["reference_operation_id"]
         or latest["identity"] != blueprint.source
-        or blueprint.algorithm_version != ALGORITHM
+        or blueprint.algorithm_version != module.ALGORITHM
     ):
         raise engine.RetrievalFailure("source_changed", "The analysis source or algorithm changed.")
-    clean_stage(operation_id)
+    module.clean_stage(operation_id)
     guard(stop, deadline)
     with projects.database() as connection:
         project = projects.row_project(connection, project_id)
         row = connection.execute(
-            "SELECT * FROM color_operations WHERE project_id=?", (project_id,)
+            f"SELECT * FROM {module.TABLE} WHERE project_id=?", (project_id,)
         ).fetchone()
         if (
             project["status"] != "active"
@@ -629,14 +642,14 @@ def commit(project_id, operation_id, current_source, blueprint, stop, deadline):
             or row["operation_id"] != operation_id
             or row["state"] != "running"
             or row["source_hash"] != blueprint.source.media_sha256
-            or row["algorithm_version"] != ALGORITHM
+            or row["algorithm_version"] != module.ALGORITHM
         ):
             raise engine.RetrievalFailure(
                 "interrupted", "The analysis operation is no longer current."
             )
         guard(stop, deadline)
         connection.execute(
-            "UPDATE color_operations SET state='ready', finished_at=?, "
+            f"UPDATE {module.TABLE} SET state='ready', finished_at=?, "
             "blueprint=?, failure_code=NULL,message=NULL WHERE "
             "project_id=? AND operation_id=?",
             (projects.now(), blueprint.model_dump_json(), project_id, operation_id),
@@ -651,10 +664,11 @@ def compensate(project_id, operation_id):
     pass
 
 
-def prepare_delete(project_id):
+def prepare_delete(project_id, *, component=None):
+    module = component or sys.modules[__name__]
     with projects.database() as connection:
         row = connection.execute(
-            "SELECT * FROM color_operations WHERE project_id=?", (project_id,)
+            f"SELECT * FROM {module.TABLE} WHERE project_id=?", (project_id,)
         ).fetchone()
     if row:
         if not row["cleanup_safe"]:
@@ -663,17 +677,18 @@ def prepare_delete(project_id):
                 "cleanup_failure",
                 "Owned analysis termination is unconfirmed; staging needs manual review.",
             )
-        clean_stage(row["operation_id"])
+        module.clean_stage(row["operation_id"])
 
 
-def recover():
-    root = projects.DATA_DIR / "color-staging"
+def recover(*, component=None):
+    module = component or sys.modules[__name__]
+    root = projects.DATA_DIR / module.STAGING
     root.mkdir(exist_ok=True)
     with projects.database() as connection:
-        rows = connection.execute("SELECT * FROM color_operations").fetchall()
+        rows = connection.execute(f"SELECT * FROM {module.TABLE}").fetchall()
     for row in rows:
         if row["state"] == "running":
-            fail_operation(
+            module.fail_operation(
                 row["project_id"],
                 row["operation_id"],
                 engine.RetrievalFailure(
@@ -683,9 +698,9 @@ def recover():
                 ),
             )
         if row["cleanup_safe"]:
-            clean_stage(row["operation_id"])
+            module.clean_stage(row["operation_id"])
         if row["state"] == "ready":
-            get_operation(row["project_id"])
+            module.get_operation(row["project_id"])
     known = {row["operation_id"] for row in rows}
     for directory in root.iterdir():
         try:
@@ -693,4 +708,4 @@ def recover():
         except ReferenceError:
             continue
         if directory.is_dir() and directory.name not in known:
-            clean_stage(directory.name)
+            module.clean_stage(directory.name)

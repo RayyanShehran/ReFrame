@@ -1,0 +1,310 @@
+{
+  "$defs": {
+    "ColorMetadata": {
+      "additionalProperties": false,
+      "properties": {
+        "color_primaries": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Color Primaries"
+        },
+        "color_transfer": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Color Transfer"
+        },
+        "color_space": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Color Space"
+        },
+        "color_range": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Color Range"
+        },
+        "assumption": {
+          "const": "Ordinary SDR encoded RGB; missing YCbCr matrix assumed BT.709, missing range assumed limited",
+          "title": "Assumption",
+          "type": "string"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 4,
+          "title": "Warnings",
+          "type": "array"
+        }
+      },
+      "required": [
+        "color_primaries",
+        "color_transfer",
+        "color_space",
+        "color_range",
+        "assumption",
+        "warnings"
+      ],
+      "title": "ColorMetadata",
+      "type": "object"
+    },
+    "OtherCategories": {
+      "additionalProperties": false,
+      "properties": {
+        "transitions": {
+          "const": "not_analyzed",
+          "default": "not_analyzed",
+          "title": "Transitions",
+          "type": "string"
+        },
+        "captions": {
+          "const": "not_analyzed",
+          "default": "not_analyzed",
+          "title": "Captions",
+          "type": "string"
+        },
+        "audio": {
+          "const": "not_analyzed",
+          "default": "not_analyzed",
+          "title": "Audio",
+          "type": "string"
+        }
+      },
+      "title": "OtherCategories",
+      "type": "object"
+    },
+    "Shot": {
+      "additionalProperties": false,
+      "properties": {
+        "start_seconds": {
+          "maximum": 120,
+          "minimum": 0,
+          "title": "Start Seconds",
+          "type": "number"
+        },
+        "end_seconds": {
+          "exclusiveMinimum": 0,
+          "maximum": 120,
+          "title": "End Seconds",
+          "type": "number"
+        },
+        "duration_seconds": {
+          "exclusiveMinimum": 0,
+          "maximum": 120,
+          "title": "Duration Seconds",
+          "type": "number"
+        }
+      },
+      "required": [
+        "start_seconds",
+        "end_seconds",
+        "duration_seconds"
+      ],
+      "title": "Shot",
+      "type": "object"
+    },
+    "Source": {
+      "additionalProperties": false,
+      "properties": {
+        "video_id": {
+          "pattern": "^[0-9]+$",
+          "title": "Video Id",
+          "type": "string"
+        },
+        "canonical_url": {
+          "pattern": "^https://www\\.tiktok\\.com/@[A-Za-z0-9._-]+/video/[0-9]+$",
+          "title": "Canonical Url",
+          "type": "string"
+        },
+        "media_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Media Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "video_id",
+        "canonical_url",
+        "media_sha256"
+      ],
+      "title": "Source",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "algorithm_version": {
+      "const": "scdet-consecutive-v1",
+      "default": "scdet-consecutive-v1",
+      "title": "Algorithm Version",
+      "type": "string"
+    },
+    "analyzed_at": {
+      "title": "Analyzed At",
+      "type": "string"
+    },
+    "source": {
+      "$ref": "#/$defs/Source"
+    },
+    "tool_versions": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Tool Versions",
+      "type": "object"
+    },
+    "duration_seconds": {
+      "exclusiveMinimum": 0,
+      "maximum": 120,
+      "title": "Duration Seconds",
+      "type": "number"
+    },
+    "video_stream_index": {
+      "minimum": 0,
+      "title": "Video Stream Index",
+      "type": "integer"
+    },
+    "processing_width": {
+      "maximum": 320,
+      "minimum": 2,
+      "title": "Processing Width",
+      "type": "integer"
+    },
+    "processing_height": {
+      "maximum": 320,
+      "minimum": 2,
+      "title": "Processing Height",
+      "type": "integer"
+    },
+    "threshold": {
+      "const": 10,
+      "default": 10,
+      "title": "Threshold",
+      "type": "integer"
+    },
+    "successful_frames": {
+      "minimum": 1,
+      "title": "Successful Frames",
+      "type": "integer"
+    },
+    "method": {
+      "const": "Consecutive decoded frames; normalized PTS; area resize, aspect preserved within even-pixel rounding, no crop; YUV420P; scdet threshold=10 sc_pass=0",
+      "title": "Method",
+      "type": "string"
+    },
+    "candidate_cut_timestamps": {
+      "items": {
+        "exclusiveMinimum": 0,
+        "maximum": 120,
+        "type": "number"
+      },
+      "maxItems": 1000,
+      "title": "Candidate Cut Timestamps",
+      "type": "array"
+    },
+    "estimated_cut_count": {
+      "maximum": 1000,
+      "minimum": 0,
+      "title": "Estimated Cut Count",
+      "type": "integer"
+    },
+    "shot_count": {
+      "maximum": 1001,
+      "minimum": 1,
+      "title": "Shot Count",
+      "type": "integer"
+    },
+    "shots": {
+      "items": {
+        "$ref": "#/$defs/Shot"
+      },
+      "maxItems": 1001,
+      "minItems": 1,
+      "title": "Shots",
+      "type": "array"
+    },
+    "mean_shot_seconds": {
+      "exclusiveMinimum": 0,
+      "maximum": 120,
+      "title": "Mean Shot Seconds",
+      "type": "number"
+    },
+    "median_shot_seconds": {
+      "exclusiveMinimum": 0,
+      "maximum": 120,
+      "title": "Median Shot Seconds",
+      "type": "number"
+    },
+    "cuts_per_minute": {
+      "minimum": 0,
+      "title": "Cuts Per Minute",
+      "type": "number"
+    },
+    "color_metadata": {
+      "$ref": "#/$defs/ColorMetadata"
+    },
+    "interpretation_limits": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 10,
+      "title": "Interpretation Limits",
+      "type": "array"
+    },
+    "other_categories": {
+      "$ref": "#/$defs/OtherCategories"
+    }
+  },
+  "required": [
+    "analyzed_at",
+    "source",
+    "tool_versions",
+    "duration_seconds",
+    "video_stream_index",
+    "processing_width",
+    "processing_height",
+    "successful_frames",
+    "method",
+    "candidate_cut_timestamps",
+    "estimated_cut_count",
+    "shot_count",
+    "shots",
+    "mean_shot_seconds",
+    "median_shot_seconds",
+    "cuts_per_minute",
+    "color_metadata",
+    "interpretation_limits"
+  ],
+  "title": "Blueprint",
+  "type": "object"
+}

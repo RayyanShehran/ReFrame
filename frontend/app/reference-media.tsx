@@ -2,6 +2,7 @@
 
 import { useMediaOperation } from "./use-media-operation";
 import { StyleBlueprint } from "./style-blueprint";
+import { PacingBlueprint } from "./pacing-blueprint";
 
 type Operation = {
   operation_id: string | null; status: "idle" | "running" | "ready" | "failed";
@@ -30,7 +31,7 @@ export function ReferenceMedia({ projectId }: { projectId: string }) {
     {error && <p role="alert" className="error">{error}</p>}
     {operation && ["idle", "failed"].includes(operation.status) && <button disabled={starting} onClick={() => void start()}>{starting ? "Starting…" : operation.status === "failed" ? "Retry reference retrieval" : "Retrieve reference"}</button>}
     {operation?.status === "ready" && media && <>
-      <p role="status">Reference media is available for color analysis.</p>
+      <p role="status">Reference media is available for color and pacing analysis.</p>
       <dl className="clip-details">
         <dt>Duration</dt><dd>{media.duration_seconds} seconds</dd>
         <dt>Dimensions</dt><dd>{media.width} × {media.height}</dd>
@@ -42,6 +43,7 @@ export function ReferenceMedia({ projectId }: { projectId: string }) {
         <dt>Tools</dt><dd>{Object.entries(media.versions).map(([tool, version]) => `${tool}: ${version}`).join(" · ")}</dd>
       </dl>
       <StyleBlueprint key={projectId} projectId={projectId} />
+      <PacingBlueprint key={`pacing-${projectId}`} projectId={projectId} />
     </>}
   </section>;
 }

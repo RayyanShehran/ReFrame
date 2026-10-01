@@ -39,7 +39,7 @@ export function StyleBlueprint({ projectId }: { projectId: string }) {
   const b = operation?.blueprint;
   return <section className="reference-section" aria-label="Style Blueprint — color analysis">
     <h3>Style Blueprint — color analysis</h3>
-    <p className="hint">Read-only observations from the retained reference. Pacing, transitions, captions and audio: not analyzed.</p>
+    <p className="hint">Read-only color observations. Pacing has a separate analysis below; transitions, captions and audio remain not analyzed.</p>
     {!operation && !error && <p role="status">Loading color analysis…</p>}
     {operation?.status === "idle" && <p>The retained reference is ready for color analysis.</p>}
     {operation?.status === "running" && <p role="status">Sampling reference frames and measuring color… Processing continues if you leave.</p>}

@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 import color_analysis
+import pacing_analysis
 import projects
 import reference_jobs
 from clips import ClipDetails, cleanup_stale_files, inspect_clip
@@ -38,6 +39,7 @@ async def lifespan(_app: FastAPI):
     reference_jobs.stopping = False
     await projects.storage_call(reference_jobs.recover)
     await projects.storage_call(color_analysis.recover)
+    await projects.storage_call(pacing_analysis.recover)
     try:
         yield
     finally:
@@ -134,3 +136,15 @@ async def get_style_blueprint(project_id: str):
 @app.post("/api/projects/{project_id}/clip", response_model=projects.ProjectDetails)
 async def upload_project_clip(project_id: str, request: Request):
     return await projects.upload_clip(project_id, request)
+
+
+@app.post(
+    "/api/projects/{project_id}/pacing", response_model=pacing_analysis.Operation, status_code=202
+)
+async def analyze_pacing(project_id: str):
+    return await reference_jobs.start(project_id, analysis="pacing")
+
+
+@app.get("/api/projects/{project_id}/pacing", response_model=pacing_analysis.Operation)
+async def get_pacing(project_id: str):
+    return await projects.storage_call(pacing_analysis.get_operation, project_id)

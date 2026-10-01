@@ -29,7 +29,7 @@ it("analyzes, polls and restores the read-only blueprint on remount", async () =
   expect(screen.getByText(/12 \/ 12 midpoint samples/)).toBeInTheDocument();
   expect(screen.getByText(/not physical exposure/)).toBeInTheDocument();
   expect(screen.getByRole("note")).toHaveTextContent("SDR assumed");
-  expect(screen.getByText(/Pacing, transitions, captions and audio: not analyzed/)).toBeInTheDocument();
+  expect(screen.getByText(/Pacing has a separate analysis below/)).toBeInTheDocument();
   expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
   view.unmount(); render(<StyleBlueprint projectId="first" />);
   await screen.findByText(/Color analysis is ready/);
