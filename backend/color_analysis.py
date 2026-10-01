@@ -160,12 +160,12 @@ def guard(stop, deadline):
     engine.remaining(deadline, TOTAL_SECONDS)
 
 
-def digest(path, stop=None, deadline=None):
+def digest(path, stop=None, deadline=None, *, max_bytes=engine.MAX_BYTES):
     deadline = deadline if deadline is not None else time.monotonic() + 10
     result = hashlib.sha256()
     try:
         before = path.stat()
-        if not 0 < before.st_size <= engine.MAX_BYTES:
+        if not 0 < before.st_size <= max_bytes:
             raise ValueError("Source size")
         with path.open("rb") as file:
             while True:
@@ -179,11 +179,11 @@ def digest(path, stop=None, deadline=None):
             raise ValueError("Source changed")
     except (OSError, ValueError):
         raise ReferenceError(
-            409, "source_unavailable", "Retained reference media is missing or changed."
+            409, "source_unavailable", "Retained analysis media is missing or changed."
         ) from None
     except engine.ProbeTimeout:
         raise ReferenceError(
-            503, "deadline", "Reference hash verification exceeded its deadline."
+            503, "deadline", "Source hash verification exceeded its deadline."
         ) from None
     return result.hexdigest()
 
@@ -262,7 +262,7 @@ def get_operation(project_id, require_active=False, *, component=None):
     blueprint = None
     if row["state"] == "ready":
         try:
-            current = source(project_id)
+            current = module.source(project_id)
             if row["source_hash"] != current["identity"].media_sha256:
                 raise ReferenceError(409, "source_changed", "The analysis source has changed.")
             if row["algorithm_version"] != module.ALGORITHM:
@@ -300,7 +300,7 @@ def begin_operation(project_id, *, component=None):
     current = module.get_operation(project_id, True)
     if current.status in {"running", "ready"}:
         return current, None
-    current_source = source(project_id)
+    current_source = module.source(project_id)
     if current.operation_id:
         module.prepare_delete(project_id)
     operation_id = str(uuid.uuid4())
@@ -431,9 +431,7 @@ def inspect_colors(stream):
 def inspect_video(path, directory, deadline):
     ffmpeg, ffprobe = shutil.which("ffmpeg"), shutil.which("ffprobe")
     if not ffmpeg or not ffprobe:
-        raise engine.RetrievalFailure(
-            "missing_tools", "Reference analysis needs FFmpeg and FFprobe."
-        )
+        raise engine.RetrievalFailure("missing_tools", "Color analysis needs FFmpeg and FFprobe.")
     versions = {}
     for label, executable in [("ffmpeg", ffmpeg), ("ffprobe", ffprobe)]:
         result = engine.run_command(
@@ -471,7 +469,7 @@ def inspect_video(path, directory, deadline):
     )
     if result.returncode:
         raise engine.RetrievalFailure(
-            "probe_failed", "Retained reference media could not be inspected."
+            "probe_failed", "Saved analysis media could not be inspected."
         )
     details = json.loads(result.stdout)
     streams = details["streams"]
@@ -507,14 +505,15 @@ def inspect_video(path, directory, deadline):
     return ffmpeg, versions, video, duration, metadata
 
 
-def pipeline(current_source, directory, stop, deadline):
+def pipeline(current_source, directory, stop, deadline, *, component=None):
+    module = component or sys.modules[__name__]
     directory.mkdir(parents=True, exist_ok=False)
     engine._control.stop = stop
     try:
         guard(stop, deadline)
         path = current_source["path"]
-        if digest(path, stop, deadline) != current_source["identity"].media_sha256:
-            raise ReferenceError(409, "source_changed", "The retained reference has changed.")
+        if module.digest(path, stop, deadline) != current_source["identity"].media_sha256:
+            raise ReferenceError(409, "source_changed", "The retained analysis source has changed.")
         ffmpeg, versions, video, duration, metadata = inspect_video(path, directory, deadline)
         # Normalize stream PTS and shift midpoint targets onto the fps filter's zero-based grid.
         filters = (
@@ -571,9 +570,9 @@ def pipeline(current_source, directory, stop, deadline):
                 "decode_failed", "Expected 12 complete decoded RGB frames."
             )
         measurements = measure(frames.stdout, stop, deadline)
-        if digest(path, stop, deadline) != current_source["identity"].media_sha256:
-            raise ReferenceError(409, "source_changed", "Reference bytes changed during analysis.")
-        return current_source, Blueprint(
+        if module.digest(path, stop, deadline) != current_source["identity"].media_sha256:
+            raise ReferenceError(409, "source_changed", "Source bytes changed during analysis.")
+        return current_source, module.Blueprint(
             analyzed_at=projects.now(),
             source=current_source["identity"],
             tool_versions=versions,
@@ -622,7 +621,7 @@ def pipeline(current_source, directory, stop, deadline):
 def commit(project_id, operation_id, current_source, blueprint, stop, deadline, *, component=None):
     module = component or sys.modules[__name__]
     guard(stop, deadline)
-    latest = source(project_id, stop, deadline)
+    latest = module.source(project_id, stop, deadline)
     if (
         latest["reference_operation_id"] != current_source["reference_operation_id"]
         or latest["identity"] != blueprint.source

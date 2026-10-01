@@ -48,3 +48,8 @@ footer { color: #8ea095; margin-top: auto; padding-top: 80px; font-size: .78rem;
  .palette { display: flex; flex-wrap: wrap; gap: 1rem; padding: 0; list-style: none; }
  .palette li { display: flex; flex-direction: column; gap: .4rem; }
  .palette-swatch { display: block; width: 5rem; height: 3rem; border: 1px solid #777; border-radius: .4rem; }
+
+.color-comparison { overflow-x: auto; }
+.color-comparison table { width: 100%; border-collapse: collapse; }
+.color-comparison th, .color-comparison td { padding: .6rem; text-align: left; vertical-align: top; border-bottom: 1px solid var(--line, #35413a); }
+.color-comparison .palette { margin: 0; }

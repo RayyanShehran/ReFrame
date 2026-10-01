@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ClipUpload, parseClipDetails, type ClipDetails } from "./clip-upload";
 import { ReferenceSelection } from "./reference-selection";
-import { ReferenceMedia } from "./reference-media";
+import { ProjectColors } from "./project-colors";
 
 type Project = {
   id: string; name: string; created_at: string; updated_at: string;
@@ -162,7 +162,7 @@ export function Workspace() {
         <a href={current.reference.canonical_url} target="_blank" rel="noreferrer">Open reference on TikTok</a>
         <p className="hint">Saved metadata snapshot from {current.reference_inspected_at}. The reference is fixed for this project.</p>
       </div>
-      {current.status === "active" && <ReferenceMedia key={current.id} projectId={current.id} />}
+      {current.status === "active" && <ProjectColors key={current.id} projectId={current.id} hasFootage={current.clip_status === "ready"} />}
       {current.status === "deleting" ? <p role="alert">Deletion is incomplete. Retry deletion from the project list.</p> :
         current.clip_status === "empty" || current.clip_status === "ready" ?
           <ClipUpload key={`${current.id}-${current.clip_status}`} projectId={current.id} initialDetails={current.clip} onSaved={() => setRevision((value) => value + 1)} /> :

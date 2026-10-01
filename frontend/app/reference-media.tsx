@@ -1,7 +1,8 @@
 "use client";
 
+import { useEffect } from "react";
 import { useMediaOperation } from "./use-media-operation";
-import { StyleBlueprint } from "./style-blueprint";
+import { StyleBlueprint, type Blueprint } from "./style-blueprint";
 import { PacingBlueprint } from "./pacing-blueprint";
 
 type Operation = {
@@ -18,9 +19,10 @@ function parse(data: unknown): Operation {
   return operation;
 }
 
-export function ReferenceMedia({ projectId }: { projectId: string }) {
+export function ReferenceMedia({ projectId, onColorChange }: { projectId: string; onColorChange?: (blueprint: Blueprint | null) => void }) {
   const { operation, error, starting, start } = useMediaOperation(projectId, "reference-media", parse);
   const media = operation?.media;
+  useEffect(() => { if (error || operation?.status !== "ready") onColorChange?.(null); }, [operation, error, onColorChange]);
   return <section className="reference-section" aria-labelledby={`media-${projectId}`}>
     <h3 id={`media-${projectId}`}>Reference media</h3>
     <p className="hint">Experimental: TikTok access may fail or change. Retrieval does not grant permission to reuse content.</p>
@@ -42,7 +44,7 @@ export function ReferenceMedia({ projectId }: { projectId: string }) {
         <dt>SHA-256</dt><dd style={{ overflowWrap: "anywhere" }}>{media.sha256}</dd>
         <dt>Tools</dt><dd>{Object.entries(media.versions).map(([tool, version]) => `${tool}: ${version}`).join(" · ")}</dd>
       </dl>
-      <StyleBlueprint key={projectId} projectId={projectId} />
+      <StyleBlueprint key={projectId} projectId={projectId} onChange={onColorChange} />
       <PacingBlueprint key={`pacing-${projectId}`} projectId={projectId} />
     </>}
   </section>;

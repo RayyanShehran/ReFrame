@@ -101,6 +101,7 @@ class Operation(color.Operation):
 
 
 # Bind only the existing persistence functions to this independent table/schema.
+source = color.source
 component = sys.modules[__name__]
 staging = partial(color.staging, component=component)
 clean_stage = partial(color.clean_stage, component=component)

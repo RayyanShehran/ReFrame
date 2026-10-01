@@ -1,0 +1,402 @@
+{
+  "$defs": {
+    "ColorMetadata": {
+      "additionalProperties": false,
+      "properties": {
+        "color_primaries": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Color Primaries"
+        },
+        "color_transfer": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Color Transfer"
+        },
+        "color_space": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Color Space"
+        },
+        "color_range": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Color Range"
+        },
+        "assumption": {
+          "const": "Ordinary SDR encoded RGB; missing YCbCr matrix assumed BT.709, missing range assumed limited",
+          "title": "Assumption",
+          "type": "string"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 4,
+          "title": "Warnings",
+          "type": "array"
+        }
+      },
+      "required": [
+        "color_primaries",
+        "color_transfer",
+        "color_space",
+        "color_range",
+        "assumption",
+        "warnings"
+      ],
+      "title": "ColorMetadata",
+      "type": "object"
+    },
+    "Measurements": {
+      "additionalProperties": false,
+      "properties": {
+        "rgb_mean": {
+          "maxItems": 3,
+          "minItems": 3,
+          "prefixItems": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            }
+          ],
+          "title": "Rgb Mean",
+          "type": "array"
+        },
+        "brightness_p05": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Brightness P05",
+          "type": "number"
+        },
+        "brightness_p50": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Brightness P50",
+          "type": "number"
+        },
+        "brightness_p95": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Brightness P95",
+          "type": "number"
+        },
+        "contrast_spread": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Contrast Spread",
+          "type": "number"
+        },
+        "mean_hsv_saturation": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Mean Hsv Saturation",
+          "type": "number"
+        },
+        "palette": {
+          "items": {
+            "$ref": "#/$defs/PaletteColor"
+          },
+          "maxItems": 5,
+          "minItems": 1,
+          "title": "Palette",
+          "type": "array"
+        },
+        "palette_coverage": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Palette Coverage",
+          "type": "number"
+        },
+        "brightness_method": {
+          "const": "(0.2126 R + 0.7152 G + 0.0722 B) / 255; encoded channels",
+          "title": "Brightness Method",
+          "type": "string"
+        },
+        "quantile_method": {
+          "const": "Linear interpolation at (N-1)*p in sorted sampled pixel values",
+          "title": "Quantile Method",
+          "type": "string"
+        },
+        "contrast_method": {
+          "const": "brightness_p95 - brightness_p05",
+          "title": "Contrast Method",
+          "type": "string"
+        },
+        "palette_method": {
+          "const": "RGB bins of width 32; top five by count then lexicographic bin; mean RGB rounded half up; proportions=count/all pixels",
+          "title": "Palette Method",
+          "type": "string"
+        }
+      },
+      "required": [
+        "rgb_mean",
+        "brightness_p05",
+        "brightness_p50",
+        "brightness_p95",
+        "contrast_spread",
+        "mean_hsv_saturation",
+        "palette",
+        "palette_coverage",
+        "brightness_method",
+        "quantile_method",
+        "contrast_method",
+        "palette_method"
+      ],
+      "title": "Measurements",
+      "type": "object"
+    },
+    "OtherCategories": {
+      "additionalProperties": false,
+      "properties": {
+        "pacing": {
+          "const": "not_analyzed",
+          "default": "not_analyzed",
+          "title": "Pacing",
+          "type": "string"
+        },
+        "transitions": {
+          "const": "not_analyzed",
+          "default": "not_analyzed",
+          "title": "Transitions",
+          "type": "string"
+        },
+        "captions": {
+          "const": "not_analyzed",
+          "default": "not_analyzed",
+          "title": "Captions",
+          "type": "string"
+        },
+        "audio": {
+          "const": "not_analyzed",
+          "default": "not_analyzed",
+          "title": "Audio",
+          "type": "string"
+        }
+      },
+      "title": "OtherCategories",
+      "type": "object"
+    },
+    "PaletteColor": {
+      "additionalProperties": false,
+      "properties": {
+        "hex": {
+          "pattern": "^#[0-9a-f]{6}$",
+          "title": "Hex",
+          "type": "string"
+        },
+        "proportion": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Proportion",
+          "type": "number"
+        }
+      },
+      "required": [
+        "hex",
+        "proportion"
+      ],
+      "title": "PaletteColor",
+      "type": "object"
+    },
+    "Sampling": {
+      "additionalProperties": false,
+      "properties": {
+        "method": {
+          "const": "12 evenly spaced midpoint targets; FFmpeg fps nearest rounding",
+          "title": "Method",
+          "type": "string"
+        },
+        "timestamps_seconds": {
+          "items": {
+            "exclusiveMinimum": 0,
+            "maximum": 120,
+            "type": "number"
+          },
+          "maxItems": 12,
+          "minItems": 12,
+          "title": "Timestamps Seconds",
+          "type": "array"
+        },
+        "successful_samples": {
+          "const": 12,
+          "title": "Successful Samples",
+          "type": "integer"
+        },
+        "duration_seconds": {
+          "exclusiveMinimum": 0,
+          "maximum": 120,
+          "title": "Duration Seconds",
+          "type": "number"
+        },
+        "video_stream_index": {
+          "minimum": 0,
+          "title": "Video Stream Index",
+          "type": "integer"
+        },
+        "frame_width": {
+          "const": 96,
+          "default": 96,
+          "title": "Frame Width",
+          "type": "integer"
+        },
+        "frame_height": {
+          "const": 96,
+          "default": 96,
+          "title": "Frame Height",
+          "type": "integer"
+        },
+        "decoded_bytes": {
+          "const": 331776,
+          "title": "Decoded Bytes",
+          "type": "integer"
+        },
+        "pixel_weighting": {
+          "const": "Equal resized pixels and equal time samples; area resize to 96x96 without padding",
+          "title": "Pixel Weighting",
+          "type": "string"
+        },
+        "temporal_rule": {
+          "const": "PTS normalized, shifted by half an interval, fps=12/duration round=near eof_action=pass; frames may repeat",
+          "title": "Temporal Rule",
+          "type": "string"
+        }
+      },
+      "required": [
+        "method",
+        "timestamps_seconds",
+        "successful_samples",
+        "duration_seconds",
+        "video_stream_index",
+        "decoded_bytes",
+        "pixel_weighting",
+        "temporal_rule"
+      ],
+      "title": "Sampling",
+      "type": "object"
+    },
+    "Source": {
+      "additionalProperties": false,
+      "properties": {
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "clip_id": {
+          "pattern": "^clip-[0-9a-f]{32}\\.(mp4|mov)$",
+          "title": "Clip Id",
+          "type": "string"
+        },
+        "media_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Media Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "project_id",
+        "clip_id",
+        "media_sha256"
+      ],
+      "title": "Source",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "algorithm_version": {
+      "const": "encoded-rgb-midpoints-v1",
+      "default": "encoded-rgb-midpoints-v1",
+      "title": "Algorithm Version",
+      "type": "string"
+    },
+    "analyzed_at": {
+      "title": "Analyzed At",
+      "type": "string"
+    },
+    "source": {
+      "$ref": "#/$defs/Source"
+    },
+    "tool_versions": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Tool Versions",
+      "type": "object"
+    },
+    "sampling": {
+      "$ref": "#/$defs/Sampling"
+    },
+    "color_metadata": {
+      "$ref": "#/$defs/ColorMetadata"
+    },
+    "color": {
+      "$ref": "#/$defs/Measurements"
+    },
+    "interpretation_limits": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 10,
+      "minItems": 1,
+      "title": "Interpretation Limits",
+      "type": "array"
+    },
+    "other_categories": {
+      "$ref": "#/$defs/OtherCategories"
+    }
+  },
+  "required": [
+    "analyzed_at",
+    "source",
+    "tool_versions",
+    "sampling",
+    "color_metadata",
+    "color",
+    "interpretation_limits"
+  ],
+  "title": "Blueprint",
+  "type": "object"
+}

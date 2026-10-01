@@ -1,10 +1,11 @@
 "use client";
 
+import { useEffect } from "react";
 import { useMediaOperation, type MediaOperation } from "./use-media-operation";
 
-type Blueprint = {
+export type Blueprint = {
   schema_version: 1; algorithm_version: string; analyzed_at: string;
-  source: { media_sha256: string; video_id: string };
+  source: { media_sha256: string; video_id?: string; clip_id?: string };
   tool_versions: Record<string, string>;
   sampling: { successful_samples: number; timestamps_seconds: number[]; duration_seconds: number; frame_width: number; frame_height: number; decoded_bytes: number };
   color_metadata: { warnings: string[]; assumption: string };
@@ -34,18 +35,20 @@ function parse(data: unknown): Operation {
 }
 const percent = (value: number) => `${(value * 100).toFixed(1)}%`;
 
-export function StyleBlueprint({ projectId }: { projectId: string }) {
-  const { operation, error, starting, start } = useMediaOperation(projectId, "style-blueprint", parse);
+export function StyleBlueprint({ projectId, footage = false, onChange }: { projectId: string; footage?: boolean; onChange?: (blueprint: Blueprint | null) => void }) {
+  const { operation, error, starting, start } = useMediaOperation(projectId, footage ? "footage-color" : "style-blueprint", parse);
   const b = operation?.blueprint;
-  return <section className="reference-section" aria-label="Style Blueprint — color analysis">
-    <h3>Style Blueprint — color analysis</h3>
-    <p className="hint">Read-only color observations. Pacing has a separate analysis below; transitions, captions and audio remain not analyzed.</p>
+  useEffect(() => { onChange?.(!error && operation?.status === "ready" ? operation.blueprint : null); }, [operation, error, onChange]);
+  const subject = footage ? "Your footage" : "Style Blueprint";
+  return <section className="reference-section" aria-label={`${subject} — color analysis`}>
+    <h3>{subject} — color analysis</h3>
+    <p className="hint">{footage ? "Read-only color observations. Transitions, captions and audio remain not analyzed." : "Read-only color observations. Pacing has a separate analysis below; transitions, captions and audio remain not analyzed."}</p>
     {!operation && !error && <p role="status">Loading color analysis…</p>}
-    {operation?.status === "idle" && <p>The retained reference is ready for color analysis.</p>}
-    {operation?.status === "running" && <p role="status">Sampling reference frames and measuring color… Processing continues if you leave.</p>}
+    {operation?.status === "idle" && <p>The saved media is ready for color analysis.</p>}
+    {operation?.status === "running" && <p role="status">Sampling {footage ? "footage" : "reference"} frames and measuring color… Processing continues if you leave.</p>}
     {operation?.status === "failed" && <p role="alert">{operation.message || "Color analysis failed."} ({operation.failure_code})</p>}
     {error && <p role="alert" className="error">{error}</p>}
-    {operation && ["idle", "failed"].includes(operation.status) && <button disabled={starting} onClick={() => void start()}>{starting ? "Starting…" : operation.status === "failed" ? "Retry color analysis" : "Analyze reference"}</button>}
+    {operation && ["idle", "failed"].includes(operation.status) && <button disabled={starting} onClick={() => void start()}>{starting ? "Starting…" : operation.status === "failed" ? footage ? "Retry footage analysis" : "Retry color analysis" : footage ? "Analyze my footage" : "Analyze reference"}</button>}
     {operation?.status === "ready" && b && <>
       <p role="status">Color analysis is ready and saved locally.</p>
       <h4>Representative palette</h4>

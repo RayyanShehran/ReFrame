@@ -123,3 +123,9 @@ uv run --locked python -m unittest discover -s tests -p 'test_tiktok_reference.p
 If the page says **API unavailable**, confirm the backend window is running and <http://127.0.0.1:8000/health> returns `{"status":"ok","service":"reframe-api"}`. Check that the frontend API URL points to that host and port and that the frontend origin is allowed by the backend. Then select **Retry**.
 
 See [architecture](docs/ARCHITECTURE.md) and [status](docs/STATUS.md).
+
+## Uploaded-footage color and comparison
+
+After saving one clip, select **Analyze my footage**. This offline analysis works independently of reference retrieval and restores after refresh. It reuses the reference's 12 midpoint SDR pixel measurements and warnings; footage retains its **100 MiB** limit and references retain **50 MiB**.
+
+When both color results are valid, the read-only **Reference / Your footage** table shows palettes, median encoded brightness, contrast spread, mean HSV saturation and mean RGB. Signed differences are **reference minus footage**, in percentage points. These describe sampled pixels and can reflect different scene content; they are not exposure stops, white-balance corrections or a ready-to-apply grade. Missing/failed results show the required action instead. No rendering or grade generation is implemented.

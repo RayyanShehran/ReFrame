@@ -259,7 +259,9 @@ async def worker(project_id, operation_id, url, stop, analysis=False):
     global active
     failure = None
     if analysis:
-        if analysis == "pacing":
+        if analysis == "footage":
+            import footage_analysis as color
+        elif analysis == "pacing":
             import pacing_analysis as color
         else:
             import color_analysis as color
@@ -352,7 +354,9 @@ async def start(project_id, analysis=False):
     global active
     projects.identifier(project_id)
     if analysis:
-        if analysis == "pacing":
+        if analysis == "footage":
+            import footage_analysis as color
+        elif analysis == "pacing":
             import pacing_analysis as color
         else:
             import color_analysis as color
@@ -426,6 +430,9 @@ async def delete(project_id):
             import pacing_analysis as pacing
 
             await projects.storage_call(pacing.prepare_delete, project_id)
+            import footage_analysis as footage
+
+            await projects.storage_call(footage.prepare_delete, project_id)
             await projects.storage_call(projects.delete_project, project_id)
     finally:
         closing.discard(project_id)
@@ -445,7 +452,8 @@ def check_quarantine():
         unsafe = connection.execute(
             "SELECT 1 FROM reference_operations WHERE cleanup_safe = 0 "
             "UNION ALL SELECT 1 FROM color_operations WHERE cleanup_safe = 0 "
-            "UNION ALL SELECT 1 FROM pacing_operations WHERE cleanup_safe = 0 LIMIT 1"
+            "UNION ALL SELECT 1 FROM pacing_operations WHERE cleanup_safe = 0 "
+            "UNION ALL SELECT 1 FROM footage_color_operations WHERE cleanup_safe = 0 LIMIT 1"
         ).fetchone()
     if unsafe:
         raise ReferenceError(

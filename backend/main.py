@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 import color_analysis
+import footage_analysis
 import pacing_analysis
 import projects
 import reference_jobs
@@ -40,6 +41,7 @@ async def lifespan(_app: FastAPI):
     await projects.storage_call(reference_jobs.recover)
     await projects.storage_call(color_analysis.recover)
     await projects.storage_call(pacing_analysis.recover)
+    await projects.storage_call(footage_analysis.recover)
     try:
         yield
     finally:
@@ -148,3 +150,17 @@ async def analyze_pacing(project_id: str):
 @app.get("/api/projects/{project_id}/pacing", response_model=pacing_analysis.Operation)
 async def get_pacing(project_id: str):
     return await projects.storage_call(pacing_analysis.get_operation, project_id)
+
+
+@app.post(
+    "/api/projects/{project_id}/footage-color",
+    response_model=footage_analysis.Operation,
+    status_code=202,
+)
+async def analyze_footage(project_id: str):
+    return await reference_jobs.start(project_id, analysis="footage")
+
+
+@app.get("/api/projects/{project_id}/footage-color", response_model=footage_analysis.Operation)
+async def get_footage_color(project_id: str):
+    return await projects.storage_call(footage_analysis.get_operation, project_id)
