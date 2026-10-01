@@ -53,3 +53,7 @@ footer { color: #8ea095; margin-top: auto; padding-top: 80px; font-size: .78rem;
 .color-comparison table { width: 100%; border-collapse: collapse; }
 .color-comparison th, .color-comparison td { padding: .6rem; text-align: left; vertical-align: top; border-bottom: 1px solid var(--line, #35413a); }
 .color-comparison .palette { margin: 0; }
+
+.recipe-controls { display: grid; gap: .75rem; margin: 1rem 0; padding: 1rem; }
+.recipe-controls label { display: grid; gap: .35rem; }
+.recipe-controls input[type="range"] { width: 100%; }

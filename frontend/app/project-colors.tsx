@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { ColorRecipe } from "./color-recipe";
 import { ReferenceMedia } from "./reference-media";
 import { StyleBlueprint, type Blueprint } from "./style-blueprint";
 
@@ -34,5 +35,6 @@ export function ProjectColors({ projectId, hasFootage }: { projectId: string; ha
         <p className="hint">Differences describe sampled pixels and can reflect different scene content. They are not exposure stops, white-balance corrections or a ready-to-apply grade.</p>
       </>}
     </section>
+    <ColorRecipe key={projectId} projectId={projectId} analysesReady={!!ready} />
   </>;
 }
