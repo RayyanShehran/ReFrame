@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 import color_analysis
+import color_recipe
 import footage_analysis
 import pacing_analysis
 import projects
@@ -164,3 +165,21 @@ async def analyze_footage(project_id: str):
 @app.get("/api/projects/{project_id}/footage-color", response_model=footage_analysis.Operation)
 async def get_footage_color(project_id: str):
     return await projects.storage_call(footage_analysis.get_operation, project_id)
+
+
+@app.get("/api/projects/{project_id}/color-recipe", response_model=color_recipe.Result)
+async def read_color_recipe(project_id: str):
+    async with projects.operation_lock:
+        return await projects.storage_call(color_recipe.read, project_id)
+
+
+@app.post("/api/projects/{project_id}/color-recipe/generate", response_model=color_recipe.Result)
+async def generate_color_recipe(project_id: str, request: color_recipe.GenerateRequest):
+    async with projects.operation_lock:
+        return await projects.storage_call(color_recipe.generate, project_id, request)
+
+
+@app.post("/api/projects/{project_id}/color-recipe", response_model=color_recipe.Result)
+async def save_color_recipe(project_id: str, request: color_recipe.SaveRequest):
+    async with projects.operation_lock:
+        return await projects.storage_call(color_recipe.save, project_id, request)
