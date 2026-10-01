@@ -1,0 +1,268 @@
+{
+  "$defs": {
+    "FootageBinding": {
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "$ref": "#/$defs/footage_analysis__Source"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "schema_version": {
+          "minimum": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "algorithm_version": {
+          "title": "Algorithm Version",
+          "type": "string"
+        },
+        "analyzed_at": {
+          "format": "date-time",
+          "title": "Analyzed At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source",
+        "operation_id",
+        "schema_version",
+        "algorithm_version",
+        "analyzed_at"
+      ],
+      "title": "FootageBinding",
+      "type": "object"
+    },
+    "ReferenceBinding": {
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "$ref": "#/$defs/color_analysis__Source"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "schema_version": {
+          "minimum": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "algorithm_version": {
+          "title": "Algorithm Version",
+          "type": "string"
+        },
+        "analyzed_at": {
+          "format": "date-time",
+          "title": "Analyzed At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source",
+        "operation_id",
+        "schema_version",
+        "algorithm_version",
+        "analyzed_at"
+      ],
+      "title": "ReferenceBinding",
+      "type": "object"
+    },
+    "SuggestedValues": {
+      "additionalProperties": false,
+      "properties": {
+        "brightness": {
+          "maximum": 0.1,
+          "minimum": -0.1,
+          "title": "Brightness",
+          "type": "number"
+        },
+        "contrast": {
+          "maximum": 1.2,
+          "minimum": 0.8,
+          "title": "Contrast",
+          "type": "number"
+        },
+        "saturation": {
+          "maximum": 1.2,
+          "minimum": 0.8,
+          "title": "Saturation",
+          "type": "number"
+        }
+      },
+      "required": [
+        "brightness",
+        "contrast",
+        "saturation"
+      ],
+      "title": "SuggestedValues",
+      "type": "object"
+    },
+    "Values": {
+      "additionalProperties": false,
+      "properties": {
+        "brightness": {
+          "default": 0,
+          "maximum": 0.2,
+          "minimum": -0.2,
+          "title": "Brightness",
+          "type": "number"
+        },
+        "contrast": {
+          "default": 1,
+          "maximum": 1.5,
+          "minimum": 0.5,
+          "title": "Contrast",
+          "type": "number"
+        },
+        "saturation": {
+          "default": 1,
+          "maximum": 1.5,
+          "minimum": 0.5,
+          "title": "Saturation",
+          "type": "number"
+        }
+      },
+      "title": "Values",
+      "type": "object"
+    },
+    "color_analysis__Source": {
+      "additionalProperties": false,
+      "properties": {
+        "video_id": {
+          "pattern": "^[0-9]+$",
+          "title": "Video Id",
+          "type": "string"
+        },
+        "canonical_url": {
+          "pattern": "^https://www\\.tiktok\\.com/@[A-Za-z0-9._-]+/video/[0-9]+$",
+          "title": "Canonical Url",
+          "type": "string"
+        },
+        "media_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Media Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "video_id",
+        "canonical_url",
+        "media_sha256"
+      ],
+      "title": "Source",
+      "type": "object"
+    },
+    "footage_analysis__Source": {
+      "additionalProperties": false,
+      "properties": {
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "clip_id": {
+          "pattern": "^clip-[0-9a-f]{32}\\.(mp4|mov)$",
+          "title": "Clip Id",
+          "type": "string"
+        },
+        "media_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Media Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "project_id",
+        "clip_id",
+        "media_sha256"
+      ],
+      "title": "Source",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "suggestion_algorithm_version": {
+      "default": "sampled-color-ratios-v1",
+      "title": "Suggestion Algorithm Version",
+      "type": "string"
+    },
+    "reference": {
+      "$ref": "#/$defs/ReferenceBinding"
+    },
+    "footage": {
+      "$ref": "#/$defs/FootageBinding"
+    },
+    "suggested": {
+      "$ref": "#/$defs/SuggestedValues"
+    },
+    "selected": {
+      "$ref": "#/$defs/Values"
+    },
+    "suggested_strength": {
+      "const": 0.5,
+      "default": 0.5,
+      "title": "Suggested Strength",
+      "type": "number"
+    },
+    "strength": {
+      "maximum": 1,
+      "minimum": 0,
+      "title": "Strength",
+      "type": "number"
+    },
+    "explanations": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 2,
+      "title": "Explanations",
+      "type": "array"
+    },
+    "revision": {
+      "minimum": 1,
+      "title": "Revision",
+      "type": "integer"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "generated_at": {
+      "format": "date-time",
+      "title": "Generated At",
+      "type": "string"
+    },
+    "updated_at": {
+      "format": "date-time",
+      "title": "Updated At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "reference",
+    "footage",
+    "suggested",
+    "selected",
+    "strength",
+    "explanations",
+    "revision",
+    "created_at",
+    "generated_at",
+    "updated_at"
+  ],
+  "title": "Recipe",
+  "type": "object"
+}

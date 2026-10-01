@@ -33,7 +33,7 @@ it("generates, adjusts, saves and restores without sending trusted source fields
 });
 
 it("resets drafts locally and regenerates only after explicit replacement", async () => {
-  const mock = vi.fn(async (_url: string, _options: RequestInit) => ok(saved)); vi.stubGlobal("fetch", mock);
+  const mock = vi.fn<(url: string, options: RequestInit) => Promise<Response>>(async () => ok(saved)); vi.stubGlobal("fetch", mock);
   render(<ColorRecipe projectId="first" analysesReady />);
   fireEvent.click(await screen.findByRole("button", { name: "Reset to neutral" }));
   expect(screen.getByRole("slider", { name: /Brightness offset/ })).toHaveValue("0");
