@@ -247,7 +247,7 @@ def fail_operation(project_id, operation_id, failure, *, component=None):
         )
 
 
-def get_operation(project_id, require_active=False, *, component=None):
+def get_operation(project_id, require_active=False, *, component=None, stop=None, deadline=None):
     module = component or sys.modules[__name__]
     projects.identifier(project_id)
     with projects.database() as connection:
@@ -262,7 +262,7 @@ def get_operation(project_id, require_active=False, *, component=None):
     blueprint = None
     if row["state"] == "ready":
         try:
-            current = module.source(project_id)
+            current = module.source(project_id, stop, deadline)
             if row["source_hash"] != current["identity"].media_sha256:
                 raise ReferenceError(409, "source_changed", "The analysis source has changed.")
             if row["algorithm_version"] != module.ALGORITHM:

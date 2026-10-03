@@ -16,6 +16,7 @@ import footage_analysis
 import pacing_analysis
 import projects
 import reference_jobs
+import video_render
 from clips import ClipDetails, cleanup_stale_files, inspect_clip
 from references import ReferenceDetails, ReferenceError, ReferenceRequest, inspect_reference
 
@@ -43,6 +44,7 @@ async def lifespan(_app: FastAPI):
     await projects.storage_call(color_analysis.recover)
     await projects.storage_call(pacing_analysis.recover)
     await projects.storage_call(footage_analysis.recover)
+    await projects.storage_call(video_render.recover)
     try:
         yield
     finally:
@@ -183,3 +185,18 @@ async def generate_color_recipe(project_id: str, request: color_recipe.GenerateR
 async def save_color_recipe(project_id: str, request: color_recipe.SaveRequest):
     async with projects.operation_lock:
         return await projects.storage_call(color_recipe.save, project_id, request)
+
+
+@app.get("/api/projects/{project_id}/render", response_model=video_render.Operation)
+async def read_render(project_id: str):
+    async with projects.operation_lock:
+        return await projects.storage_call(video_render.get_operation, project_id)
+
+
+@app.post(
+    "/api/projects/{project_id}/render", response_model=video_render.Operation, status_code=202
+)
+async def start_render(project_id: str, request: video_render.RenderRequest):
+    return await reference_jobs.start(
+        project_id, analysis="render", expected_revision=request.expected_revision
+    )

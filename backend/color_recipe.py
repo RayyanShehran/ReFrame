@@ -98,9 +98,9 @@ def effective(selected, strength):
     )
 
 
-def bindings(project_id):
-    reference = color.get_operation(project_id, True)
-    clip = footage.get_operation(project_id, True)
+def bindings(project_id, *, stop=None, deadline=None):
+    reference = color.get_operation(project_id, True, stop=stop, deadline=deadline)
+    clip = footage.get_operation(project_id, True, stop=stop, deadline=deadline)
     if reference.status != "ready" or clip.status != "ready":
         raise ReferenceError(
             409, "analyses_not_ready", "Analyze valid reference and footage colors first."
