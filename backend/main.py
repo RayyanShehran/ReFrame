@@ -200,3 +200,13 @@ async def start_render(project_id: str, request: video_render.RenderRequest):
     return await reference_jobs.start(
         project_id, analysis="render", expected_revision=request.expected_revision
     )
+
+
+@app.get("/api/projects/{project_id}/outputs/{output_id}/video")
+async def play_output(project_id: str, output_id: str):
+    return video_render.VideoResponse(project_id, output_id)
+
+
+@app.get("/api/projects/{project_id}/outputs/{output_id}/download")
+async def download_output(project_id: str, output_id: str):
+    return video_render.VideoResponse(project_id, output_id, download=True)

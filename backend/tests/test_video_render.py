@@ -161,6 +161,39 @@ def test_real_saturation(local):
     assert max(raw) - min(raw) < 45  # Source channel spread is 70.
 
 
+def test_real_serving_ranges_download_hash_deletion_and_replacement(local):
+    client, directory, _ = local
+    saved, url, _ = prepared(client, directory)
+    neutral = {"brightness": 0, "contrast": 1, "saturation": 1}
+    output = run(client, saved, selected(client, url, neutral))
+    endpoint = f"/api/projects/{saved['id']}/outputs/{output.output_id}"
+    video = client.get(endpoint + "/video")
+    assert video.status_code == 200 and video.headers["content-type"] == "video/mp4"
+    assert video.headers["accept-ranges"] == "bytes"
+    assert video.headers["content-disposition"].startswith("inline")
+    assert video.headers["x-render-outdated"] == "false"
+    seek = client.get(endpoint + "/video", headers={"Range": "bytes=100-199"})
+    assert seek.status_code == 206 and seek.content == video.content[100:200]
+    assert seek.headers["content-range"] == f"bytes 100-199/{len(video.content)}"
+    download = client.get(endpoint + "/download")
+    assert download.content == video.content and download.headers["content-disposition"].startswith(
+        "attachment"
+    )
+    assert client.get(endpoint + "/video", headers={"Range": "bytes=9999999-"}).status_code == 416
+    revision = selected(client, url, {**neutral, "brightness": 0.1})
+    assert client.get(endpoint + "/video").headers["x-render-outdated"] == "true"
+    replacement = run(client, saved, revision)
+    assert client.get(endpoint + "/video").status_code == 404
+    new_url = f"/api/projects/{saved['id']}/outputs/{replacement.output_id}/video"
+    path = render.destination(saved["id"], replacement.output_id)
+    changed = bytearray(path.read_bytes())
+    changed[-1] ^= 1
+    path.write_bytes(changed)
+    assert client.get(new_url).json()["error"]["code"] == "output_changed"
+    assert client.delete(f"/api/projects/{saved['id']}").status_code == 204
+    assert client.get(new_url).status_code == 404
+
+
 @pytest.mark.parametrize("rotate,audio", [(False, False), (True, False), (False, True)])
 def test_real_portrait_rotation_and_short_audio(local, rotate, audio):
     client, directory, _ = local

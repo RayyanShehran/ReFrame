@@ -2,6 +2,8 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, expect, it, vi } from "vitest";
 import { ColorRecipe } from "./color-recipe";
 
+vi.mock("./render-video", () => ({ RenderVideo: () => null }));
+
 const values = { brightness: .1, contrast: 1.2, saturation: .8 };
 const saved = { status: "ready", recipe: { schema_version: 1, suggestion_algorithm_version: "sampled-color-ratios-v1", suggested: values, selected: values, strength: .5, revision: 1, updated_at: "today", explanations: ["Insufficient footage contrast variation; multiplier is neutral."] }, effective: { brightness: .05, contrast: 1.1, saturation: .9 }, message: null };
 const ok = (data: unknown) => ({ ok: true, json: async () => data } as Response);
@@ -29,7 +31,7 @@ it("generates, adjusts, saves and restores without sending trusted source fields
   view.unmount(); render(<ColorRecipe projectId="first" analysesReady />);
   expect(await screen.findByRole("slider", { name: /Brightness offset/ })).toHaveValue("-0.15");
   expect(screen.getByRole("slider", { name: /Strength/ })).toHaveValue("80");
-  expect(screen.getByText(/does not yet produce a video preview/)).toBeInTheDocument();
+  expect(screen.getByText(/does not produce a live video preview/)).toBeInTheDocument();
 });
 
 it("resets drafts locally and regenerates only after explicit replacement", async () => {

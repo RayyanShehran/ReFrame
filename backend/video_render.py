@@ -10,6 +10,7 @@ from functools import partial
 from typing import Literal
 
 from pydantic import Field
+from starlette.responses import FileResponse
 
 import color_analysis as color
 import color_recipe as recipe
@@ -153,6 +154,43 @@ def reusable(project_id, expected_revision):
     spec = specification(project_id, expected_revision)
     current = get_operation(project_id, True)
     return current if current.status in {"running", "ready"} and current.spec == spec else None
+
+
+def served_output(project_id, output_id):
+    projects.identifier(output_id)
+    operation = get_operation(project_id, True)
+    output = operation.output
+    if not output or str(output.output_id) != output_id:
+        raise ReferenceError(404, "output_not_found", "This completed render is unavailable.")
+    path = destination(project_id, output_id)
+    if color.digest(path, max_bytes=MAX_BYTES) != output.sha256:
+        raise ReferenceError(
+            409, "output_changed", "The rendered file no longer matches its saved hash."
+        )
+    return path, output, operation.outdated
+
+
+class VideoResponse(FileResponse):
+    """Serialize deletion/replacement until the framework finishes reading the file."""
+
+    def __init__(self, project_id, output_id, download=False):
+        self.project_id, self.output_id = project_id, output_id
+        super().__init__(
+            destination(project_id, output_id),
+            media_type="video/mp4",
+            filename=f"reframe-{output_id}.mp4",
+            content_disposition_type="attachment" if download else "inline",
+        )
+
+    async def __call__(self, scope, receive, send):
+        async with projects.operation_lock:
+            _, output, outdated = await projects.storage_call(
+                served_output, self.project_id, self.output_id
+            )
+            self.headers["X-Recipe-Revision"] = str(output.spec.recipe_revision)
+            self.headers["X-Render-Outdated"] = str(outdated).lower()
+            self.headers["Cache-Control"] = "no-store"
+            await super().__call__(scope, receive, send)
 
 
 def begin_operation(project_id, expected_revision):

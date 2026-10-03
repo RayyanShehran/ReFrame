@@ -5,17 +5,18 @@ import { useCallback, useEffect, useRef, useState } from "react";
 export type MediaOperation = { status: "idle" | "running" | "ready" | "failed"; message: string | null; failure_code: string | null };
 const apiBase = (process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000").replace(/\/$/, "");
 
-export function useMediaOperation<T extends MediaOperation>(projectId: string, route: string, validate: (data: unknown) => T) {
+export function useMediaOperation<T extends MediaOperation>(projectId: string, route: string, validate: (data: unknown) => T, pollingSeconds = 180) {
   const [operation, setOperation] = useState<T | null>(null);
   const [error, setError] = useState("");
   const [revision, setRevision] = useState(0);
   const [starting, setStarting] = useState(false);
   const action = useRef<AbortController | null>(null);
   const generation = useRef(0);
-  const request = useCallback(async (method: string, controller: AbortController): Promise<T> => {
+  const request = useCallback(async (method: string, controller: AbortController, body?: unknown): Promise<T> => {
     const timer = setTimeout(() => controller.abort(), 10000);
     try {
-      const response = await fetch(`${apiBase}/api/projects/${encodeURIComponent(projectId)}/${route}`, { method, signal: controller.signal });
+      const response = await fetch(`${apiBase}/api/projects/${encodeURIComponent(projectId)}/${route}`, { method, signal: controller.signal,
+        ...(body ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : {}) });
       const data = await response.json();
       if (!response.ok) throw new Error(data?.error?.message || "Media request failed.");
       return validate(data);
@@ -26,7 +27,7 @@ export function useMediaOperation<T extends MediaOperation>(projectId: string, r
     let live = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let controller: AbortController;
-    const deadline = Date.now() + 180000;
+    const deadline = Date.now() + pollingSeconds * 1000;
     async function poll() {
       controller = new AbortController();
       try {
@@ -43,21 +44,21 @@ export function useMediaOperation<T extends MediaOperation>(projectId: string, r
     }
     void poll();
     return () => { live = false; clearTimeout(timer); controller?.abort(); };
-  }, [request, revision]);
+  }, [request, revision, pollingSeconds]);
 
   useEffect(() => {
     const version = generation;
     return () => { version.current++; action.current?.abort(); };
   }, [projectId, route]);
 
-  async function start() {
+  async function start(body?: unknown) {
     if (action.current) return;
     const controller = new AbortController();
     action.current = controller;
     const version = generation.current;
     setStarting(true); setError("");
     try {
-      const result = await request("POST", controller);
+      const result = await request("POST", controller, body);
       if (version === generation.current) { setOperation(result); setRevision(value => value + 1); }
     } catch (cause) {
       if (version === generation.current) setError(cause instanceof Error && cause.name !== "AbortError" ? cause.message : "Start response timed out. Reopen to check before retrying.");

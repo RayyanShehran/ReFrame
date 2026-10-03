@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { RenderVideo } from "./render-video";
 
 type Values = { brightness: number; contrast: number; saturation: number };
 type Recipe = { schema_version: 1; suggestion_algorithm_version: string; suggested: Values;
@@ -91,7 +92,7 @@ export function ColorRecipe({ projectId, analysesReady }: { projectId: string; a
 
   return <section className="reference-section" aria-label="Color recipe">
     <h3>Color recipe</h3>
-    <p className="hint">Experimental creative settings, not exposure stops, recovered LUTs or a guarantee of matching appearance. White balance is not inferred. Changing these controls does not yet produce a video preview.</p>
+    <p className="hint">Experimental creative settings, not exposure stops, recovered LUTs or a guarantee of matching appearance. White balance is not inferred. Changing these controls does not produce a live video preview. Save, then render to see the result.</p>
     {!result && !error && <p role="status">Loading recipe…</p>}
     {!analysesReady && <p>Analyze valid reference and footage colors before generating or regenerating a suggestion.</p>}
     {error && <p role="alert">{error}</p>}
@@ -121,5 +122,6 @@ export function ColorRecipe({ projectId, analysesReady }: { projectId: string; a
     </>}
     <button disabled={busy} onClick={() => void run("reload")}>{dirty ? "Discard changes and reload" : "Reload saved recipe"}</button>
     {busy && <p role="status">Saving or loading recipe…</p>}
+    <RenderVideo projectId={projectId} revision={recipe?.revision ?? null} recipeReady={result?.status === "ready"} dirty={dirty} busy={busy} />
   </section>;
 }
