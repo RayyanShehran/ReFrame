@@ -19,7 +19,7 @@ import projects
 import reference_engine as engine
 from references import ReferenceError
 
-VERSION = "sdr-eq-mp4-v1"
+VERSION = "sdr-eq-mp4-v2"
 TOTAL_SECONDS = 300
 MAX_BYTES = 100 * 1024 * 1024
 TEMP_BUDGET = 120 * 1024 * 1024
@@ -46,7 +46,7 @@ class Settings(color.Schema):
 
 class Spec(color.Schema):
     schema_version: Literal[1] = 1
-    renderer_version: Literal["sdr-eq-mp4-v1"] = VERSION
+    renderer_version: str = Field(default=VERSION, pattern=r"^sdr-eq-mp4-v[1-9][0-9]*$")
     recipe_revision: int = Field(ge=1, strict=True)
     reference: recipe.ReferenceBinding
     footage: recipe.FootageBinding
@@ -123,10 +123,30 @@ def get_operation(project_id, require_active=False):
     output = Output.model_validate_json(completed["metadata"]) if completed else None
     if output:
         path = destination(project_id, output.output_id)
-        if not path.is_file() or path.stat().st_size != output.size_bytes:
-            raise ReferenceError(
-                409, "output_unavailable", "The saved render is missing or changed."
+        try:
+            valid = (
+                path.is_file()
+                and path.stat().st_size == output.size_bytes
+                and color.digest(path, max_bytes=MAX_BYTES) == output.sha256
             )
+        except ReferenceError as exc:
+            if exc.code == "deadline":
+                raise
+            valid = False
+        if not valid:
+            path.unlink(missing_ok=True)
+            with projects.database() as connection:
+                connection.execute("DELETE FROM render_outputs WHERE project_id=?", (project_id,))
+                if row and row["state"] != "running":
+                    connection.execute(
+                        "UPDATE render_operations SET state='failed',"
+                        "failure_code='output_unavailable',message=? WHERE project_id=?",
+                        (
+                            "The saved render is missing or changed. Retry rendering explicitly.",
+                            project_id,
+                        ),
+                    )
+            return get_operation(project_id, require_active)
     spec = Spec.model_validate_json(row["spec"]) if row else None
     outdated = False
     if spec or output:
@@ -163,10 +183,6 @@ def served_output(project_id, output_id):
     if not output or str(output.output_id) != output_id:
         raise ReferenceError(404, "output_not_found", "This completed render is unavailable.")
     path = destination(project_id, output_id)
-    if color.digest(path, max_bytes=MAX_BYTES) != output.sha256:
-        raise ReferenceError(
-            409, "output_changed", "The rendered file no longer matches its saved hash."
-        )
     return path, output, operation.outdated
 
 
@@ -334,6 +350,9 @@ def pipeline(source, directory, stop, deadline):
             .splitlines()[0]
         )
         video, audio, duration = probe(path, directory, deadline)
+        video_start = float(video.get("start_time", 0))
+        if not math.isfinite(video_start):
+            raise ValueError("Invalid video start timestamp")
         metadata = color.inspect_colors(video)
         width, height = dimensions(video)
         values = spec.effective
@@ -341,7 +360,7 @@ def pipeline(source, directory, stop, deadline):
         filters = (
             f"setpts=PTS-STARTPTS,scale={width}:{height}:flags=area:"
             f"in_range={'full' if metadata.color_range == 'pc' else 'limited'}:"
-            "out_range=limited:out_color_matrix=bt709,"
+            "out_range=limited:in_color_matrix=bt709:out_color_matrix=bt709,"
             f"setsar=1,format=yuv420p,eq=brightness={values.brightness}:contrast={values.contrast}:saturation={values.saturation},fps=30:round=near"
         )
         target = directory / "output.mp4"
@@ -353,6 +372,7 @@ def pipeline(source, directory, stop, deadline):
             "-xerror",
             "-protocol_whitelist",
             "file",
+            "-copyts",
             "-i",
             str(path),
             "-map",
@@ -381,7 +401,7 @@ def pipeline(source, directory, stop, deadline):
                 "-map",
                 f"0:{audio['index']}",
                 "-af",
-                "asetpts=PTS-STARTPTS",
+                f"asetpts=PTS-{video_start}/TB,atrim=start=0",
                 "-c:a",
                 "aac",
                 "-ar",
@@ -452,6 +472,14 @@ def pipeline(source, directory, stop, deadline):
         frames, samples = decode_counts(raw, bool(audio))
         if abs(frames / 30 - rendered_duration) > 1 / 30:
             raise ValueError("Incomplete decoded video")
+        if rendered_audio:
+            audio_duration = float(rendered_audio["duration"])
+            if (
+                not math.isfinite(audio_duration)
+                or not 0 < audio_duration <= duration + 0.1
+                or abs(samples / 48000 - audio_duration) > 2 * 1024 / 48000
+            ):
+                raise ValueError("Incomplete decoded audio")
         digest = color.digest(target, stop, deadline, max_bytes=MAX_BYTES)
         return target, Output(
             output_id=directory.name,
@@ -543,6 +571,16 @@ def commit(project_id, operation_id, path, output, stop, deadline):
                 connection.execute(
                     "UPDATE render_outputs SET output_id=?,metadata=? WHERE project_id=?",
                     (old["output_id"], old["metadata"], project_id),
+                )
+                connection.execute(
+                    "UPDATE render_operations SET state='failed',"
+                    "failure_code='cleanup_failure',message=? "
+                    "WHERE project_id=? AND operation_id=?",
+                    (
+                        "Previous render cleanup failed; replacement was not published.",
+                        project_id,
+                        operation_id,
+                    ),
                 )
             raise ReferenceError(
                 500,

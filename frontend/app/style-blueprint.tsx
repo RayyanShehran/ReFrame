@@ -72,7 +72,7 @@ export function StyleBlueprint({ projectId, footage = false, onChange }: { proje
       {b.color_metadata.warnings.map(w => <p role="note" className="error" key={w}>{w}</p>)}
       <p className="hint">{b.color_metadata.assumption}</p>
       <ul className="hint">{b.interpretation_limits.map(limit => <li key={limit}>{limit}</li>)}</ul>
-      <p>No footage matching, blueprint editing, edit planning or rendering is implemented.</p>
+      <p>These measurements are read-only. Saved color settings and color-only rendering are separate below. Footage matching and edit planning are not implemented.</p>
     </>}
   </section>;
 }

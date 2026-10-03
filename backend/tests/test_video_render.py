@@ -5,6 +5,7 @@ import shutil
 import subprocess
 import threading
 import time
+from pathlib import Path
 
 import pytest
 
@@ -12,6 +13,7 @@ import projects
 import reference_engine as engine
 import reference_jobs as jobs
 import video_render as render
+from references import ReferenceError
 from tests.test_color_analysis import finish, generated
 from tests.test_color_analysis import local as color_fixture
 from tests.test_color_recipe import seed_analyses
@@ -189,9 +191,81 @@ def test_real_serving_ranges_download_hash_deletion_and_replacement(local):
     changed = bytearray(path.read_bytes())
     changed[-1] ^= 1
     path.write_bytes(changed)
-    assert client.get(new_url).json()["error"]["code"] == "output_changed"
+    assert client.get(new_url).json()["error"]["code"] == "output_not_found"
+    assert (
+        client.get(f"/api/projects/{saved['id']}/render").json()["failure_code"]
+        == "output_unavailable"
+    )
     assert client.delete(f"/api/projects/{saved['id']}").status_code == 204
     assert client.get(new_url).status_code == 404
+
+
+def test_completed_replacement_cleanup_failure_preserves_previous(local, monkeypatch):
+    client, directory, _ = local
+    saved, url, _ = prepared(client, directory)
+    neutral = {"brightness": 0, "contrast": 1, "saturation": 1}
+    old = run(client, saved, selected(client, url, neutral))
+    previous = render.destination(saved["id"], old.output_id)
+    original = Path.unlink
+
+    def cannot_remove_old(path, *args, **kwargs):
+        if path == previous:
+            raise PermissionError("Injected old-file cleanup failure")
+        return original(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "unlink", cannot_remove_old)
+    revision = selected(client, url, {**neutral, "brightness": 0.1})
+    endpoint = f"/api/projects/{saved['id']}/render"
+    client.post(endpoint, json={"expected_revision": revision})
+    failed = finish(client, endpoint)
+    assert failed["failure_code"] == "cleanup_failure" and failed["status"] == "failed"
+    assert failed["output"]["output_id"] == str(old.output_id)
+    assert list(previous.parent.glob("render-*.mp4")) == [previous]
+    assert not list((projects.DATA_DIR / render.STAGING).iterdir())
+    monkeypatch.setattr(Path, "unlink", original)
+    assert run(client, saved, revision).output_id != old.output_id
+
+
+def test_output_limit_and_source_change_before_publication(local, monkeypatch):
+    client, directory, _ = local
+    saved, _, source_path = prepared(client, directory)
+    operation, source = render.begin_operation(saved["id"], 1)
+    stop, deadline = threading.Event(), time.monotonic() + 30
+    monkeypatch.setattr(render, "MAX_BYTES", 1)
+    with pytest.raises(engine.RetrievalFailure) as caught:
+        render.pipeline(source, render.staging(operation.operation_id), stop, deadline)
+    assert caught.value.code == "output_limit"
+    render.clean_stage(operation.operation_id)
+    monkeypatch.setattr(render, "MAX_BYTES", 100 * 1024 * 1024)
+    path, output = render.pipeline(source, render.staging(operation.operation_id), stop, deadline)
+    source_path.write_bytes(b"changed after encoding")
+    with pytest.raises(ReferenceError):
+        render.commit(saved["id"], operation.operation_id, path, output, stop, deadline)
+    assert render.get_operation(saved["id"]).output is None
+    render.clean_stage(operation.operation_id)
+
+
+def test_previous_renderer_version_is_readable_but_outdated(local):
+    client, directory, _ = local
+    saved, url, _ = prepared(client, directory)
+    output = run(
+        client, saved, selected(client, url, {"brightness": 0, "contrast": 1, "saturation": 1})
+    )
+    with projects.database() as connection:
+        metadata = output.model_dump(mode="json")
+        metadata["spec"]["renderer_version"] = "sdr-eq-mp4-v1"
+        connection.execute(
+            "UPDATE render_outputs SET metadata=? WHERE project_id=?",
+            (json.dumps(metadata), saved["id"]),
+        )
+        connection.execute(
+            "UPDATE render_operations SET spec=? WHERE project_id=?",
+            (json.dumps(metadata["spec"]), saved["id"]),
+        )
+    operation = render.get_operation(saved["id"])
+    assert operation.status == "ready" and operation.outdated
+    assert operation.output.output_id == output.output_id
+    assert render.reusable(saved["id"], output.spec.recipe_revision) is None
 
 
 @pytest.mark.parametrize("rotate,audio", [(False, False), (True, False), (False, True)])

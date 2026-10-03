@@ -262,7 +262,11 @@ def get_operation(project_id, require_active=False, *, component=None, stop=None
     blueprint = None
     if row["state"] == "ready":
         try:
-            current = module.source(project_id, stop, deadline)
+            current = (
+                module.source(project_id)
+                if stop is None and deadline is None
+                else module.source(project_id, stop, deadline)
+            )
             if row["source_hash"] != current["identity"].media_sha256:
                 raise ReferenceError(409, "source_changed", "The analysis source has changed.")
             if row["algorithm_version"] != module.ALGORITHM:
