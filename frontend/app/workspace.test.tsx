@@ -34,7 +34,7 @@ it("creates, uploads, restores on refresh, and confirms deletion by name", async
   fireEvent.change(screen.getByLabelText("Video clip"), { target: { files: [new File(["video"], "saved.mp4", { type: "video/mp4" })] } });
   fireEvent.click(screen.getByRole("button", { name: "Save clip" }));
   await screen.findByLabelText("Accepted clip details");
-  expect(screen.getByText(/Your clip is saved locally for this project/)).toBeInTheDocument();
+  expect(screen.getByText(/Your original clip is saved locally; rendering creates a separate output/)).toBeInTheDocument();
   expect(screen.queryByLabelText("Video clip")).not.toBeInTheDocument();
   view.unmount();
   render(<Workspace />);

@@ -142,4 +142,6 @@ Local verification: plan/storage checks **19 passed, 1 skipped** (the real-uploa
 
 Limitations: estimated detector timing and conservative frame rounding, no semantic selection, visible jumps only where source time is skipped, hard audio boundaries may click, lossy AAC/H.264 and CFR conversion, ordinary SDR only and inherited single-process/containment/polling-overshoot limitations. No transitions, captions, reference music, multi-clip workflow or new job framework.
 
+Final CI caught one workspace test still expecting the previous retention sentence. Its expectation was updated to the corrected original-clip/separate-output wording, followed by targeted workspace verification. No upload or rendering behavior changed; the final correction commit's full CI is checked at handoff.
+
 **Milestone 12: 100% implemented and verified, subject to architect acceptance. Overall remains the architect's 61% baseline pending re-estimation. This pass stops after Milestone 12.**
