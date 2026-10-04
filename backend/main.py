@@ -217,7 +217,10 @@ async def save_edit_plan(project_id: str, request: edit_plan.SaveRequest):
 )
 async def start_render(project_id: str, request: video_render.RenderRequest):
     return await reference_jobs.start(
-        project_id, analysis="render", expected_revision=request.expected_revision
+        project_id,
+        analysis="render",
+        expected_revision=request.expected_revision,
+        expected_plan_revision=request.expected_plan_revision,
     )
 
 

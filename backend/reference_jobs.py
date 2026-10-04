@@ -352,7 +352,7 @@ async def worker(project_id, operation_id, url, stop, analysis=False):
             active = None
 
 
-async def start(project_id, analysis=False, expected_revision=None):
+async def start(project_id, analysis=False, expected_revision=None, expected_plan_revision=None):
     global active
     projects.identifier(project_id)
     if analysis:
@@ -373,7 +373,9 @@ async def start(project_id, analysis=False, expected_revision=None):
             raise ReferenceError(409, "project_deleting", "Project deletion is in progress.")
         if analysis == "render":
             async with projects.operation_lock:
-                current = await projects.storage_call(color.reusable, project_id, expected_revision)
+                current = await projects.storage_call(
+                    color.reusable, project_id, expected_revision, expected_plan_revision
+                )
         else:
             current = await projects.storage_call(read, project_id, True)
         if current and current.status in {"running", "ready"}:
@@ -387,7 +389,11 @@ async def start(project_id, analysis=False, expected_revision=None):
         async def launch():
             global active
             async with projects.operation_lock:
-                args = (project_id, expected_revision) if analysis == "render" else (project_id,)
+                args = (
+                    (project_id, expected_revision, expected_plan_revision)
+                    if analysis == "render"
+                    else (project_id,)
+                )
                 operation, url = await projects.storage_call(begin, *args)
             if url:
                 stop = threading.Event()

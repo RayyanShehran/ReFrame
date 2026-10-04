@@ -14,12 +14,14 @@ from starlette.responses import FileResponse
 
 import color_analysis as color
 import color_recipe as recipe
+import edit_plan as cuts
 import footage_analysis as footage
 import projects
 import reference_engine as engine
 from references import ReferenceError
 
 VERSION = "sdr-eq-mp4-v2"
+CUTS_VERSION = "sdr-eq-mp4-v3"
 TOTAL_SECONDS = 300
 MAX_BYTES = 100 * 1024 * 1024
 TEMP_BUDGET = 120 * 1024 * 1024
@@ -52,6 +54,7 @@ class Spec(color.Schema):
     footage: recipe.FootageBinding
     effective: recipe.Values
     settings: Settings = Field(default_factory=Settings)
+    edit_plan: cuts.Plan | None = None
 
 
 class Output(color.Schema):
@@ -83,6 +86,7 @@ class Operation(color.Schema):
 
 class RenderRequest(color.Schema):
     expected_revision: int = Field(ge=1, strict=True)
+    expected_plan_revision: int | None = Field(default=None, ge=1, strict=True)
 
 
 def destination(project_id, output_id):
@@ -94,13 +98,25 @@ def destination(project_id, output_id):
     )
 
 
-def specification(project_id, expected_revision):
+def specification(project_id, expected_revision, expected_plan_revision=None):
     result = recipe.read(project_id)
     if result.status != "ready":
         raise ReferenceError(409, "recipe_stale", "Save a valid color recipe before rendering.")
     if result.recipe.revision != expected_revision:
         raise ReferenceError(409, "revision_conflict", "Recipe changed. Reload before rendering.")
+    plan = None
+    if expected_plan_revision is not None:
+        result_plan = cuts.read(project_id)
+        if result_plan.status != "ready":
+            raise ReferenceError(409, "plan_stale", "Save a valid cut plan before rendering cuts.")
+        if result_plan.plan.revision != expected_plan_revision:
+            raise ReferenceError(
+                409, "revision_conflict", "Cut plan changed. Reload before rendering."
+            )
+        plan = result_plan.plan
     return Spec(
+        renderer_version=CUTS_VERSION if plan else VERSION,
+        edit_plan=plan,
         recipe_revision=result.recipe.revision,
         reference=result.recipe.reference,
         footage=result.recipe.footage,
@@ -151,10 +167,19 @@ def get_operation(project_id, require_active=False):
     outdated = False
     if spec or output:
         try:
+            bound = output.spec if output else spec
+            current_plan = cuts.read(project_id) if bound.edit_plan else None
             current = recipe.read(project_id)
-            outdated = current.status != "ready" or specification(
-                project_id, current.recipe.revision
-            ) != (output.spec if output else spec)
+            outdated = (
+                current.status != "ready"
+                or (current_plan is not None and current_plan.status != "ready")
+                or specification(
+                    project_id,
+                    current.recipe.revision,
+                    current_plan.plan.revision if current_plan and current_plan.plan else None,
+                )
+                != bound
+            )
         except ReferenceError:
             outdated = True
     return Operation(
@@ -170,8 +195,8 @@ def get_operation(project_id, require_active=False):
     )
 
 
-def reusable(project_id, expected_revision):
-    spec = specification(project_id, expected_revision)
+def reusable(project_id, expected_revision, expected_plan_revision=None):
+    spec = specification(project_id, expected_revision, expected_plan_revision)
     current = get_operation(project_id, True)
     return current if current.status in {"running", "ready"} and current.spec == spec else None
 
@@ -204,17 +229,20 @@ class VideoResponse(FileResponse):
                 served_output, self.project_id, self.output_id
             )
             self.headers["X-Recipe-Revision"] = str(output.spec.recipe_revision)
+            self.headers["X-Edit-Plan-Revision"] = (
+                str(output.spec.edit_plan.revision) if output.spec.edit_plan else "none"
+            )
             self.headers["X-Render-Outdated"] = str(outdated).lower()
             self.headers["Cache-Control"] = "no-store"
             await super().__call__(scope, receive, send)
 
 
-def begin_operation(project_id, expected_revision):
-    current = reusable(project_id, expected_revision)
+def begin_operation(project_id, expected_revision, expected_plan_revision=None):
+    current = reusable(project_id, expected_revision, expected_plan_revision)
     if current:
         return current, None
     prepare_delete(project_id)
-    spec = specification(project_id, expected_revision)
+    spec = specification(project_id, expected_revision, expected_plan_revision)
     source = footage.source(project_id)
     operation_id = str(uuid.uuid4())
     with projects.database() as connection:
@@ -336,6 +364,39 @@ def decode_counts(raw, has_audio):
     return frames, samples
 
 
+def cut_graph(spec, video, audio, video_start, resize):
+    """Chronological select concatenates video without buffering sixty video branches."""
+    plan = spec.edit_plan
+    selection = "+".join(
+        f"gte(n,{s.source_start_frame})*lt(n,{s.source_end_frame})" for s in plan.segments
+    )
+    v = spec.effective
+    graph = (
+        f"[0:{video['index']}]setpts=PTS-STARTPTS,{resize},fps=30:round=near,"
+        f"select='{selection}',setpts=N/(30*TB),"
+        f"eq=brightness={v.brightness}:contrast={v.contrast}:saturation={v.saturation}[vout]"
+    )
+    if audio:
+        count = len(plan.segments)
+        graph += (
+            f";[0:{audio['index']}]asetpts=PTS-{video_start}/TB,"
+            "aresample=48000:async=1:first_pts=0,"
+            f"apad=whole_len={plan.footage_frames * 1600},"
+            f"atrim=end_sample={plan.footage_frames * 1600},"
+            f"asplit={count}" + "".join(f"[a{i}]" for i in range(count))
+        )
+        for i, segment in enumerate(plan.segments):
+            graph += (
+                f";[a{i}]atrim=start_sample={segment.source_start_frame * 1600}:"
+                f"end_sample={segment.source_end_frame * 1600},asetpts=PTS-STARTPTS[s{i}]"
+            )
+        graph += ";" + "".join(f"[s{i}]" for i in range(count))
+        graph += f"concat=n={count}:v=0:a=1[aout]"
+    if len(graph.encode("utf-8")) > 16 * 1024:
+        raise engine.RetrievalFailure("graph_limit", "Cut filter graph exceeds its 16 KiB limit.")
+    return graph
+
+
 def pipeline(source, directory, stop, deadline):
     directory.mkdir(parents=True, exist_ok=False)
     engine._control.stop = stop
@@ -357,11 +418,15 @@ def pipeline(source, directory, stop, deadline):
         width, height = dimensions(video)
         values = spec.effective
         # Normalize range before eq; output is tagged limited BT.709. Autorotation is enabled.
-        filters = (
-            f"setpts=PTS-STARTPTS,scale={width}:{height}:flags=area:"
+        resize = (
+            f"scale={width}:{height}:flags=area:"
             f"in_range={'full' if metadata.color_range == 'pc' else 'limited'}:"
             "out_range=limited:in_color_matrix=bt709:out_color_matrix=bt709,"
-            f"setsar=1,format=yuv420p,eq=brightness={values.brightness}:contrast={values.contrast}:saturation={values.saturation},fps=30:round=near"
+            "setsar=1,format=yuv420p"
+        )
+        filters = (
+            f"setpts=PTS-STARTPTS,{resize},eq=brightness={values.brightness}:"
+            f"contrast={values.contrast}:saturation={values.saturation},fps=30:round=near"
         )
         target = directory / "output.mp4"
         args = [
@@ -375,10 +440,20 @@ def pipeline(source, directory, stop, deadline):
             "-copyts",
             "-i",
             str(path),
-            "-map",
-            f"0:{video['index']}",
-            "-vf",
-            filters,
+        ]
+        if spec.edit_plan:
+            if spec.edit_plan.footage_frames > cuts.frames(duration, cuts.ROUND_FLOOR):
+                raise ValueError("Cut plan exceeds decoded source duration")
+            duration = spec.edit_plan.output_frames / 30
+            args += [
+                "-filter_complex",
+                cut_graph(spec, video, audio, video_start, resize),
+                "-map",
+                "[vout]",
+            ]
+        else:
+            args += ["-map", f"0:{video['index']}", "-vf", filters]
+        args += [
             "-c:v",
             "libx264",
             "-preset",
@@ -397,11 +472,17 @@ def pipeline(source, directory, stop, deadline):
             "tv",
         ]
         if audio:
+            args += (
+                ["-map", "[aout]"]
+                if spec.edit_plan
+                else [
+                    "-map",
+                    f"0:{audio['index']}",
+                    "-af",
+                    f"asetpts=PTS-{video_start}/TB,atrim=start=0",
+                ]
+            )
             args += [
-                "-map",
-                f"0:{audio['index']}",
-                "-af",
-                f"asetpts=PTS-{video_start}/TB,atrim=start=0",
                 "-c:a",
                 "aac",
                 "-ar",
@@ -470,6 +551,8 @@ def pipeline(source, directory, stop, deadline):
             limit=2 * 1024 * 1024,
         )
         frames, samples = decode_counts(raw, bool(audio))
+        if spec.edit_plan and frames != spec.edit_plan.output_frames:
+            raise ValueError("Incomplete cut frames")
         if abs(frames / 30 - rendered_duration) > 1 / 30:
             raise ValueError("Incomplete decoded video")
         if rendered_audio:
@@ -527,6 +610,12 @@ def commit(project_id, operation_id, path, output, stop, deadline):
         raise engine.RetrievalFailure(
             "source_changed", "Render sources changed before publication."
         )
+    if output.spec.edit_plan:
+        _, binding, source, _ = cuts.bindings(project_id, stop=stop, deadline=deadline)
+        if binding != output.spec.edit_plan.pacing or source != output.spec.edit_plan.footage:
+            raise engine.RetrievalFailure(
+                "source_changed", "Cut plan sources changed before publication."
+            )
     target = destination(project_id, output.output_id)
     with projects.database() as connection:
         project = projects.row_project(connection, project_id)
