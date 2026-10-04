@@ -82,7 +82,7 @@ export function EditPlan({ projectId, recipeReady, onState }: { projectId: strin
   const continuous = !!plan && starts.every((s, i) => !i || Math.round(Number(s) * 30) === Math.round(Number(starts[i - 1]) * 30) + plan.segments[i - 1].output_end_frame - plan.segments[i - 1].output_start_frame);
   return <section className="reference-section" aria-label="Cut plan">
     <h3>Reference-paced cut plan</h3>
-    <p className="hint">An experimental timing suggestion from estimated reference shot lengths, not semantic matching. Review the footage ranges. No transitions, captions or reference music are added.</p>
+    <p className="hint">An experimental timing suggestion from estimated reference shot lengths, not semantic matching. Review the footage ranges. No transitions or captions are added. Audio choices are saved separately below.</p>
     {!result && !error && <p role="status">Loading cut plan…</p>}
     {result?.message && <p role={ready ? "note" : "alert"}>{result.message}</p>}
     {!recipeReady && <p>Save a valid color recipe before generating or rendering cuts.</p>}

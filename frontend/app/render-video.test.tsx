@@ -10,7 +10,7 @@ afterEach(() => vi.unstubAllGlobals());
 
 it("binds saved plan and recipe revisions and blocks unsaved cuts only in cut mode", async () => {
   const mock = vi.fn(async (_url: string, options: RequestInit) => {
-    if (options.method === "POST") expect(JSON.parse(options.body as string)).toEqual({ expected_revision: 2, expected_plan_revision: 3 });
+    if (options.method === "POST") expect(JSON.parse(options.body as string)).toEqual({ expected_revision: 2, expected_audio_revision: 0, expected_plan_revision: 3 });
     return ok(idle);
   });
   vi.stubGlobal("fetch", mock);
@@ -28,7 +28,7 @@ it("binds saved plan and recipe revisions and blocks unsaved cuts only in cut mo
 it("requires a saved valid recipe and sends only its revision, then restores native playback", async () => {
   let result = idle as unknown;
   const mock = vi.fn(async (_url: string, options: RequestInit) => {
-    if (options.method === "POST") { expect(JSON.parse(options.body as string)).toEqual({ expected_revision: 2 }); result = ready; }
+    if (options.method === "POST") { expect(JSON.parse(options.body as string)).toEqual({ expected_revision: 2, expected_audio_revision: 0 }); result = ready; }
     return ok(result);
   });
   vi.stubGlobal("fetch", mock);
@@ -64,4 +64,19 @@ it("blocks stale recipes and rejects malformed output instead of creating file l
   await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Invalid rendered video response."));
   expect(screen.getByRole("button", { name: "Render video" })).toBeDisabled();
   expect(screen.queryByRole("link", { name: "Download MP4" })).not.toBeInTheDocument();
+});
+
+it("blocks unsaved audio and binds its saved revision while preserving outdated playback", async () => {
+  vi.stubGlobal("fetch", vi.fn(async (_url: string, options: RequestInit) => {
+    if (options.method === "POST") expect(JSON.parse(options.body as string)).toEqual({ expected_revision: 2, expected_audio_revision: 3 });
+    return ok({ ...ready, output: { ...ready.output, spec: { recipe_revision: 2, audio: { revision: 2, mode: "reference" } } } });
+  }));
+  const state = { revision: 3, ready: true, dirty: true, busy: false };
+  const view = render(<RenderVideo projectId="project" revision={2} recipeReady dirty={false} busy={false} audioState={state} />);
+  expect(await screen.findByText(/Reference audio.*Audio revision 2/)).toBeInTheDocument();
+  expect(screen.getByText(/Outdated output/)).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Render video" })).toBeDisabled();
+  view.rerender(<RenderVideo projectId="project" revision={2} recipeReady dirty={false} busy={false} audioState={{ ...state, dirty: false }} />);
+  fireEvent.click(screen.getByRole("button", { name: "Render video" }));
+  await waitFor(() => expect(fetch).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ method: "POST" })));
 });
