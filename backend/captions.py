@@ -98,6 +98,7 @@ class Result(color.Schema):
     status: Literal["default", "ready", "stale"]
     track: Track
     message: str | None = None
+    whole_duration_seconds: float | None = Field(default=None, gt=0, le=120, allow_inf_nan=False)
 
 
 class SaveRequest(Choices):
@@ -154,8 +155,10 @@ def record(project_id):
 
 def read(project_id):
     row = record(project_id)
+    clip = projects.get_project(project_id).clip
+    whole_duration = clip.duration_seconds if clip else None
     if not row:
-        return Result(status="default", track=Track())
+        return Result(status="default", track=Track(), whole_duration_seconds=whole_duration)
     track = Track.model_validate_json(row["track"])
     message = row["message"]
     if row["state"] == "ready":
@@ -178,6 +181,7 @@ def read(project_id):
         status="stale" if message or row["state"] == "stale" else "ready",
         track=track,
         message=message,
+        whole_duration_seconds=whole_duration,
     )
 
 

@@ -63,3 +63,6 @@ footer { color: #8ea095; margin-top: auto; padding-top: 80px; font-size: .78rem;
 .cut-table table { width: 100%; border-collapse: collapse; }
 .cut-table th, .cut-table td { padding: .5rem; text-align: left; border-bottom: 1px solid #35413a; }
 .reference-section input[type="number"], .reference-section select { max-width: 100%; width: 12rem; padding: .5rem; color: #f0eee7; background: #1a231e; border: 1px solid #718474; border-radius: 6px; }
+.caption-cue { display: grid; gap: .5rem; min-width: 0; padding: .75rem; }
+.caption-cue textarea { width: 100%; resize: vertical; font: inherit; color: #f0eee7; background: #1a231e; border: 1px solid #718474; border-radius: 6px; padding: .5rem; }
+.caption-text { display: block; white-space: pre-wrap; overflow-wrap: anywhere; }

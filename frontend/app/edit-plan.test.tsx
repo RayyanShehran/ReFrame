@@ -25,7 +25,7 @@ it("generates, validates edits, saves only starts and revision, and restores", a
   expect(screen.getByRole("button", { name: "Save cut plan" })).toBeDisabled();
   fireEvent.change(input, { target: { value: "2" } });
   fireEvent.click(screen.getByRole("button", { name: "Save cut plan" }));
-  await waitFor(() => expect(onState).toHaveBeenLastCalledWith({ revision: 2, ready: true, dirty: false, busy: false }));
+  await waitFor(() => expect(onState).toHaveBeenLastCalledWith({ revision: 2, ready: true, dirty: false, busy: false, duration: 3 }));
   view.unmount();
   render(<EditPlan projectId="first" recipeReady onState={onState} />);
   expect(await screen.findByRole("spinbutton", { name: "Segment 2 source start" })).toHaveValue(2);

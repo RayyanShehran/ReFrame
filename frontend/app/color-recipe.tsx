@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { RenderVideo } from "./render-video";
 import { EditPlan, PlanState } from "./edit-plan";
 import { AudioChoices, AudioState } from "./audio-choices";
+import { CaptionEditor, CaptionState } from "./caption-editor";
 
 type Values = { brightness: number; contrast: number; saturation: number };
 type Recipe = { schema_version: 1; suggestion_algorithm_version: string; suggested: Values;
@@ -56,6 +57,7 @@ export function ColorRecipe({ projectId, analysesReady }: { projectId: string; a
   const [confirmRegenerate, setConfirmRegenerate] = useState(false);
   const [planState, setPlanState] = useState<PlanState>({ revision: null, ready: false, dirty: false, busy: false });
   const [audioState, setAudioState] = useState<AudioState>({ revision: null, ready: false, dirty: false, busy: false });
+  const [captionState, setCaptionState] = useState<CaptionState>({ revision: null, ready: false, dirty: false, busy: false, enabled: false, mode: null, planRevision: null });
   const action = useRef<AbortController | null>(null);
   const recipe = result?.recipe;
   const dirty = !!recipe && (fields.some(f => draft.selected[f.name] !== recipe.selected[f.name]) || draft.strength !== recipe.strength);
@@ -128,6 +130,7 @@ export function ColorRecipe({ projectId, analysesReady }: { projectId: string; a
     {busy && <p role="status">Saving or loading recipe…</p>}
     <EditPlan key={`plan-${projectId}`} projectId={projectId} recipeReady={result?.status === "ready" && !dirty && !busy} onState={setPlanState} />
     <AudioChoices key={`audio-${projectId}`} projectId={projectId} onState={setAudioState} />
-    <RenderVideo projectId={projectId} revision={recipe?.revision ?? null} recipeReady={result?.status === "ready"} dirty={dirty} busy={busy} planState={planState} audioState={audioState} />
+    <CaptionEditor key={`captions-${projectId}`} projectId={projectId} planState={planState} onState={setCaptionState} />
+    <RenderVideo projectId={projectId} revision={recipe?.revision ?? null} recipeReady={result?.status === "ready"} dirty={dirty} busy={busy} planState={planState} audioState={audioState} captionState={captionState} />
   </section>;
 }

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 
-export type PlanState = { revision: number | null; ready: boolean; dirty: boolean; busy: boolean };
+export type PlanState = { revision: number | null; ready: boolean; dirty: boolean; busy: boolean; duration?: number | null };
 type Segment = { source_start_frame: number; source_end_frame: number; output_start_frame: number; output_end_frame: number };
 type Plan = { schema_version: 1; fps: 30; revision: number; output_frames: number; footage_frames: number;
   requested_duration_seconds: number; segments: Segment[]; suggested_source_starts: number[]; merged_subframe_intervals: number };
@@ -55,7 +55,8 @@ export function EditPlan({ projectId, recipeReady, onState }: { projectId: strin
     return !!s.trim() && Number.isFinite(start) && start >= previous && start + length <= plan.footage_frames;
   });
   const revision = plan?.revision ?? null, ready = result?.status === "ready";
-  useEffect(() => { onState({ revision, ready, dirty, busy }); }, [onState, revision, ready, dirty, busy]);
+  const outputDuration = plan ? plan.output_frames / 30 : null;
+  useEffect(() => { onState({ revision, ready, dirty, busy, duration: outputDuration }); }, [onState, revision, ready, dirty, busy, outputDuration]);
   function restore(value: Result) {
     setResult(value); setError(""); setConfirm(false);
     setStarts(value.plan?.segments.map(s => String(s.source_start_frame / 30)) ?? []);
@@ -82,7 +83,7 @@ export function EditPlan({ projectId, recipeReady, onState }: { projectId: strin
   const continuous = !!plan && starts.every((s, i) => !i || Math.round(Number(s) * 30) === Math.round(Number(starts[i - 1]) * 30) + plan.segments[i - 1].output_end_frame - plan.segments[i - 1].output_start_frame);
   return <section className="reference-section" aria-label="Cut plan">
     <h3>Reference-paced cut plan</h3>
-    <p className="hint">An experimental timing suggestion from estimated reference shot lengths, not semantic matching. Review the footage ranges. No transitions or captions are added. Audio choices are saved separately below.</p>
+    <p className="hint">An experimental timing suggestion from estimated reference shot lengths, not semantic matching. Review the footage ranges. No transitions are added. Audio and manual captions are saved separately below.</p>
     {!result && !error && <p role="status">Loading cut plan…</p>}
     {result?.message && <p role={ready ? "note" : "alert"}>{result.message}</p>}
     {!recipeReady && <p>Save a valid color recipe before generating or rendering cuts.</p>}
