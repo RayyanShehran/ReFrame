@@ -1,14 +1,15 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { Application, TranscriptionReview } from "./transcription-review";
 import { PlanState } from "./edit-plan";
 
 type Mode = "whole" | "cuts";
 type Cue = { start: number; end: number; text: string };
 type DraftCue = { start: string; end: string; text: string };
 type Style = { color: "white" | "yellow"; size: "small" | "medium" | "large"; placement: "bottom-center" | "center" };
-type Track = { schema_version: 1; revision: number; enabled: boolean; cues: Cue[]; style: Style; provenance: "manual" | "srt_import";
-  timeline: { mode: Mode; plan_revision: number | null; duration_seconds: number } | null };
+type Track = { schema_version: 1; revision: number; enabled: boolean; cues: Cue[]; style: Style; provenance: "manual" | "srt_import" | "automatic_transcription";
+  automatic_proposal_id?: string | null; timeline: { mode: Mode; plan_revision: number | null; duration_seconds: number } | null };
 type Result = { status: "default" | "ready" | "stale"; track: Track; message: string | null; whole_duration_seconds: number | null };
 export type CaptionState = { revision: number | null; ready: boolean; dirty: boolean; busy: boolean; enabled: boolean; mode: Mode | null; planRevision: number | null };
 const apiBase = (process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000").replace(/\/$/, "");
@@ -23,7 +24,7 @@ function parse(data: unknown): Result {
   const r = data as Result, t = r?.track;
   if (!r || !["default", "ready", "stale"].includes(r.status) || !t || t.schema_version !== 1 ||
     !Number.isSafeInteger(t.revision) || t.revision < 0 || typeof t.enabled !== "boolean" || !validCues(t.cues) ||
-    !["manual", "srt_import"].includes(t.provenance) || !t.style || !["white", "yellow"].includes(t.style.color) ||
+    !["manual", "srt_import", "automatic_transcription"].includes(t.provenance) || (t.provenance === "automatic_transcription" && typeof t.automatic_proposal_id !== "string") || !t.style || !["white", "yellow"].includes(t.style.color) ||
     !["small", "medium", "large"].includes(t.style.size) || !["bottom-center", "center"].includes(t.style.placement) ||
     (t.revision > 0 && (!t.timeline || !["whole", "cuts"].includes(t.timeline.mode) || !finite(t.timeline.duration_seconds))) ||
     (r.whole_duration_seconds !== null && !finite(r.whole_duration_seconds))) throw new Error("Invalid caption response.");
@@ -51,7 +52,9 @@ export function CaptionEditor({ projectId, planState, onState }: { projectId: st
   const [enabled, setEnabled] = useState(false);
   const [style, setStyle] = useState(defaults);
   const [mode, setMode] = useState<Mode>("whole");
-  const [provenance, setProvenance] = useState<"manual" | "srt_import">("manual");
+  const [provenance, setProvenance] = useState<"manual" | "srt_import" | "automatic_transcription">("manual");
+  const [automaticId, setAutomaticId] = useState<string | null>(null);
+  const [proposalBusy, setProposalBusy] = useState(false);
   const [preview, setPreview] = useState<Cue[] | null>(null);
   const [confirmation, setConfirmation] = useState<string | null>(null);
   const confirmationTarget = `${mode}:${mode === "cuts" ? planState.revision : 0}`;
@@ -67,7 +70,7 @@ export function CaptionEditor({ projectId, planState, onState }: { projectId: st
   const boundMode = track?.timeline?.mode ?? null, boundPlan = track?.timeline?.plan_revision ?? null;
   const ready = !!track && (!track.enabled || (result?.status !== "stale" && (boundMode !== "cuts" || (planState.ready && planState.revision === boundPlan))));
   const savedEnabled = track?.enabled ?? false;
-  useEffect(() => { onState({ revision, ready, dirty, busy, enabled: savedEnabled, mode: boundMode, planRevision: boundPlan }); }, [onState, revision, ready, dirty, busy, savedEnabled, boundMode, boundPlan]);
+  useEffect(() => { onState({ revision, ready, dirty, busy: busy || proposalBusy, enabled: savedEnabled, mode: boundMode, planRevision: boundPlan }); }, [onState, revision, ready, dirty, busy, proposalBusy, savedEnabled, boundMode, boundPlan]);
   const duration = mode === "cuts" ? planState.duration ?? null : result?.whole_duration_seconds ?? null;
   const needsRebind = !!track?.revision && (result?.status === "stale" || mode !== boundMode || (mode === "cuts" && boundPlan !== planState.revision));
   const invalidIndex = numeric.findIndex((c, i) => !cues[i].start.trim() || !cues[i].end.trim() || !validCues([c]) ||
@@ -76,7 +79,7 @@ export function CaptionEditor({ projectId, planState, onState }: { projectId: st
     (mode !== "cuts" || (planState.ready && !planState.dirty && !planState.busy));
   function restore(value: Result) {
     setResult(value); setCues(drafts(value.track.cues)); setEnabled(value.track.enabled); setStyle(value.track.style);
-    setMode(value.track.timeline?.mode ?? "whole"); setProvenance(value.track.provenance); setPreview(null); setConfirmation(null); setError("");
+    setMode(value.track.timeline?.mode ?? "whole"); setProvenance(value.track.provenance); setAutomaticId(value.track.automatic_proposal_id ?? null); setPreview(null); setConfirmation(null); setError("");
   }
   useEffect(() => {
     const controller = new AbortController();
@@ -92,6 +95,7 @@ export function CaptionEditor({ projectId, planState, onState }: { projectId: st
       const data = await request(projectId, controller.signal, kind === "save" ? {
         expected_revision: revision, mode, expected_plan_revision: mode === "cuts" ? planState.revision : null,
         confirm_rebind: confirm, enabled, style, provenance, cues: numeric,
+        ...(provenance === "automatic_transcription" ? { automatic_proposal_id: automaticId } : {}),
       } : undefined, file);
       if (!controller.signal.aborted) {
         if (kind === "import") { const imported = data as { cues: Cue[] }; if (!validCues(imported.cues) || !imported.cues.length) throw new Error("Invalid SRT preview."); setPreview(imported.cues); }
@@ -107,13 +111,15 @@ export function CaptionEditor({ projectId, planState, onState }: { projectId: st
   function edit(index: number, key: keyof DraftCue, value: string) { setCues(all => all.map((c, i) => i === index ? { ...c, [key]: value } : c)); setConfirm(false); }
   return <section className="reference-section" aria-label="Captions">
     <h3>Captions</h3>
-    <p className="hint">Manually authored or imported plain text, not automatic transcription or reference-caption extraction. Times use the final output timeline after cuts: start inclusive, end exclusive. Saving does not create a video preview.</p>
+    <p className="hint">Manual text, imported SRT, or reviewed automatic transcription. No reference-caption extraction. Times use the final output timeline after cuts: start inclusive, end exclusive. Saving does not create a video preview.</p>
     {!result && !error && <p role="status">Loading captions…</p>}
     {error && <p role="alert">{error}</p>}
     {result && <>
-      <p role="status">{!ready ? "Stale caption timeline" : dirty ? "Unsaved caption changes" : track?.revision ? "Captions saved" : "Captions disabled by default"} · Caption revision {revision} · {provenance === "srt_import" ? "Imported SRT (editable)" : "Manual text"}</p>
+      <p role="status">{!ready ? "Stale caption timeline" : dirty ? "Unsaved caption changes" : track?.revision ? "Captions saved" : "Captions disabled by default"} · Caption revision {revision} · {provenance === "srt_import" ? "Imported SRT (editable)" : provenance === "automatic_transcription" ? "Automatic transcription (reviewed/editable)" : "Manual text"}</p>
       {result.message && <p role="alert">{result.message}</p>}
-      <fieldset className="recipe-controls" disabled={busy}>
+      <TranscriptionReview key={projectId} projectId={projectId} revision={revision ?? 0} hasText={!!(cues.length || track?.cues.length || dirty)} draftToken={JSON.stringify(cues)} busy={busy}
+        onBusy={setProposalBusy} onApply={(value: Application) => { setCues(drafts(value.cues)); setMode(value.timeline.mode); setProvenance(value.provenance); setAutomaticId(value.automatic_proposal_id); setEnabled(true); setPreview(null); setConfirmation(null); setError(""); }} />
+      <fieldset className="recipe-controls" disabled={busy || proposalBusy}>
         <legend>Caption track</legend>
         <label><input type="checkbox" checked={enabled} onChange={e => { setEnabled(e.target.checked); setConfirm(false); }} /> Enable captions</label>
         <label>Caption timeline <select value={mode} onChange={e => { setMode(e.target.value as Mode); setConfirm(false); }}><option value="whole">Whole clip</option><option value="cuts" disabled={!planState.ready}>Saved cut plan</option></select></label>
@@ -124,7 +130,7 @@ export function CaptionEditor({ projectId, planState, onState }: { projectId: st
         <p className="hint">Dark outline · Size is relative to output height. Bundled DejaVu Sans supports English and Arabic; emoji, CJK and other unsupported glyphs may show missing symbols or vary with system fallback. Very short cues may fall between 30 fps frames; review the actual export.</p>
         <label>Import SRT<input type="file" accept=".srt,text/plain,application/x-subrip" onChange={e => { const file = e.target.files?.[0]; e.target.value = ""; if (file) void run("import", file); }} /></label>
         <p className="hint">UTF-8, at most 128 KiB, 200 cues, 200 characters and two explicit lines per cue. Formatting-looking text is shown literally.</p>
-        {preview && <div role="group" aria-label="SRT import preview"><h4>SRT preview: {preview.length} cues</h4><ol>{preview.map((c, i) => <li key={i}>{c.start}–{c.end} seconds <span className="caption-text">{c.text}</span></li>)}</ol><p>Replacing changes only this draft. All cue times are revalidated when saved.</p><button onClick={() => { setCues(drafts(preview)); setProvenance("srt_import"); setPreview(null); setConfirm(false); }}>Replace draft with imported cues</button><button onClick={() => setPreview(null)}>Cancel import</button></div>}
+        {preview && <div role="group" aria-label="SRT import preview"><h4>SRT preview: {preview.length} cues</h4><ol>{preview.map((c, i) => <li key={i}>{c.start}–{c.end} seconds <span className="caption-text">{c.text}</span></li>)}</ol><p>Replacing changes only this draft. All cue times are revalidated when saved.</p><button onClick={() => { setCues(drafts(preview)); setProvenance("srt_import"); setAutomaticId(null); setPreview(null); setConfirm(false); }}>Replace draft with imported cues</button><button onClick={() => setPreview(null)}>Cancel import</button></div>}
         {cues.map((c, i) => <fieldset key={i} className="caption-cue"><legend>Cue {i + 1}</legend>
           <label>Start (seconds)<input aria-label={`Cue ${i + 1} start`} type="number" min="0" max={duration ?? 120} step="any" value={c.start} onChange={e => edit(i, "start", e.target.value)} /></label>
           <label>End (seconds)<input aria-label={`Cue ${i + 1} end`} type="number" min="0" max={duration ?? 120} step="any" value={c.end} onChange={e => edit(i, "end", e.target.value)} /></label>
@@ -138,7 +144,7 @@ export function CaptionEditor({ projectId, planState, onState }: { projectId: st
         {confirm && <div role="group" aria-label="Confirm caption timeline rebind"><p>Rebind to {mode === "cuts" ? `cut plan revision ${planState.revision}` : "the whole clip"}? Text and entered times are preserved and every cue is revalidated. No cue shifts or truncation.</p><button disabled={!canSave} onClick={() => void run("save")}>Confirm rebind and save</button><button onClick={() => setConfirm(false)}>Cancel rebind</button></div>}
       </fieldset>
     </>}
-    <button disabled={busy} onClick={() => void run("reload")}>{dirty ? "Discard caption changes and reload" : "Reload saved captions"}</button>
+    <button disabled={busy || proposalBusy} onClick={() => void run("reload")}>{dirty ? "Discard caption changes and reload" : "Reload saved captions"}</button>
     {busy && <p role="status">Saving, importing or loading captions…</p>}
   </section>;
 }

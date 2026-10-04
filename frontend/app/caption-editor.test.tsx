@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { CaptionEditor } from "./caption-editor";
+vi.mock("./transcription-review", () => ({ TranscriptionReview: () => null }));
 
 const initial = { status: "default", whole_duration_seconds: 4, message: null, track: { schema_version: 1, revision: 0, enabled: false, cues: [] as { start: number; end: number; text: string }[], style: { color: "white", size: "medium", placement: "bottom-center" }, provenance: "manual", timeline: null as null | { mode: string; plan_revision: number | null; duration_seconds: number } } };
 const plan = { revision: 2, ready: true, dirty: false, busy: false, duration: 3 };
