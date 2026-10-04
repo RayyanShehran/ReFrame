@@ -12,6 +12,7 @@ from typing import Literal
 from pydantic import Field
 from starlette.responses import FileResponse
 
+import audio_settings as audio_choices
 import color_analysis as color
 import color_recipe as recipe
 import edit_plan as cuts
@@ -22,6 +23,7 @@ from references import ReferenceError
 
 VERSION = "sdr-eq-mp4-v2"
 CUTS_VERSION = "sdr-eq-mp4-v3"
+AUDIO_VERSION = "sdr-eq-mp4-v4"
 TOTAL_SECONDS = 300
 MAX_BYTES = 100 * 1024 * 1024
 TEMP_BUDGET = 120 * 1024 * 1024
@@ -55,6 +57,7 @@ class Spec(color.Schema):
     effective: recipe.Values
     settings: Settings = Field(default_factory=Settings)
     edit_plan: cuts.Plan | None = None
+    audio: audio_choices.Settings = Field(default_factory=audio_choices.Settings)
 
 
 class Output(color.Schema):
@@ -87,6 +90,7 @@ class Operation(color.Schema):
 class RenderRequest(color.Schema):
     expected_revision: int = Field(ge=1, strict=True)
     expected_plan_revision: int | None = Field(default=None, ge=1, strict=True)
+    expected_audio_revision: int | None = Field(default=None, ge=0, strict=True)
 
 
 def destination(project_id, output_id):
@@ -98,7 +102,9 @@ def destination(project_id, output_id):
     )
 
 
-def specification(project_id, expected_revision, expected_plan_revision=None):
+def specification(
+    project_id, expected_revision, expected_plan_revision=None, expected_audio_revision=None
+):
     result = recipe.read(project_id)
     if result.status != "ready":
         raise ReferenceError(409, "recipe_stale", "Save a valid color recipe before rendering.")
@@ -114,8 +120,24 @@ def specification(project_id, expected_revision, expected_plan_revision=None):
                 409, "revision_conflict", "Cut plan changed. Reload before rendering."
             )
         plan = result_plan.plan
+    audio = audio_choices.read(project_id)
+    if audio.status == "stale":
+        raise ReferenceError(409, "audio_stale", "Save valid audio choices before rendering.")
+    if expected_audio_revision is None:
+        # Old clients are compatible only while the default original mode is unchanged.
+        if audio.settings.revision:
+            raise ReferenceError(
+                409, "revision_conflict", "Include the saved audio revision before rendering."
+            )
+    elif expected_audio_revision != audio.settings.revision:
+        raise ReferenceError(409, "revision_conflict", "Audio changed. Reload before rendering.")
     return Spec(
-        renderer_version=CUTS_VERSION if plan else VERSION,
+        renderer_version=AUDIO_VERSION
+        if audio.settings.revision
+        else CUTS_VERSION
+        if plan
+        else VERSION,
+        audio=audio.settings,
         edit_plan=plan,
         recipe_revision=result.recipe.revision,
         reference=result.recipe.reference,
@@ -170,13 +192,16 @@ def get_operation(project_id, require_active=False):
             bound = output.spec if output else spec
             current_plan = cuts.read(project_id) if bound.edit_plan else None
             current = recipe.read(project_id)
+            current_audio = audio_choices.read(project_id)
             outdated = (
                 current.status != "ready"
                 or (current_plan is not None and current_plan.status != "ready")
+                or current_audio.status == "stale"
                 or specification(
                     project_id,
                     current.recipe.revision,
                     current_plan.plan.revision if current_plan and current_plan.plan else None,
+                    current_audio.settings.revision,
                 )
                 != bound
             )
@@ -195,8 +220,12 @@ def get_operation(project_id, require_active=False):
     )
 
 
-def reusable(project_id, expected_revision, expected_plan_revision=None):
-    spec = specification(project_id, expected_revision, expected_plan_revision)
+def reusable(
+    project_id, expected_revision, expected_plan_revision=None, expected_audio_revision=None
+):
+    spec = specification(
+        project_id, expected_revision, expected_plan_revision, expected_audio_revision
+    )
     current = get_operation(project_id, True)
     return current if current.status in {"running", "ready"} and current.spec == spec else None
 
@@ -233,16 +262,24 @@ class VideoResponse(FileResponse):
                 str(output.spec.edit_plan.revision) if output.spec.edit_plan else "none"
             )
             self.headers["X-Render-Outdated"] = str(outdated).lower()
+            self.headers["X-Audio-Revision"] = str(output.spec.audio.revision)
+            self.headers["X-Audio-Mode"] = output.spec.audio.mode
             self.headers["Cache-Control"] = "no-store"
             await super().__call__(scope, receive, send)
 
 
-def begin_operation(project_id, expected_revision, expected_plan_revision=None):
-    current = reusable(project_id, expected_revision, expected_plan_revision)
+def begin_operation(
+    project_id, expected_revision, expected_plan_revision=None, expected_audio_revision=None
+):
+    current = reusable(
+        project_id, expected_revision, expected_plan_revision, expected_audio_revision
+    )
     if current:
         return current, None
     prepare_delete(project_id)
-    spec = specification(project_id, expected_revision, expected_plan_revision)
+    spec = specification(
+        project_id, expected_revision, expected_plan_revision, expected_audio_revision
+    )
     source = footage.source(project_id)
     operation_id = str(uuid.uuid4())
     with projects.database() as connection:
@@ -318,6 +355,8 @@ def probe(path, directory, deadline):
     for field in ("width", "height", "index"):
         if type(video[field]) is not int or not 0 <= video[field] <= 4096:
             raise ValueError("Invalid video metadata")
+    if audio and (type(audio["index"]) is not int or not 0 <= audio["index"] <= 4096):
+        raise ValueError("Invalid audio metadata")
     return video, audio, duration
 
 
@@ -364,7 +403,7 @@ def decode_counts(raw, has_audio):
     return frames, samples
 
 
-def cut_graph(spec, video, audio, video_start, resize):
+def cut_graph(spec, video, audio, video_start, resize, audio_label="aout"):
     """Chronological select concatenates video without buffering sixty video branches."""
     plan = spec.edit_plan
     selection = "+".join(
@@ -391,10 +430,48 @@ def cut_graph(spec, video, audio, video_start, resize):
                 f"end_sample={segment.source_end_frame * 1600},asetpts=PTS-STARTPTS[s{i}]"
             )
         graph += ";" + "".join(f"[s{i}]" for i in range(count))
-        graph += f"concat=n={count}:v=0:a=1[aout]"
+        graph += f"concat=n={count}:v=0:a=1[{audio_label}]"
     if len(graph.encode("utf-8")) > 16 * 1024:
         raise engine.RetrievalFailure("graph_limit", "Cut filter graph exceeds its 16 KiB limit.")
     return graph
+
+
+def audio_graph(spec, original, video_start, reference, reference_start, duration):
+    """Reference is continuous output-time audio; only original follows footage cuts."""
+    settings = spec.audio
+    graph = []
+    total = round(duration * 48000)
+    if settings.mode in {"original", "mix"} and original:
+        if spec.edit_plan:
+            prefix = "[aorig]"
+        else:
+            prefix = f"[0:{original['index']}]asetpts=PTS-{video_start}/TB,atrim=start=0,"
+        chain = f"volume={settings.original_volume / 100}"
+        if settings.mode == "mix":
+            chain = (
+                "aresample=48000:async=1:first_pts=0,"
+                "aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,"
+                f"apad=whole_len={total},atrim=end_sample={total}," + chain
+            )
+        graph.append(prefix + chain + ("[original]" if settings.mode == "mix" else "[aout]"))
+    if settings.mode in {"reference", "mix"}:
+        offset = round(settings.reference_offset_seconds * 48000)
+        graph.append(
+            f"[1:{reference['index']}]asetpts=PTS-{reference_start}/TB,"
+            "aresample=48000:async=1:first_pts=0,"
+            "aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,"
+            f"apad=whole_len={offset + total},atrim=start_sample={offset}:"
+            f"end_sample={offset + total},"
+            f"asetpts=PTS-STARTPTS,volume={settings.reference_volume / 100}"
+            + ("[reference]" if settings.mode == "mix" else "[aout]")
+        )
+    if settings.mode == "mix":
+        graph.append(
+            "[original][reference]amix=inputs=2:duration=longest:normalize=0:dropout_transition=0,"
+            "alimiter=limit=0.95:attack=5:release=50:level=0:latency=1,"
+            f"atrim=end_sample={total},asetpts=PTS-STARTPTS[aout]"
+        )
+    return ";".join(graph)
 
 
 def pipeline(source, directory, stop, deadline):
@@ -441,18 +518,57 @@ def pipeline(source, directory, stop, deadline):
             "-i",
             str(path),
         ]
+        reference_audio, reference_start = None, 0
+        settings = spec.audio
+        if settings.mode in {"reference", "mix"}:
+            reference_path, binding, _ = audio_choices.reference_source(
+                source["project_id"], stop, deadline
+            )
+            if binding != settings.reference:
+                raise engine.RetrievalFailure(
+                    "source_changed", "Reference audio changed before rendering."
+                )
+            reference_video, reference_audio, reference_duration = probe(
+                reference_path, directory, deadline
+            )
+            reference_start = float(reference_video.get("start_time", 0))
+            if not reference_audio or not math.isfinite(reference_start):
+                raise ValueError("Reference audio is unavailable")
+            if settings.reference_offset_seconds >= reference_duration:
+                raise ValueError("Reference audio offset exceeds the video timeline")
+            args += ["-i", str(reference_path)]
+        if settings.mode == "mix" and not audio:
+            raise ValueError("Mix requires original audio")
+        has_audio = settings.mode in {"reference", "mix"} or (
+            settings.mode == "original" and bool(audio)
+        )
+        custom_audio = settings.revision > 0
+        graph = ""
         if spec.edit_plan:
             if spec.edit_plan.footage_frames > cuts.frames(duration, cuts.ROUND_FLOOR):
                 raise ValueError("Cut plan exceeds decoded source duration")
             duration = spec.edit_plan.output_frames / 30
-            args += [
-                "-filter_complex",
-                cut_graph(spec, video, audio, video_start, resize),
-                "-map",
-                "[vout]",
-            ]
+            graph = cut_graph(
+                spec,
+                video,
+                audio if settings.mode in {"original", "mix"} else None,
+                video_start,
+                resize,
+                "aorig" if custom_audio else "aout",
+            )
+            args += ["-map", "[vout]"]
         else:
             args += ["-map", f"0:{video['index']}", "-vf", filters]
+        if custom_audio:
+            extra = audio_graph(
+                spec, audio, video_start, reference_audio, reference_start, duration
+            )
+            if extra:
+                graph += (";" if graph else "") + extra
+        if graph:
+            if len(graph.encode("utf-8")) > 16 * 1024:
+                raise engine.RetrievalFailure("graph_limit", "Render filter graph exceeds 16 KiB.")
+            args += ["-filter_complex", graph]
         args += [
             "-c:v",
             "libx264",
@@ -471,10 +587,10 @@ def pipeline(source, directory, stop, deadline):
             "-color_range",
             "tv",
         ]
-        if audio:
+        if has_audio:
             args += (
                 ["-map", "[aout]"]
-                if spec.edit_plan
+                if spec.edit_plan or custom_audio
                 else [
                     "-map",
                     f"0:{audio['index']}",
@@ -490,6 +606,8 @@ def pipeline(source, directory, stop, deadline):
                 "-b:a",
                 "128k",
             ]
+        else:
+            args += ["-an"]
         args += [
             "-map_metadata",
             "-1",
@@ -515,7 +633,7 @@ def pipeline(source, directory, stop, deadline):
             or (rendered["width"], rendered["height"]) != (width, height)
             or rendered.get("sample_aspect_ratio") != "1:1"
             or Fraction(rendered["avg_frame_rate"]) != 30
-            or bool(rendered_audio) != bool(audio)
+            or bool(rendered_audio) != has_audio
             or (rendered_audio and rendered_audio.get("codec_name") != "aac")
             or abs(rendered_duration - duration) > 2 / 30
         ):
@@ -550,7 +668,7 @@ def pipeline(source, directory, stop, deadline):
             deadline,
             limit=2 * 1024 * 1024,
         )
-        frames, samples = decode_counts(raw, bool(audio))
+        frames, samples = decode_counts(raw, has_audio)
         if spec.edit_plan and frames != spec.edit_plan.output_frames:
             raise ValueError("Incomplete cut frames")
         if abs(frames / 30 - rendered_duration) > 1 / 30:
@@ -561,6 +679,10 @@ def pipeline(source, directory, stop, deadline):
                 not math.isfinite(audio_duration)
                 or not 0 < audio_duration <= duration + 0.1
                 or abs(samples / 48000 - audio_duration) > 2 * 1024 / 48000
+                or (
+                    settings.mode in {"reference", "mix"}
+                    and abs(audio_duration - duration) > 2 * 1024 / 48000
+                )
             ):
                 raise ValueError("Incomplete decoded audio")
         digest = color.digest(target, stop, deadline, max_bytes=MAX_BYTES)
@@ -572,7 +694,7 @@ def pipeline(source, directory, stop, deadline):
             width=width,
             height=height,
             duration_seconds=rendered_duration,
-            has_audio=bool(audio),
+            has_audio=has_audio,
             decoded_frames=frames,
             decoded_audio_samples=samples,
             ffmpeg_version=version,
@@ -615,6 +737,12 @@ def commit(project_id, operation_id, path, output, stop, deadline):
         if binding != output.spec.edit_plan.pacing or source != output.spec.edit_plan.footage:
             raise engine.RetrievalFailure(
                 "source_changed", "Cut plan sources changed before publication."
+            )
+    if output.spec.audio.reference:
+        _, binding, _ = audio_choices.reference_source(project_id, stop, deadline)
+        if binding != output.spec.audio.reference:
+            raise engine.RetrievalFailure(
+                "source_changed", "Reference audio changed before publication."
             )
     target = destination(project_id, output.output_id)
     with projects.database() as connection:

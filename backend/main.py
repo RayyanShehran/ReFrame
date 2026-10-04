@@ -234,6 +234,7 @@ async def start_render(project_id: str, request: video_render.RenderRequest):
         analysis="render",
         expected_revision=request.expected_revision,
         expected_plan_revision=request.expected_plan_revision,
+        expected_audio_revision=request.expected_audio_revision,
     )
 
 

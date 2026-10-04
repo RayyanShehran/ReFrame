@@ -352,7 +352,13 @@ async def worker(project_id, operation_id, url, stop, analysis=False):
             active = None
 
 
-async def start(project_id, analysis=False, expected_revision=None, expected_plan_revision=None):
+async def start(
+    project_id,
+    analysis=False,
+    expected_revision=None,
+    expected_plan_revision=None,
+    expected_audio_revision=None,
+):
     global active
     projects.identifier(project_id)
     if analysis:
@@ -374,7 +380,11 @@ async def start(project_id, analysis=False, expected_revision=None, expected_pla
         if analysis == "render":
             async with projects.operation_lock:
                 current = await projects.storage_call(
-                    color.reusable, project_id, expected_revision, expected_plan_revision
+                    color.reusable,
+                    project_id,
+                    expected_revision,
+                    expected_plan_revision,
+                    expected_audio_revision,
                 )
         else:
             current = await projects.storage_call(read, project_id, True)
@@ -390,7 +400,7 @@ async def start(project_id, analysis=False, expected_revision=None, expected_pla
             global active
             async with projects.operation_lock:
                 args = (
-                    (project_id, expected_revision, expected_plan_revision)
+                    (project_id, expected_revision, expected_plan_revision, expected_audio_revision)
                     if analysis == "render"
                     else (project_id,)
                 )
