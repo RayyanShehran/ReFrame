@@ -1,0 +1,136 @@
+{
+  "$defs": {
+    "ReferenceBinding": {
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "$ref": "#/$defs/Source"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source",
+        "operation_id"
+      ],
+      "title": "ReferenceBinding",
+      "type": "object"
+    },
+    "Source": {
+      "additionalProperties": false,
+      "properties": {
+        "video_id": {
+          "pattern": "^[0-9]+$",
+          "title": "Video Id",
+          "type": "string"
+        },
+        "canonical_url": {
+          "pattern": "^https://www\\.tiktok\\.com/@[A-Za-z0-9._-]+/video/[0-9]+$",
+          "title": "Canonical Url",
+          "type": "string"
+        },
+        "media_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Media Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "video_id",
+        "canonical_url",
+        "media_sha256"
+      ],
+      "title": "Source",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "mode": {
+      "default": "original",
+      "enum": [
+        "original",
+        "reference",
+        "mix",
+        "mute"
+      ],
+      "title": "Mode",
+      "type": "string"
+    },
+    "original_volume": {
+      "default": 100,
+      "maximum": 100,
+      "minimum": 0,
+      "title": "Original Volume",
+      "type": "number"
+    },
+    "reference_volume": {
+      "default": 100,
+      "maximum": 100,
+      "minimum": 0,
+      "title": "Reference Volume",
+      "type": "number"
+    },
+    "reference_offset_seconds": {
+      "default": 0,
+      "maximum": 120,
+      "minimum": 0,
+      "title": "Reference Offset Seconds",
+      "type": "number"
+    },
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "revision": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Revision",
+      "type": "integer"
+    },
+    "reference": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ReferenceBinding"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "created_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Created At"
+    },
+    "updated_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Updated At"
+    }
+  },
+  "title": "Settings",
+  "type": "object"
+}
