@@ -12,6 +12,7 @@ from pydantic import BaseModel
 
 import color_analysis
 import color_recipe
+import edit_plan
 import footage_analysis
 import pacing_analysis
 import projects
@@ -191,6 +192,24 @@ async def save_color_recipe(project_id: str, request: color_recipe.SaveRequest):
 async def read_render(project_id: str):
     async with projects.operation_lock:
         return await projects.storage_call(video_render.get_operation, project_id)
+
+
+@app.get("/api/projects/{project_id}/edit-plan", response_model=edit_plan.Result)
+async def read_edit_plan(project_id: str):
+    async with projects.operation_lock:
+        return await projects.storage_call(edit_plan.read, project_id)
+
+
+@app.post("/api/projects/{project_id}/edit-plan/generate", response_model=edit_plan.Result)
+async def generate_edit_plan(project_id: str, request: edit_plan.GenerateRequest):
+    async with projects.operation_lock:
+        return await projects.storage_call(edit_plan.generate, project_id, request)
+
+
+@app.post("/api/projects/{project_id}/edit-plan", response_model=edit_plan.Result)
+async def save_edit_plan(project_id: str, request: edit_plan.SaveRequest):
+    async with projects.operation_lock:
+        return await projects.storage_call(edit_plan.save, project_id, request)
 
 
 @app.post(
