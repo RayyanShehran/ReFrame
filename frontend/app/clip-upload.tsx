@@ -122,6 +122,6 @@ export function ClipUpload({ projectId, initialDetails = null, onSaved }: { proj
       <p>Audio: {details.has_audio ? details.audio_codec || "Present" : "None"} · Frame rate: {details.frame_rate === null ? "Unknown" : `${details.frame_rate} fps`}</p>
     </div>}
     {file && !(projectId && details) && <button className="clear-clip" type="button" onClick={() => { invalidate(); setFile(null); if (input.current) input.current.value = ""; }}>Clear clip</button>}
-    <p className="hint retention-note">{projectId ? details ? "Your clip is saved locally for this project. It is not edited. One clip per project; replacement comes later." : "Choose a clip to validate and save locally for this project. One clip per project; replacement comes later." : "This clip is inspected, then deleted. It is not retained or edited. Upload it again after refresh or when persistent editing becomes available."}</p>
+    <p className="hint retention-note">{projectId ? details ? "Your original clip is saved locally; rendering creates a separate output. One clip per project; replacement comes later." : "Choose a clip to validate and save locally for this project. One clip per project; replacement comes later." : "This clip is inspected, then deleted. It is not retained or edited. Upload it again after refresh or when persistent editing becomes available."}</p>
   </section>;
 }

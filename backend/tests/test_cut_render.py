@@ -151,6 +151,27 @@ def test_real_cuts_skip_content_preserve_order_timing_audio_and_revisions(local)
     )
     assert client.get(url).json()["outdated"]
     assert client.post(url, json=request).json()["error"]["code"] == "revision_conflict"
+    # Reuse this fixture's silent video, checking the one-segment integration too.
+    silent, _, _ = prepared(client, directory, directory / "sections.mp4")
+    silent_id = silent["id"]
+    seed_pacing(silent_id)
+    generated_plan = client.post(
+        f"/api/projects/{silent_id}/edit-plan/generate",
+        json={"expected_revision": 0, "output_duration_seconds": 1},
+    ).json()["plan"]
+    assert generated_plan["segments"][0]["source_start_frame"] == 45
+    silent_url = f"/api/projects/{silent_id}/render"
+    assert (
+        client.post(
+            silent_url, json={"expected_revision": 1, "expected_plan_revision": 1}
+        ).status_code
+        == 202
+    )
+    silent_output = finish(client, silent_url)
+    assert silent_output["status"] == "ready", silent_output["message"]
+    assert silent_output["output"]["decoded_frames"] == 30
+    assert not silent_output["output"]["has_audio"]
+    assert silent_output["output"]["decoded_audio_samples"] == 0
 
 
 def test_cut_publication_rechecks_pacing_and_old_whole_specs_remain_compatible(local):
