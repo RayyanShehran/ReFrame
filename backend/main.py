@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 import audio_settings
+import captions
 import color_analysis
 import color_recipe
 import edit_plan
@@ -71,6 +72,20 @@ async def reference_error(_request: Request, exc: ReferenceError) -> JSONRespons
 
 @app.exception_handler(RequestValidationError)
 async def validation_error(_request: Request, _exc: RequestValidationError) -> JSONResponse:
+    if _request.url.path.endswith("/captions"):
+        details = []
+        for error in _exc.errors()[:10]:
+            location = ".".join(str(part) for part in error["loc"] if part != "body")
+            details.append(f"{location or 'Captions'}: {error['msg']}")
+        return JSONResponse(
+            status_code=422,
+            content={
+                "error": {
+                    "code": "invalid_caption",
+                    "message": "; ".join(details),
+                }
+            },
+        )
     return JSONResponse(
         status_code=422,
         content={"error": {"code": "invalid_request", "message": "The request is invalid."}},
@@ -205,6 +220,29 @@ async def read_audio_settings(project_id: str):
 async def save_audio_settings(project_id: str, request: audio_settings.SaveRequest):
     async with projects.operation_lock:
         return await projects.storage_call(audio_settings.save, project_id, request)
+
+
+@app.get("/api/projects/{project_id}/captions", response_model=captions.Result)
+async def read_captions(project_id: str):
+    async with projects.operation_lock:
+        return await projects.storage_call(captions.read, project_id)
+
+
+@app.post("/api/projects/{project_id}/captions", response_model=captions.Result)
+async def save_captions(project_id: str, request: captions.SaveRequest):
+    async with projects.operation_lock:
+        return await projects.storage_call(captions.save, project_id, request)
+
+
+@app.post("/api/projects/{project_id}/captions/import", response_model=captions.ImportResult)
+async def import_captions(project_id: str, request: Request):
+    await projects.storage_call(captions.record, project_id)
+    raw = bytearray()
+    async for chunk in request.stream():
+        if len(raw) + len(chunk) > captions.SRT_LIMIT:
+            raise ReferenceError(413, "srt_too_large", "SRT import is limited to 128 KiB UTF-8.")
+        raw.extend(chunk)
+    return await projects.storage_call(captions.parse_srt, bytes(raw))
 
 
 @app.get("/api/projects/{project_id}/edit-plan", response_model=edit_plan.Result)
