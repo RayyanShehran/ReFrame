@@ -236,7 +236,7 @@ def test_success_persistence_reuse_migration_and_source_invalidation(local, tmp_
         connection.execute("PRAGMA user_version=2")
     projects.initialize()
     with projects.database() as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 8
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 9
     assert jobs.get_operation(saved["id"]).status == "ready"
     assert projects.get_project(saved["id"]).clip_status == "ready"
     assert client.get(endpoint(saved)).json()["status"] == "idle"

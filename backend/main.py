@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+import audio_settings
 import color_analysis
 import color_recipe
 import edit_plan
@@ -192,6 +193,18 @@ async def save_color_recipe(project_id: str, request: color_recipe.SaveRequest):
 async def read_render(project_id: str):
     async with projects.operation_lock:
         return await projects.storage_call(video_render.get_operation, project_id)
+
+
+@app.get("/api/projects/{project_id}/audio", response_model=audio_settings.Result)
+async def read_audio_settings(project_id: str):
+    async with projects.operation_lock:
+        return await projects.storage_call(audio_settings.read, project_id)
+
+
+@app.post("/api/projects/{project_id}/audio", response_model=audio_settings.Result)
+async def save_audio_settings(project_id: str, request: audio_settings.SaveRequest):
+    async with projects.operation_lock:
+        return await projects.storage_call(audio_settings.save, project_id, request)
 
 
 @app.get("/api/projects/{project_id}/edit-plan", response_model=edit_plan.Result)
