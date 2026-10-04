@@ -189,11 +189,15 @@ def read(project_id):
             if track.automatic_binding:
                 current_audio = audio_settings.read(project_id)
                 if (
-                    current_audio.status == "stale"
+                    track.automatic_binding.timeline != track.timeline
+                    or current_audio.status == "stale"
                     or current_audio.settings != track.automatic_binding.audio
                 ):
                     raise ReferenceError(
-                        409, "captions_stale", "Audio changed; regenerate automatic captions."
+                        409,
+                        "captions_stale",
+                        "Audio/timeline changed. Disable and save captions, "
+                        "render current settings, then regenerate automatic captions.",
                     )
         except ReferenceError as exc:
             if exc.status_code == 404:
@@ -216,11 +220,30 @@ def read(project_id):
 def save(project_id, request):
     row = record(project_id)
     revision_check(row, request.expected_revision)
-    binding = timeline(project_id, request.mode, request.expected_plan_revision)
-    if request.mode == "cuts" and request.expected_plan_revision is None:
-        raise ReferenceError(422, "invalid_timeline", "Include the saved cut-plan revision.")
     previous = Track.model_validate_json(row["track"]) if row else None
-    if previous and (previous.timeline != binding or row["state"] == "stale"):
+    disabling_automatic = bool(
+        previous
+        and not request.enabled
+        and request.provenance == "automatic_transcription"
+        and previous.automatic_proposal_id == request.automatic_proposal_id
+    )
+    # Disabled stale text keeps its original timing/provenance while new audio is rendered.
+    binding = (
+        previous.timeline
+        if disabling_automatic
+        else timeline(project_id, request.mode, request.expected_plan_revision)
+    )
+    if (
+        not disabling_automatic
+        and request.mode == "cuts"
+        and request.expected_plan_revision is None
+    ):
+        raise ReferenceError(422, "invalid_timeline", "Include the saved cut-plan revision.")
+    if (
+        previous
+        and not disabling_automatic
+        and (previous.timeline != binding or row["state"] == "stale")
+    ):
         if not request.confirm_rebind:
             raise ReferenceError(
                 409,
@@ -237,7 +260,7 @@ def save(project_id, request):
         if previous and previous.automatic_proposal_id == request.automatic_proposal_id:
             automatic_binding = previous.automatic_binding
             current_audio = audio_settings.read(project_id)
-            if (
+            if request.enabled and (
                 not automatic_binding
                 or automatic_binding.timeline != binding
                 or current_audio.status == "stale"

@@ -8,6 +8,26 @@ const plan = { revision: 2, ready: true, dirty: false, busy: false, duration: 3 
 const ok = (data: unknown) => ({ ok: true, json: async () => data } as Response);
 afterEach(() => vi.unstubAllGlobals());
 
+it("disables stale automatic captions while retaining cues outside the new cut duration", async () => {
+  const old = { ...initial, status: "stale", message: "Render current audio before regeneration.", track: { ...initial.track, revision: 1, enabled: true, provenance: "automatic_transcription", automatic_proposal_id: "proposal", cues: [{ start: .5, end: 1, text: "Preserve timing" }], timeline: { mode: "cuts", plan_revision: 1, duration_seconds: 4 } } };
+  let result = old;
+  vi.stubGlobal("fetch", vi.fn(async (_url: string, options: RequestInit) => {
+    if (options.method === "POST") {
+      const body = JSON.parse(options.body as string);
+      expect(body).toEqual(expect.objectContaining({ enabled: false, confirm_rebind: false, automatic_proposal_id: "proposal", cues: old.track.cues }));
+      result = { ...old, track: { ...old.track, revision: 2, enabled: false } };
+    }
+    return ok(result);
+  }));
+  const state = vi.fn();
+  render(<CaptionEditor projectId="one" planState={{ ...plan, duration: .3, ready: false }} onState={state} />);
+  fireEvent.click(await screen.findByLabelText("Enable captions"));
+  expect(screen.getByRole("button", { name: "Save captions" })).toBeEnabled();
+  fireEvent.click(screen.getByRole("button", { name: "Save captions" }));
+  await waitFor(() => expect(state).toHaveBeenLastCalledWith(expect.objectContaining({ revision: 2, enabled: false, ready: true, dirty: false })));
+  expect(screen.getByLabelText("Cue 1 text")).toHaveValue("Preserve timing");
+});
+
 it("previews SRT before replacing, edits, saves and restores plain text", async () => {
   let result = initial;
   const imported = [{ start: .5, end: 1.5, text: "مرحبا {\\b1} <i>" }];

@@ -63,6 +63,69 @@ def mock_model(monkeypatch):
     )
 
 
+@pytest.mark.parametrize("cuts", [False, True])
+def test_stale_automatic_track_can_be_disabled_without_losing_text_or_timing(
+    local, monkeypatch, cuts
+):
+    client, directory, _ = local
+    pid, _ = completed(client, directory, cuts=cuts)
+    mock_model(monkeypatch)
+    url = f"/api/projects/{pid}/transcription"
+    assert client.post(url, json={}).status_code == 202
+    proposal = finish(client, url)
+    cap = f"/api/projects/{pid}/captions"
+    body = {
+        "expected_revision": 0,
+        "mode": "cuts" if cuts else "whole",
+        "expected_plan_revision": 1 if cuts else None,
+        "enabled": True,
+        "cues": proposal["proposal"]["cues"],
+        "provenance": "automatic_transcription",
+        "automatic_proposal_id": proposal["operation_id"],
+    }
+    saved = client.post(cap, json=body)
+    assert saved.status_code == 200, saved.text
+    original = saved.json()["track"]
+    assert (
+        client.post(
+            f"/api/projects/{pid}/audio", json={"expected_revision": 0, "original_volume": 90}
+        ).status_code
+        == 200
+    )
+    if cuts:
+        assert (
+            client.post(
+                f"/api/projects/{pid}/edit-plan",
+                json={"expected_revision": 1, "source_starts_seconds": [0, 1, 2]},
+            ).status_code
+            == 200
+        )
+    assert client.get(cap).json()["status"] == "stale"
+    disabled = client.post(cap, json=body | {"expected_revision": 1, "enabled": False})
+    assert disabled.status_code == 200, disabled.text
+    track = disabled.json()["track"]
+    assert not track["enabled"] and disabled.json()["status"] == "stale"
+    assert (
+        track["cues"] == original["cues"]
+        and track["timeline"] == original["timeline"]
+        and track["automatic_binding"] == original["automatic_binding"]
+    )
+    spec = render.specification(pid, 1, 2 if cuts else None, 1, 2)
+    assert not spec.captions.enabled and spec.audio.revision == 1
+    assert (
+        client.post(
+            cap,
+            json=body
+            | {
+                "expected_revision": 2,
+                "expected_plan_revision": 2 if cuts else None,
+                "confirm_rebind": True,
+            },
+        ).status_code
+        == 409
+    )
+
+
 def test_generate_review_apply_save_preserves_captions_and_style(local, monkeypatch):
     client, directory, _ = local
     pid, output = completed(client, directory)

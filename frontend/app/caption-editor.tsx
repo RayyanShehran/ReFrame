@@ -71,12 +71,13 @@ export function CaptionEditor({ projectId, planState, onState }: { projectId: st
   const ready = !!track && (!track.enabled || (result?.status !== "stale" && (boundMode !== "cuts" || (planState.ready && planState.revision === boundPlan))));
   const savedEnabled = track?.enabled ?? false;
   useEffect(() => { onState({ revision, ready, dirty, busy: busy || proposalBusy, enabled: savedEnabled, mode: boundMode, planRevision: boundPlan }); }, [onState, revision, ready, dirty, busy, proposalBusy, savedEnabled, boundMode, boundPlan]);
-  const duration = mode === "cuts" ? planState.duration ?? null : result?.whole_duration_seconds ?? null;
-  const needsRebind = !!track?.revision && (result?.status === "stale" || mode !== boundMode || (mode === "cuts" && boundPlan !== planState.revision));
+  const disablingAutomatic = provenance === "automatic_transcription" && !enabled && !!track?.revision;
+  const duration = disablingAutomatic ? track?.timeline?.duration_seconds ?? null : mode === "cuts" ? planState.duration ?? null : result?.whole_duration_seconds ?? null;
+  const needsRebind = !disablingAutomatic && !!track?.revision && (result?.status === "stale" || mode !== boundMode || (mode === "cuts" && boundPlan !== planState.revision));
   const invalidIndex = numeric.findIndex((c, i) => !cues[i].start.trim() || !cues[i].end.trim() || !validCues([c]) ||
     (i > 0 && c.start < numeric[i - 1].end) || (duration !== null && c.end > duration));
   const canSave = !!result && invalidIndex < 0 && (!enabled || cues.length > 0) && duration !== null &&
-    (mode !== "cuts" || (planState.ready && !planState.dirty && !planState.busy));
+    (disablingAutomatic || mode !== "cuts" || (planState.ready && !planState.dirty && !planState.busy));
   function restore(value: Result) {
     setResult(value); setCues(drafts(value.track.cues)); setEnabled(value.track.enabled); setStyle(value.track.style);
     setMode(value.track.timeline?.mode ?? "whole"); setProvenance(value.track.provenance); setAutomaticId(value.track.automatic_proposal_id ?? null); setPreview(null); setConfirmation(null); setError("");
