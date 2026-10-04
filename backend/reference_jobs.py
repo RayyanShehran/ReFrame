@@ -261,6 +261,8 @@ async def worker(project_id, operation_id, url, stop, analysis=False):
     if analysis:
         if analysis == "render":
             import video_render as color
+        elif analysis == "transcription":
+            import transcription as color
         elif analysis == "footage":
             import footage_analysis as color
         elif analysis == "pacing":
@@ -359,12 +361,15 @@ async def start(
     expected_plan_revision=None,
     expected_audio_revision=None,
     expected_caption_revision=None,
+    transcription_request=None,
 ):
     global active
     projects.identifier(project_id)
     if analysis:
         if analysis == "render":
             import video_render as color
+        elif analysis == "transcription":
+            import transcription as color
         elif analysis == "footage":
             import footage_analysis as color
         elif analysis == "pacing":
@@ -388,6 +393,11 @@ async def start(
                     expected_audio_revision,
                     expected_caption_revision,
                 )
+        elif analysis == "transcription":
+            async with projects.operation_lock:
+                current = await projects.storage_call(
+                    color.reusable, project_id, transcription_request
+                )
         else:
             current = await projects.storage_call(read, project_id, True)
         if current and current.status in {"running", "ready"}:
@@ -410,6 +420,8 @@ async def start(
                         expected_caption_revision,
                     )
                     if analysis == "render"
+                    else (project_id, transcription_request)
+                    if analysis == "transcription"
                     else (project_id,)
                 )
                 operation, url = await projects.storage_call(begin, *args)
@@ -469,6 +481,9 @@ async def delete(project_id):
             import video_render as render
 
             await projects.storage_call(render.prepare_delete, project_id)
+            import transcription
+
+            await projects.storage_call(transcription.prepare_delete, project_id)
             await projects.storage_call(projects.delete_project, project_id)
     finally:
         closing.discard(project_id)
@@ -490,7 +505,8 @@ def check_quarantine():
             "UNION ALL SELECT 1 FROM color_operations WHERE cleanup_safe = 0 "
             "UNION ALL SELECT 1 FROM pacing_operations WHERE cleanup_safe = 0 "
             "UNION ALL SELECT 1 FROM footage_color_operations WHERE cleanup_safe = 0 "
-            "UNION ALL SELECT 1 FROM render_operations WHERE cleanup_safe = 0 LIMIT 1"
+            "UNION ALL SELECT 1 FROM render_operations WHERE cleanup_safe = 0 "
+            "UNION ALL SELECT 1 FROM transcription_operations WHERE cleanup_safe = 0 LIMIT 1"
         ).fetchone()
     if unsafe:
         raise ReferenceError(

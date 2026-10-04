@@ -256,7 +256,7 @@ def initialize():
     staging.mkdir(exist_ok=True)
     with database() as connection:
         version = connection.execute("PRAGMA user_version").fetchone()[0]
-        if version not in {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10}:
+        if version not in {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11}:
             raise RuntimeError("Unsupported ReFrame database schema")
         connection.execute("""CREATE TABLE IF NOT EXISTS projects (
             id TEXT PRIMARY KEY, name TEXT NOT NULL, created_at TEXT NOT NULL,
@@ -272,7 +272,12 @@ def initialize():
                 CHECK(state IN ('running','ready','failed')),
             started_at TEXT NOT NULL, finished_at TEXT, failure_code TEXT, message TEXT,
             filename TEXT, metadata TEXT, cleanup_safe INTEGER NOT NULL DEFAULT 1)""")
-        for table in ("color_operations", "pacing_operations", "footage_color_operations"):
+        for table in (
+            "color_operations",
+            "pacing_operations",
+            "footage_color_operations",
+            "transcription_operations",
+        ):
             connection.execute(f"""CREATE TABLE IF NOT EXISTS {table} (
                 project_id TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
                 operation_id TEXT NOT NULL UNIQUE,
@@ -309,7 +314,7 @@ def initialize():
             revision INTEGER NOT NULL CHECK(revision >= 1),
             state TEXT NOT NULL CHECK(state IN ('ready','stale')),
             track TEXT NOT NULL, message TEXT)""")
-        connection.execute("PRAGMA user_version = 10")
+        connection.execute("PRAGMA user_version = 11")
     # Only generated staging names are ours. Unknown files are left untouched.
     for path in staging.glob("clip-*"):
         try:

@@ -6,9 +6,11 @@ from datetime import datetime
 from decimal import ROUND_CEILING, Decimal
 from pathlib import Path
 from typing import Literal
+from uuid import UUID
 
 from pydantic import Field, field_validator, model_validator
 
+import audio_settings
 import color_analysis as color
 import edit_plan
 import footage_analysis as footage
@@ -51,7 +53,8 @@ class Choices(color.Schema):
     enabled: bool = Field(default=False, strict=True)
     cues: list[Cue] = Field(default_factory=list, max_length=200)
     style: Style = Field(default_factory=Style)
-    provenance: Literal["manual", "srt_import"] = "manual"
+    provenance: Literal["manual", "srt_import", "automatic_transcription"] = "manual"
+    automatic_proposal_id: UUID | None = None
 
     @model_validator(mode="after")
     def ordered(self):
@@ -62,6 +65,10 @@ class Choices(color.Schema):
             previous = cue.end
         if self.enabled and not self.cues:
             raise ValueError("Add at least one cue before enabling captions")
+        if (self.provenance == "automatic_transcription") != (
+            self.automatic_proposal_id is not None
+        ):
+            raise ValueError("Automatic captions require their reviewed proposal identity")
         return self
 
 
@@ -78,12 +85,18 @@ class Timeline(color.Schema):
         return self
 
 
+class AutomaticBinding(color.Schema):
+    timeline: Timeline
+    audio: audio_settings.Settings
+
+
 class Track(Choices):
     schema_version: Literal[1] = 1
     revision: int = Field(default=0, ge=0, strict=True)
     timeline: Timeline | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
+    automatic_binding: AutomaticBinding | None = None
 
     @model_validator(mode="after")
     def bound(self):
@@ -91,6 +104,12 @@ class Track(Choices):
             raise ValueError("Saved captions require a timeline")
         if self.timeline:
             validate_duration(self.cues, self.timeline.duration_seconds)
+        if (
+            self.revision
+            and self.provenance == "automatic_transcription"
+            and not self.automatic_binding
+        ):
+            raise ValueError("Saved automatic captions require audio/timeline provenance")
         return self
 
 
@@ -167,6 +186,15 @@ def read(project_id):
                 raise ReferenceError(
                     409, "captions_stale", "Caption footage or output timeline changed."
                 )
+            if track.automatic_binding:
+                current_audio = audio_settings.read(project_id)
+                if (
+                    current_audio.status == "stale"
+                    or current_audio.settings != track.automatic_binding.audio
+                ):
+                    raise ReferenceError(
+                        409, "captions_stale", "Audio changed; regenerate automatic captions."
+                    )
         except ReferenceError as exc:
             if exc.status_code == 404:
                 raise
@@ -204,6 +232,27 @@ def save(project_id, request):
     except ValueError as exc:
         raise ReferenceError(422, "invalid_caption", str(exc)) from None
     timestamp = projects.now()
+    automatic_binding = None
+    if request.provenance == "automatic_transcription":
+        if previous and previous.automatic_proposal_id == request.automatic_proposal_id:
+            automatic_binding = previous.automatic_binding
+            current_audio = audio_settings.read(project_id)
+            if (
+                not automatic_binding
+                or automatic_binding.timeline != binding
+                or current_audio.status == "stale"
+                or current_audio.settings != automatic_binding.audio
+            ):
+                raise ReferenceError(
+                    409, "proposal_stale", "Regenerate for the current audio/timeline."
+                )
+        else:
+            import transcription
+
+            proposal = transcription.validated_proposal(project_id, request.automatic_proposal_id)
+            automatic_binding = proposal.binding
+            if automatic_binding.timeline != binding:
+                raise ReferenceError(409, "proposal_stale", "Use the proposal's output timeline.")
     track = Track(
         **request.model_dump(
             exclude={"expected_revision", "mode", "expected_plan_revision", "confirm_rebind"}
@@ -212,6 +261,7 @@ def save(project_id, request):
         revision=request.expected_revision + 1,
         created_at=previous.created_at if previous else timestamp,
         updated_at=timestamp,
+        automatic_binding=automatic_binding,
     )
     with projects.database() as connection:
         project = projects.row_project(connection, project_id)

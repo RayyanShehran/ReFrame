@@ -125,7 +125,7 @@ def test_srt_real_body_preview_limits_plain_markup_and_no_persistence(local):
     assert not list((directory / "project-staging").iterdir())
     with projects.database() as connection:
         assert connection.execute("SELECT count(*) FROM caption_tracks").fetchone()[0] == 0
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 10
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 11
 
 
 def test_count_limit_adjacent_half_open_cues_and_nonfinite_times(local):

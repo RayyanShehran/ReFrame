@@ -33,7 +33,7 @@ def cues_from_words(data, duration):
 
     if not isinstance(data, dict) or not isinstance(data.get("segments"), list):
         invalid()
-    cues, previous, count = [], 0.0, 0
+    cues, previous, segment_end, count = [], 0.0, 0.0, 0
     for segment in data["segments"]:
         if not isinstance(segment, dict) or not isinstance(segment.get("words"), list):
             invalid()
@@ -45,6 +45,9 @@ def cues_from_words(data, duration):
             or not text.strip()
         ):
             invalid()
+        if start < segment_end - 0.0200001 or end <= segment_end:
+            invalid("Speech segments overlap or are out of order.")
+        segment_end = end
         pending, cue_start, cue_end = "", None, None
         if not segment["words"]:
             invalid("Speech text has no word timestamps; cannot safely create timed cues.")
@@ -67,12 +70,13 @@ def cues_from_words(data, duration):
                     invalid("Word timestamps overlap by more than 20 ms or are out of order.")
                 a = previous
             previous = b
-            joined = (pending + token).strip()
+            separator = " " if pending and not token[0].isspace() else ""
+            joined = (pending + separator + token).strip()
             if pending and (len(joined) > 80 or b - cue_start > 5):
                 cues.append(captions.Cue(start=cue_start, end=cue_end, text=pending))
                 pending, cue_start = "", None
             cue_start = a if cue_start is None else cue_start
-            pending = (pending + token).strip() if not pending else pending + token
+            pending = (pending + (separator if pending else "") + token).strip()
             cue_end = b
             if pending.rstrip().endswith((".", "!", "?", "؟", "؛")):
                 cues.append(captions.Cue(start=cue_start, end=b, text=pending.strip()))

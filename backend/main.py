@@ -19,6 +19,7 @@ import footage_analysis
 import pacing_analysis
 import projects
 import reference_jobs
+import transcription
 import video_render
 from clips import ClipDetails, cleanup_stale_files, inspect_clip
 from references import ReferenceDetails, ReferenceError, ReferenceRequest, inspect_reference
@@ -48,6 +49,7 @@ async def lifespan(_app: FastAPI):
     await projects.storage_call(pacing_analysis.recover)
     await projects.storage_call(footage_analysis.recover)
     await projects.storage_call(video_render.recover)
+    await projects.storage_call(transcription.recover)
     try:
         yield
     finally:
@@ -226,6 +228,37 @@ async def save_audio_settings(project_id: str, request: audio_settings.SaveReque
 async def read_captions(project_id: str):
     async with projects.operation_lock:
         return await projects.storage_call(captions.read, project_id)
+
+
+@app.get("/api/projects/{project_id}/transcription", response_model=transcription.Operation)
+async def read_transcription(project_id: str):
+    async with projects.operation_lock:
+        return await projects.storage_call(transcription.get_operation, project_id, True)
+
+
+@app.post(
+    "/api/projects/{project_id}/transcription",
+    response_model=transcription.Operation,
+    status_code=202,
+)
+async def generate_transcription(project_id: str, request: transcription.GenerateRequest):
+    return await reference_jobs.start(
+        project_id, analysis="transcription", transcription_request=request
+    )
+
+
+@app.post(
+    "/api/projects/{project_id}/transcription/apply", response_model=transcription.Application
+)
+async def apply_transcription(project_id: str, request: transcription.ApplyRequest):
+    async with projects.operation_lock:
+        return await projects.storage_call(transcription.apply, project_id, request)
+
+
+@app.delete("/api/projects/{project_id}/transcription", response_model=transcription.Operation)
+async def discard_transcription(project_id: str):
+    async with projects.operation_lock:
+        return await projects.storage_call(transcription.discard, project_id)
 
 
 @app.post("/api/projects/{project_id}/captions", response_model=captions.Result)
