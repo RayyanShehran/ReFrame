@@ -37,7 +37,7 @@ export function RenderVideo({ projectId, revision, recipeReady, dirty, busy, pla
     <h3>Rendered video</h3>
     <p className="hint">Uses the saved color recipe and audio choices, with optional saved cuts. No captions or transitions. These controls have no live preview; render to see the actual result.</p>
     <label>Render mode <select value={mode} onChange={e => setMode(e.target.value)} disabled={starting || running}>
-      <option value="whole">Whole clip (color only)</option><option value="cuts">Saved cut plan (cuts + color)</option></select></label>
+      <option value="whole">Whole clip (color + saved audio)</option><option value="cuts">Saved cut plan (cuts + color)</option></select></label>
     {cuts && !planState?.ready && <p>Generate or regenerate a valid saved cut plan before rendering cuts.</p>}
     {cuts && planState?.dirty && <p role="status">Save your unsaved cut changes before rendering.</p>}
     {dirty && <p role="status">Save your unsaved recipe changes before rendering.</p>}
@@ -51,7 +51,7 @@ export function RenderVideo({ projectId, revision, recipeReady, dirty, busy, pla
     {operation?.status === "failed" && <p role="alert">{operation.message || "Rendering failed. Retry explicitly."}</p>}
     {output && <>
       <p role="status">{outdated ? "Outdated output" : "Rendered output"} · Recipe revision {output.spec.recipe_revision} · {output.width} × {output.height} · {output.duration_seconds.toFixed(2)} seconds</p>
-      <p>{output.spec.edit_plan ? `Cut plan revision ${output.spec.edit_plan.revision}` : "Whole clip (color only)"}</p>
+      <p>{output.spec.edit_plan ? `Cut plan revision ${output.spec.edit_plan.revision}` : "Whole clip"}</p>
       <p>{audioModeLabels[output.spec.audio?.mode ?? "original"]} · Audio revision {output.spec.audio?.revision ?? 0}</p>
       {outdated && <p className="hint">This video uses an older saved recipe, cut plan, audio choices or source. Save valid settings and render again to replace it.</p>}
       <video key={output.output_id} className="rendered-video" controls preload="metadata" src={`${url}/video`} aria-label={`Rendered video, recipe revision ${output.spec.recipe_revision}`} />

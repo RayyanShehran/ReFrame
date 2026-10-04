@@ -29,6 +29,8 @@ def fixtures(directory):
             "lavfi",
             "-i",
             "sine=frequency=440:sample_rate=48000:duration=4",
+            "-af",
+            "volume=6.4",
             "-c:v",
             "libx264",
             "-pix_fmt",
@@ -54,7 +56,8 @@ def fixtures(directory):
             "-i",
             "sine=frequency=1320:sample_rate=48000:duration=1",
             "-filter_complex",
-            "[0:v]setpts=PTS+2/TB[v];[1:a][2:a]concat=n=2:v=0:a=1,asetpts=PTS+2.25/TB[a]",
+            "[0:v]setpts=PTS+2/TB[v];[1:a][2:a]concat=n=2:v=0:a=1,"
+            "volume=6.4,asetpts=PTS+2.25/TB[a]",
             "-map",
             "[v]",
             "-map",
@@ -112,7 +115,7 @@ def setup(client, directory):
     return saved, revision
 
 
-def samples(path):
+def samples(path, channels=1):
     raw = subprocess.run(
         [
             shutil.which("ffmpeg"),
@@ -122,7 +125,7 @@ def samples(path):
             str(path),
             "-vn",
             "-ac",
-            "1",
+            str(channels),
             "-ar",
             "48000",
             "-f",
@@ -214,6 +217,12 @@ def test_real_replacement_offset_continuous_cuts_mix_padding_mute_and_revisions(
     assert amplitude(sound, 0.2, 440) / amplitude(sound, 0.2, 880) == pytest.approx(7 / 3, rel=0.08)
     assert amplitude(sound, 2.2, 440) == pytest.approx(amplitude(sound, 0.2, 440), rel=0.08)
     assert mixed.decoded_audio_samples >= 144000
+    # Full gains would sum above full scale; limiter is active, not just declared.
+    limited, path = output("mix", 0, False)
+    sound = samples(path)
+    assert limited.decoded_frames == 120
+    assert max(abs(x) for x in samples(path, channels=2)) < 1
+    assert amplitude(sound, 0.05, 440) > 0.7 and amplitude(sound, 0.05, 880) < 0.002
     muted, _ = output("mute")
     assert not muted.has_audio and muted.decoded_audio_samples == 0 and muted.decoded_frames == 120
     assert client.get(render_url).json()["output"]["spec"]["audio"]["mode"] == "mute"
