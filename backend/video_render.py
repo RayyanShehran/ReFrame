@@ -13,6 +13,7 @@ from pydantic import Field
 from starlette.responses import FileResponse
 
 import audio_settings as audio_choices
+import captions as caption_tracks
 import color_analysis as color
 import color_recipe as recipe
 import edit_plan as cuts
@@ -24,6 +25,7 @@ from references import ReferenceError
 VERSION = "sdr-eq-mp4-v2"
 CUTS_VERSION = "sdr-eq-mp4-v3"
 AUDIO_VERSION = "sdr-eq-mp4-v4"
+CAPTION_VERSION = "sdr-eq-mp4-v5"
 TOTAL_SECONDS = 300
 MAX_BYTES = 100 * 1024 * 1024
 TEMP_BUDGET = 120 * 1024 * 1024
@@ -58,6 +60,7 @@ class Spec(color.Schema):
     settings: Settings = Field(default_factory=Settings)
     edit_plan: cuts.Plan | None = None
     audio: audio_choices.Settings = Field(default_factory=audio_choices.Settings)
+    captions: caption_tracks.Track = Field(default_factory=caption_tracks.Track)
 
 
 class Output(color.Schema):
@@ -91,6 +94,7 @@ class RenderRequest(color.Schema):
     expected_revision: int = Field(ge=1, strict=True)
     expected_plan_revision: int | None = Field(default=None, ge=1, strict=True)
     expected_audio_revision: int | None = Field(default=None, ge=0, strict=True)
+    expected_caption_revision: int | None = Field(default=None, ge=0, strict=True)
 
 
 def destination(project_id, output_id):
@@ -103,7 +107,11 @@ def destination(project_id, output_id):
 
 
 def specification(
-    project_id, expected_revision, expected_plan_revision=None, expected_audio_revision=None
+    project_id,
+    expected_revision,
+    expected_plan_revision=None,
+    expected_audio_revision=None,
+    expected_caption_revision=None,
 ):
     result = recipe.read(project_id)
     if result.status != "ready":
@@ -131,13 +139,32 @@ def specification(
             )
     elif expected_audio_revision != audio.settings.revision:
         raise ReferenceError(409, "revision_conflict", "Audio changed. Reload before rendering.")
+    caption = caption_tracks.read(project_id)
+    if expected_caption_revision is None:
+        if caption.track.revision:
+            raise ReferenceError(409, "revision_conflict", "Include the saved caption revision.")
+    elif expected_caption_revision != caption.track.revision:
+        raise ReferenceError(409, "revision_conflict", "Captions changed. Reload before rendering.")
+    if caption.track.enabled:
+        selected = caption_tracks.timeline(
+            project_id, "cuts" if plan else "whole", expected_plan_revision
+        )
+        if caption.status != "ready" or caption.track.timeline != selected:
+            raise ReferenceError(
+                409,
+                "captions_stale",
+                "Rebind and save captions for this output timeline before rendering.",
+            )
     return Spec(
-        renderer_version=AUDIO_VERSION
+        renderer_version=CAPTION_VERSION
+        if caption.track.revision
+        else AUDIO_VERSION
         if audio.settings.revision
         else CUTS_VERSION
         if plan
         else VERSION,
         audio=audio.settings,
+        captions=caption.track,
         edit_plan=plan,
         recipe_revision=result.recipe.revision,
         reference=result.recipe.reference,
@@ -193,6 +220,7 @@ def get_operation(project_id, require_active=False):
             current_plan = cuts.read(project_id) if bound.edit_plan else None
             current = recipe.read(project_id)
             current_audio = audio_choices.read(project_id)
+            current_captions = caption_tracks.read(project_id)
             outdated = (
                 current.status != "ready"
                 or (current_plan is not None and current_plan.status != "ready")
@@ -202,6 +230,7 @@ def get_operation(project_id, require_active=False):
                     current.recipe.revision,
                     current_plan.plan.revision if current_plan and current_plan.plan else None,
                     current_audio.settings.revision,
+                    current_captions.track.revision,
                 )
                 != bound
             )
@@ -221,10 +250,18 @@ def get_operation(project_id, require_active=False):
 
 
 def reusable(
-    project_id, expected_revision, expected_plan_revision=None, expected_audio_revision=None
+    project_id,
+    expected_revision,
+    expected_plan_revision=None,
+    expected_audio_revision=None,
+    expected_caption_revision=None,
 ):
     spec = specification(
-        project_id, expected_revision, expected_plan_revision, expected_audio_revision
+        project_id,
+        expected_revision,
+        expected_plan_revision,
+        expected_audio_revision,
+        expected_caption_revision,
     )
     current = get_operation(project_id, True)
     return current if current.status in {"running", "ready"} and current.spec == spec else None
@@ -264,21 +301,34 @@ class VideoResponse(FileResponse):
             self.headers["X-Render-Outdated"] = str(outdated).lower()
             self.headers["X-Audio-Revision"] = str(output.spec.audio.revision)
             self.headers["X-Audio-Mode"] = output.spec.audio.mode
+            self.headers["X-Caption-Revision"] = str(output.spec.captions.revision)
             self.headers["Cache-Control"] = "no-store"
             await super().__call__(scope, receive, send)
 
 
 def begin_operation(
-    project_id, expected_revision, expected_plan_revision=None, expected_audio_revision=None
+    project_id,
+    expected_revision,
+    expected_plan_revision=None,
+    expected_audio_revision=None,
+    expected_caption_revision=None,
 ):
     current = reusable(
-        project_id, expected_revision, expected_plan_revision, expected_audio_revision
+        project_id,
+        expected_revision,
+        expected_plan_revision,
+        expected_audio_revision,
+        expected_caption_revision,
     )
     if current:
         return current, None
     prepare_delete(project_id)
     spec = specification(
-        project_id, expected_revision, expected_plan_revision, expected_audio_revision
+        project_id,
+        expected_revision,
+        expected_plan_revision,
+        expected_audio_revision,
+        expected_caption_revision,
     )
     source = footage.source(project_id)
     operation_id = str(uuid.uuid4())
@@ -493,6 +543,24 @@ def pipeline(source, directory, stop, deadline):
             raise ValueError("Invalid video start timestamp")
         metadata = color.inspect_colors(video)
         width, height = dimensions(video)
+        subtitle_filter = ""
+        if spec.captions.enabled:
+            capability = tool(
+                [ffmpeg, "-hide_banner", "-h", "filter=ass"],
+                directory,
+                "render-caption-capability",
+                deadline,
+                5,
+                8192,
+            )
+            if not re.search(rb"(?m)^Filter ass\s*$", capability):
+                raise engine.RetrievalFailure(
+                    "captions_unavailable",
+                    "Install FFmpeg with the libass ASS filter to render captions.",
+                )
+            subtitle_filter = caption_tracks.subtitle_filter(
+                spec.captions, directory, width, height
+            )
         values = spec.effective
         # Normalize range before eq; output is tagged limited BT.709. Autorotation is enabled.
         resize = (
@@ -556,9 +624,16 @@ def pipeline(source, directory, stop, deadline):
                 resize,
                 "aorig" if custom_audio else "aout",
             )
-            args += ["-map", "[vout]"]
+            if subtitle_filter:
+                graph += f";[vout]{subtitle_filter}[vcaption]"
+            args += ["-map", "[vcaption]" if subtitle_filter else "[vout]"]
         else:
-            args += ["-map", f"0:{video['index']}", "-vf", filters]
+            args += [
+                "-map",
+                f"0:{video['index']}",
+                "-vf",
+                filters + ("," + subtitle_filter if subtitle_filter else ""),
+            ]
         if custom_audio:
             extra = audio_graph(
                 spec, audio, video_start, reference_audio, reference_start, duration
@@ -745,6 +820,14 @@ def commit(project_id, operation_id, path, output, stop, deadline):
                 "source_changed", "Reference audio changed before publication."
             )
     target = destination(project_id, output.output_id)
+    if output.spec.captions.enabled:
+        binding = caption_tracks.timeline(
+            project_id, "cuts" if output.spec.edit_plan else "whole", stop=stop, deadline=deadline
+        )
+        if binding != output.spec.captions.timeline:
+            raise engine.RetrievalFailure(
+                "source_changed", "Caption timeline changed before publication."
+            )
     with projects.database() as connection:
         project = projects.row_project(connection, project_id)
         row = connection.execute(

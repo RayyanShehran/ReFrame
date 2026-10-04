@@ -3,6 +3,8 @@
 import re
 import unicodedata
 from datetime import datetime
+from decimal import ROUND_CEILING, Decimal
+from pathlib import Path
 from typing import Literal
 
 from pydantic import Field, field_validator, model_validator
@@ -276,3 +278,60 @@ def parse_srt(raw):
     except ValueError as exc:
         raise ReferenceError(422, "invalid_srt", exc.errors()[0]["msg"]) from None
     return ImportResult(cues=cues)
+
+
+def literal_ass(text):
+    # libass-specific escaped braces; a word joiner prevents literal \N/\n/\h escapes.
+    return "".join({"\\": "\\\u2060", "{": r"\{", "}": r"\}", "\n": r"\N"}.get(c, c) for c in text)
+
+
+def ass_time(seconds):
+    # Exact membership at 30 fps: first frame >= boundary, represented in ASS centiseconds.
+    frame = int((Decimal(str(seconds)) * 30).to_integral_value(rounding=ROUND_CEILING))
+    centiseconds = frame * 100 // 30
+    return (
+        f"{centiseconds // 360000}:{centiseconds // 6000 % 60:02}:"
+        f"{centiseconds // 100 % 60:02}.{centiseconds % 100:02}"
+    )
+
+
+def filter_path(path):
+    # AVOption escaping, then filter-graph escaping. No user text enters the filter string.
+    value = path.resolve().as_posix()
+    value = "".join("\\" + c if c in "\\':" else c for c in value)
+    return "".join("\\" + c if c in "\\'[],;" else c for c in value)
+
+
+def subtitle_filter(track, directory, width, height):
+    style = track.style
+    size = height * {"small": 0.035, "medium": 0.05, "large": 0.07}[style.size]
+    ink = "&H00FFFFFF" if style.color == "white" else "&H0000FFFF"
+    alignment = 2 if style.placement == "bottom-center" else 5
+    header = (
+        f"[Script Info]\nScriptType: v4.00+\nPlayResX: {width}\nPlayResY: {height}\n"
+        "WrapStyle: 0\nScaledBorderAndShadow: yes\n\n[V4+ Styles]\n"
+        "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, "
+        "BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, "
+        "BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n"
+        f"Style: Default,DejaVu Sans,{size:.3f},{ink},{ink},&H00000000,&H00000000,"
+        f"0,0,0,0,100,100,0,0,1,{max(0.5, height * 0.003):.3f},0,{alignment},"
+        f"{round(width * 0.04)},{round(width * 0.04)},{round(height * 0.06)},-1\n\n"
+        "[Events]\nFormat: Layer, Start, End, Style, Name, "
+        "MarginL, MarginR, MarginV, Effect, Text\n"
+    )
+    content = header + "".join(
+        f"Dialogue: 0,{ass_time(c.start)},{ass_time(c.end)},Default,,0,0,0,,{literal_ass(c.text)}\n"
+        for c in track.cues
+        if ass_time(c.start) != ass_time(c.end)
+    )
+    encoded = content.encode("utf-8")
+    if len(encoded) > 512 * 1024:
+        raise ReferenceError(422, "caption_data_limit", "Subtitle data exceeds its 512 KiB bound.")
+    target = directory / "captions.ass"
+    target.write_bytes(encoded)
+    fonts = Path(__file__).resolve().parent / "fonts"
+    if not (fonts / "DejaVuSans.ttf").is_file():
+        raise ReferenceError(
+            503, "caption_font_unavailable", "Bundled caption font is unavailable."
+        )
+    return f"ass=filename={filter_path(target)}:fontsdir={filter_path(fonts)}:shaping=complex"

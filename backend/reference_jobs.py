@@ -358,6 +358,7 @@ async def start(
     expected_revision=None,
     expected_plan_revision=None,
     expected_audio_revision=None,
+    expected_caption_revision=None,
 ):
     global active
     projects.identifier(project_id)
@@ -385,6 +386,7 @@ async def start(
                     expected_revision,
                     expected_plan_revision,
                     expected_audio_revision,
+                    expected_caption_revision,
                 )
         else:
             current = await projects.storage_call(read, project_id, True)
@@ -400,7 +402,13 @@ async def start(
             global active
             async with projects.operation_lock:
                 args = (
-                    (project_id, expected_revision, expected_plan_revision, expected_audio_revision)
+                    (
+                        project_id,
+                        expected_revision,
+                        expected_plan_revision,
+                        expected_audio_revision,
+                        expected_caption_revision,
+                    )
                     if analysis == "render"
                     else (project_id,)
                 )
