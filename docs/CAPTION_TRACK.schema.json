@@ -1,0 +1,217 @@
+{
+  "$defs": {
+    "Cue": {
+      "additionalProperties": false,
+      "properties": {
+        "start": {
+          "exclusiveMaximum": 120,
+          "minimum": 0,
+          "title": "Start",
+          "type": "number"
+        },
+        "end": {
+          "exclusiveMinimum": 0,
+          "maximum": 120,
+          "title": "End",
+          "type": "number"
+        },
+        "text": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "start",
+        "end",
+        "text"
+      ],
+      "title": "Cue",
+      "type": "object"
+    },
+    "Source": {
+      "additionalProperties": false,
+      "properties": {
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "clip_id": {
+          "pattern": "^clip-[0-9a-f]{32}\\.(mp4|mov)$",
+          "title": "Clip Id",
+          "type": "string"
+        },
+        "media_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Media Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "project_id",
+        "clip_id",
+        "media_sha256"
+      ],
+      "title": "Source",
+      "type": "object"
+    },
+    "Style": {
+      "additionalProperties": false,
+      "properties": {
+        "color": {
+          "default": "white",
+          "enum": [
+            "white",
+            "yellow"
+          ],
+          "title": "Color",
+          "type": "string"
+        },
+        "size": {
+          "default": "medium",
+          "enum": [
+            "small",
+            "medium",
+            "large"
+          ],
+          "title": "Size",
+          "type": "string"
+        },
+        "placement": {
+          "default": "bottom-center",
+          "enum": [
+            "bottom-center",
+            "center"
+          ],
+          "title": "Placement",
+          "type": "string"
+        }
+      },
+      "title": "Style",
+      "type": "object"
+    },
+    "Timeline": {
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "enum": [
+            "whole",
+            "cuts"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "footage": {
+          "$ref": "#/$defs/Source"
+        },
+        "duration_seconds": {
+          "exclusiveMinimum": 0,
+          "maximum": 120,
+          "title": "Duration Seconds",
+          "type": "number"
+        },
+        "plan_revision": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Plan Revision"
+        }
+      },
+      "required": [
+        "mode",
+        "footage",
+        "duration_seconds"
+      ],
+      "title": "Timeline",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "enabled": {
+      "default": false,
+      "title": "Enabled",
+      "type": "boolean"
+    },
+    "cues": {
+      "items": {
+        "$ref": "#/$defs/Cue"
+      },
+      "maxItems": 200,
+      "title": "Cues",
+      "type": "array"
+    },
+    "style": {
+      "$ref": "#/$defs/Style"
+    },
+    "provenance": {
+      "default": "manual",
+      "enum": [
+        "manual",
+        "srt_import"
+      ],
+      "title": "Provenance",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "revision": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Revision",
+      "type": "integer"
+    },
+    "timeline": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Timeline"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "created_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Created At"
+    },
+    "updated_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Updated At"
+    }
+  },
+  "title": "Track",
+  "type": "object"
+}
