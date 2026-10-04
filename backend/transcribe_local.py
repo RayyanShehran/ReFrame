@@ -6,6 +6,10 @@ import json
 import os
 import shutil
 import sys
+import tempfile
+import threading
+import time
+from contextlib import contextmanager
 from importlib.metadata import version
 from pathlib import Path
 
@@ -21,6 +25,32 @@ PCM_LIMIT = 120 * 16000 * 2
 JSON_LIMIT = 512 * 1024
 TEMP_BUDGET = 8 * 1024 * 1024
 ALGORITHM = "base-word-cues-v1"
+
+
+@contextmanager
+def owned_scope(stop):
+    previous = getattr(engine._control, "stop", None)
+    engine._control.stop = stop
+    try:
+        yield
+    except engine.ProcessCleanupError:
+        raise engine.RetrievalFailure(
+            "cleanup_failure",
+            "Owned transcription could not be confirmed stopped; staging retained.",
+            False,
+        ) from None
+    except engine.ProbeInterrupted:
+        raise engine.RetrievalFailure("interrupted", "Transcription was interrupted.") from None
+    except engine.SizeLimit:
+        raise engine.RetrievalFailure(
+            "temporary_size_limit", "Transcription exceeded its 8 MiB polled staging budget."
+        ) from None
+    except engine.ToolOutputError:
+        raise engine.RetrievalFailure(
+            "invalid_tool_output", "Transcription tool output exceeded its supported bound."
+        ) from None
+    finally:
+        engine._control.stop = previous
 
 
 def invalid(message="Invalid model timestamps or text. Regenerate or author captions manually."):
@@ -179,7 +209,7 @@ def run(path, duration, language, directory, stop, deadline):
             "uv sync --locked --extra transcription, then "
             "uv run --locked --extra transcription python transcribe_local.py setup.",
         )
-    with engine.processing_scope(stop):
+    with owned_scope(stop):
         pcm = directory / "audio.pcm"
         result = engine.run_command(
             [
@@ -187,6 +217,9 @@ def run(path, duration, language, directory, stop, deadline):
                 "-v",
                 "error",
                 "-xerror",
+                "-nostdin",
+                "-protocol_whitelist",
+                "file",
                 "-i",
                 str(path),
                 "-map",
@@ -232,22 +265,107 @@ def run(path, duration, language, directory, stop, deadline):
         try:
             data = json.loads(result.stdout)
             cues = cues_from_words(data, duration)
-            if not isinstance(data["language"], str) or len(data["language"]) > 10:
+            if not isinstance(data["language"], str) or not 0 < len(data["language"]) <= 10:
                 invalid()
-            if not isinstance(data["versions"], dict) or not data["versions"]:
+            if (
+                not isinstance(data["versions"], dict)
+                or not 0 < len(data["versions"]) <= 20
+                or any(
+                    not isinstance(k, str)
+                    or not 0 < len(k) <= 64
+                    or not isinstance(v, str)
+                    or not 0 < len(v) <= 100
+                    for k, v in data["versions"].items()
+                )
+            ):
                 invalid()
         except (ValueError, KeyError, TypeError):
             invalid()
         return cues, data["language"], data["versions"]
 
 
+def smoke(path, language):
+    """Explicit real-inference check; ordinary CI never calls this command."""
+    import math
+
+    directory = Path(tempfile.mkdtemp(prefix="reframe-transcription-smoke-"))
+    started = time.monotonic()
+    cleanup_safe = True
+    try:
+        deadline = started + 300
+        with owned_scope(threading.Event()):
+            result = engine.run_command(
+                [
+                    shutil.which("ffprobe") or "ffprobe",
+                    "-v",
+                    "error",
+                    "-protocol_whitelist",
+                    "file",
+                    "-show_streams",
+                    "-show_format",
+                    "-of",
+                    "json",
+                    str(Path(path).resolve()),
+                ],
+                directory,
+                "transcription-smoke-probe",
+                deadline,
+                10,
+                output_limit=65536,
+                temp_budget=TEMP_BUDGET,
+            )
+            if result.returncode:
+                invalid("Could not inspect the local smoke input.")
+            data = json.loads(result.stdout)
+            duration = float(data["format"]["duration"])
+            if not math.isfinite(duration) or not 0 < duration <= 120:
+                invalid("Smoke input must be at most 120 seconds.")
+            if not any(s.get("codec_type") == "audio" for s in data["streams"]):
+                invalid("Smoke input requires an audio stream.")
+            cues, detected, versions = run(
+                path, duration, language, directory, threading.Event(), deadline
+            )
+        print(
+            json.dumps(
+                {
+                    "cues": [c.model_dump() for c in cues],
+                    "language": detected,
+                    "versions": versions,
+                    "model_revision": REVISION,
+                    "elapsed_seconds": time.monotonic() - started,
+                },
+                ensure_ascii=True,
+            )
+        )
+    except engine.ProcessCleanupError:
+        cleanup_safe = False
+        raise
+    except engine.RetrievalFailure as failure:
+        cleanup_safe = failure.cleanup_safe
+        raise
+    finally:
+        if cleanup_safe:
+            try:
+                shutil.rmtree(directory)
+            except OSError as cause:
+                raise engine.RetrievalFailure(
+                    "cleanup_failed", f"Smoke staging retained: {directory}", cleanup_safe=False
+                ) from cause
+        else:
+            print(f"Containment not confirmed; staging retained: {directory}", file=sys.stderr)
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("command", choices=["setup", "infer"])
+    parser.add_argument("command", choices=["setup", "infer", "smoke"])
     parser.add_argument("pcm", nargs="?")
     parser.add_argument("language", nargs="?", choices=["auto", "en", "ar"], default="auto")
     args = parser.parse_args()
     if args.command == "setup":
         setup()
-    else:
+    elif args.command == "infer":
         infer(args.pcm, args.language)
+    else:
+        if not args.pcm:
+            parser.error("smoke requires a local media path")
+        smoke(args.pcm, args.language)

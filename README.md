@@ -1,6 +1,6 @@
 # ReFrame
 
-ReFrame takes a TikTok link as the reference edit and a separately uploaded user-owned clip as footage. Saved projects retain one validated user clip, a fixed reference metadata snapshot and, on request, experimental reference media. Offline color comparisons, estimated pacing, editable color recipes, cut plans and saved audio choices drive local video rendering, playback and download. See [TikTok reference feasibility](docs/TIKTOK_REFERENCE_FEASIBILITY.md) for live evidence and limitations.
+ReFrame takes a TikTok link as the reference edit and a separately uploaded user-owned clip as footage. Saved projects retain one validated user clip, a fixed reference metadata snapshot and, on request, experimental reference media. Offline color comparisons, estimated pacing, editable color recipes, cut plans and saved audio choices and reviewed captions drive local video rendering, playback and download. See [TikTok reference feasibility](docs/TIKTOK_REFERENCE_FEASIBILITY.md) for live evidence and limitations.
 
 ## Prerequisites
 
@@ -50,7 +50,7 @@ After selecting a reference, enter a project name (1–80 trimmed characters) an
 
 Run one backend process bound to `127.0.0.1`. This is a single-user development app with no authentication, suitable only for the local machine. Do not expose it to the network or run multiple workers.
 
-- `data/reframe.sqlite3`: project snapshots, clips, reference media, independent analyses, recipes, plans, audio settings, captions and render records. Python's [sqlite3 module](https://docs.python.org/3.12/library/sqlite3.html) uses separate worker-owned connections, parameterized SQL, explicit transactions, foreign keys and schema version 10; startup migrates earlier supported versions while preserving saved projects and results.
+- `data/reframe.sqlite3`: project snapshots, clips, reference media, independent analyses, recipes, plans, audio settings, captions and render records. Python's [sqlite3 module](https://docs.python.org/3.12/library/sqlite3.html) uses separate worker-owned connections, parameterized SQL, explicit transactions, foreign keys and schema version 11; startup migrates earlier supported versions while preserving saved projects and results.
 - `data/project-staging/`: generated names for unfinished project uploads and scoped multipart spools.
 - `data/projects/<UUID>/`: separate generated names for retained user clips and reference media. Original clip filenames are display data. API responses never include filesystem paths.
 - `data/reference-staging/<operation UUID>/`: downloader fragments, media and bounded tool output for the current reference operation.
@@ -168,3 +168,28 @@ In **Captions**, enable the track, add/edit/delete timed plain-text cues or impo
 Times are on the final output timeline, **start inclusive / end exclusive**, not footage source time. Select Whole clip or Saved cut plan to match the render mode. Changing the bound footage or cut-plan revision makes the saved track stale; switching/rebinding requires explicit confirmation, preserving text/times and revalidating every cue without shifts/truncation. Color/audio edits do not invalidate the track. Conflicts retain the draft until explicit reload. Caption edits outdate the previous export without removing it.
 
 Limits: 200 ordered nonoverlapping cues, 200 Unicode characters and two explicit lines per cue, within output duration; SRT is at most 128 KiB UTF-8 with standard comma-millisecond timestamps. Markup-looking text is displayed literally. Bundled licensed DejaVu Sans supports English and Arabic; unsupported emoji/CJK glyphs can show missing symbols or vary with system fallback. Captions require FFmpeg's libass `ass` filter; disabled captions work without it. Very short cues can fall between 30 fps frames. See [caption schema, encoding and timing](docs/ARCHITECTURE.md#saved-captions-and-burned-in-export).
+
+## Local automatic captions (optional)
+
+After rendering a video with audio, select **Generate caption proposal**, choose Auto-detect, English or Arabic, and review/edit every proposed cue. **Use these captions** copies an unsaved draft into the existing editor, preserving style; replacement requires confirmation. Save captions, then render again. Refresh restores the proposal, saved captions and export. Mixed speech/music may reduce accuracy; speech detection does not prevent hallucinations. No translation or visible-reference-text extraction is performed.
+
+One-time dependency/model setup (network required only here), from `backend`:
+
+```powershell
+uv sync --locked --extra transcription
+uv run --locked --extra transcription python transcribe_local.py setup
+```
+
+The multilingual base model is pinned to `Systran/faster-whisper-base` revision `ebe41f70d5b6dfa9166e2c581c45c9c0cfc57b66` in ignored `data/transcription-models/`. Ordinary jobs load local files only. Start the API with the optional extra to keep these dependencies installed:
+
+```powershell
+uv run --locked --extra transcription uvicorn main:app --host 127.0.0.1 --port 8000 --reload
+```
+
+Separate real-inference smoke check, with an audio-bearing local video of at most 120 seconds:
+
+```powershell
+uv run --locked --extra transcription python transcribe_local.py smoke C:\path\speech.mp4 en
+```
+
+This prints actual cues, versions and elapsed time; it does not download a model or save a project. Ordinary CI excludes the optional extra, model downloads and real inference. CPU/int8 uses two inference threads, a 300-second deadline, bounded 16 kHz mono PCM/JSON, and the existing shared media worker/containment. Footage, cut-plan or saved audio changes require rendering current settings and explicitly regenerating the proposal; color/style changes and a new MP4 hash alone do not. [Method and proposal schema](docs/ARCHITECTURE.md#local-automatic-caption-proposals) document limits and provenance.

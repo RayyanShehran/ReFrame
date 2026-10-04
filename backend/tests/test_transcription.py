@@ -126,6 +126,18 @@ def test_color_rerender_keeps_proposal_but_audio_and_plan_changes_stale(local, m
     url = f"/api/projects/{pid}/transcription"
     assert client.post(url, json={}).status_code == 202
     result = finish(client, url)
+    assert (
+        client.post(
+            f"/api/projects/{pid}/color-recipe",
+            json={
+                "expected_revision": 1,
+                "strength": 0,
+                "selected": {"brightness": 0, "contrast": 1, "saturation": 1},
+            },
+        ).status_code
+        == 200
+    )
+    assert client.get(url).json()["stale"] is False
     changed = output.model_copy(update={"output_id": uuid.uuid4(), "sha256": "a" * 64})
     with projects.database() as connection:
         connection.execute(
@@ -140,6 +152,7 @@ def test_color_rerender_keeps_proposal_but_audio_and_plan_changes_stale(local, m
         == 200
     )
     assert client.get(url).json()["stale"]
+
     body = {
         "operation_id": result["operation_id"],
         "expected_caption_revision": 0,
@@ -155,6 +168,31 @@ def test_color_rerender_keeps_proposal_but_audio_and_plan_changes_stale(local, m
         == 200
     )
     assert client.get(url).json()["stale"]
+
+
+def test_changed_footage_cannot_apply_proposal_or_generate_from_old_output(local, monkeypatch):
+    client, directory, _ = local
+    pid, _ = completed(client, directory)
+    mock_model(monkeypatch)
+    url = f"/api/projects/{pid}/transcription"
+    assert client.post(url, json={}).status_code == 202
+    result = finish(client, url)
+    with projects.database() as connection:
+        row = connection.execute("SELECT filename FROM clips WHERE project_id=?", (pid,)).fetchone()
+    projects.media_path(pid, row[0]).write_bytes(b"changed footage")
+    assert client.get(url).json()["stale"]
+    assert (
+        client.post(
+            url + "/apply",
+            json={
+                "operation_id": result["operation_id"],
+                "expected_caption_revision": 0,
+                "cues": result["proposal"]["cues"],
+            },
+        ).status_code
+        == 409
+    )
+    assert client.post(url, json={"replace": True}).status_code == 409
 
 
 def test_silent_empty_failure_retry_recovery_and_new_slot(local, monkeypatch):

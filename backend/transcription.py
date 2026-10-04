@@ -196,14 +196,14 @@ def pipeline(value, directory, stop, deadline):
     directory.mkdir(parents=True, exist_ok=False)
     cues, language, versions = adapter.run(
         value["path"],
-        value["binding"].timeline.duration_seconds,
+        value["output"].duration_seconds,
         value["language"],
         directory,
         stop,
         deadline,
     )
     proposal = Proposal(
-        versions=versions,
+        versions=versions | {"ffmpeg": value["output"].ffmpeg_version},
         requested_language=value["language"],
         detected_language=language,
         output_id=value["output"].output_id,

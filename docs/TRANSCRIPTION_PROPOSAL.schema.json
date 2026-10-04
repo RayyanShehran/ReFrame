@@ -154,41 +154,6 @@
       "title": "Settings",
       "type": "object"
     },
-    "Style": {
-      "additionalProperties": false,
-      "properties": {
-        "color": {
-          "default": "white",
-          "enum": [
-            "white",
-            "yellow"
-          ],
-          "title": "Color",
-          "type": "string"
-        },
-        "size": {
-          "default": "medium",
-          "enum": [
-            "small",
-            "medium",
-            "large"
-          ],
-          "title": "Size",
-          "type": "string"
-        },
-        "placement": {
-          "default": "bottom-center",
-          "enum": [
-            "bottom-center",
-            "center"
-          ],
-          "title": "Placement",
-          "type": "string"
-        }
-      },
-      "title": "Style",
-      "type": "object"
-    },
     "Timeline": {
       "additionalProperties": false,
       "properties": {
@@ -288,10 +253,64 @@
   },
   "additionalProperties": false,
   "properties": {
-    "enabled": {
-      "default": false,
-      "title": "Enabled",
-      "type": "boolean"
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "algorithm_version": {
+      "const": "base-word-cues-v1",
+      "default": "base-word-cues-v1",
+      "title": "Algorithm Version",
+      "type": "string"
+    },
+    "model_repository": {
+      "const": "Systran/faster-whisper-base",
+      "default": "Systran/faster-whisper-base",
+      "title": "Model Repository",
+      "type": "string"
+    },
+    "model_revision": {
+      "const": "ebe41f70d5b6dfa9166e2c581c45c9c0cfc57b66",
+      "default": "ebe41f70d5b6dfa9166e2c581c45c9c0cfc57b66",
+      "title": "Model Revision",
+      "type": "string"
+    },
+    "versions": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Versions",
+      "type": "object"
+    },
+    "requested_language": {
+      "enum": [
+        "auto",
+        "en",
+        "ar"
+      ],
+      "title": "Requested Language",
+      "type": "string"
+    },
+    "detected_language": {
+      "maxLength": 10,
+      "minLength": 1,
+      "title": "Detected Language",
+      "type": "string"
+    },
+    "output_id": {
+      "format": "uuid",
+      "title": "Output Id",
+      "type": "string"
+    },
+    "output_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Output Sha256",
+      "type": "string"
+    },
+    "binding": {
+      "$ref": "#/$defs/AutomaticBinding"
     },
     "cues": {
       "items": {
@@ -301,93 +320,21 @@
       "title": "Cues",
       "type": "array"
     },
-    "style": {
-      "$ref": "#/$defs/Style"
-    },
-    "provenance": {
-      "default": "manual",
-      "enum": [
-        "manual",
-        "srt_import",
-        "automatic_transcription"
-      ],
-      "title": "Provenance",
+    "generated_at": {
+      "title": "Generated At",
       "type": "string"
-    },
-    "automatic_proposal_id": {
-      "anyOf": [
-        {
-          "format": "uuid",
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "title": "Automatic Proposal Id"
-    },
-    "schema_version": {
-      "const": 1,
-      "default": 1,
-      "title": "Schema Version",
-      "type": "integer"
-    },
-    "revision": {
-      "default": 0,
-      "minimum": 0,
-      "title": "Revision",
-      "type": "integer"
-    },
-    "timeline": {
-      "anyOf": [
-        {
-          "$ref": "#/$defs/Timeline"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null
-    },
-    "created_at": {
-      "anyOf": [
-        {
-          "format": "date-time",
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "title": "Created At"
-    },
-    "updated_at": {
-      "anyOf": [
-        {
-          "format": "date-time",
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "title": "Updated At"
-    },
-    "automatic_binding": {
-      "anyOf": [
-        {
-          "$ref": "#/$defs/AutomaticBinding"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null
     }
   },
-  "title": "Track",
+  "required": [
+    "versions",
+    "requested_language",
+    "detected_language",
+    "output_id",
+    "output_sha256",
+    "binding",
+    "cues",
+    "generated_at"
+  ],
+  "title": "Proposal",
   "type": "object"
 }

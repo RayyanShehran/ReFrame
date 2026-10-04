@@ -1,4 +1,6 @@
+import json
 import math
+import subprocess
 import threading
 import time
 
@@ -10,6 +12,50 @@ import transcribe_local as adapter
 
 def speech(words):
     return {"segments": [{"start": 0.0, "end": 10.0, "text": "spoken", "words": words}]}
+
+
+def test_adapter_uses_owned_runner_and_restores_cancellation(monkeypatch, tmp_path):
+    monkeypatch.setattr(adapter, "model_ready", lambda: True)
+    stop = threading.Event()
+    calls = []
+
+    def tool(args, directory, name, *a, **kw):
+        assert engine._control.stop is stop
+        calls.append(name)
+        if name == "transcription-audio":
+            (directory / "audio.pcm").write_bytes(b"\0\0" * 16000)
+            return subprocess.CompletedProcess(args, 0, b"", b"")
+        data = {"segments": [], "language": "en", "versions": {"fixture": "mock"}}
+        return subprocess.CompletedProcess(args, 0, json.dumps(data).encode(), b"")
+
+    monkeypatch.setattr(engine, "run_command", tool)
+    previous = getattr(engine._control, "stop", None)
+    assert (
+        adapter.run(tmp_path / "source.mp4", 1, "en", tmp_path, stop, time.monotonic() + 10)[0]
+        == []
+    )
+    assert calls == ["transcription-audio", "transcription-inference"]
+    assert engine._control.stop is previous
+
+
+@pytest.mark.parametrize(
+    "failure,code,safe",
+    [
+        (engine.ProcessCleanupError, "cleanup_failure", False),
+        (engine.ProbeInterrupted, "interrupted", True),
+        (engine.SizeLimit, "temporary_size_limit", True),
+    ],
+)
+def test_adapter_preserves_containment_failures(monkeypatch, tmp_path, failure, code, safe):
+    monkeypatch.setattr(adapter, "model_ready", lambda: True)
+    monkeypatch.setattr(engine, "run_command", lambda *a, **k: (_ for _ in ()).throw(failure()))
+    previous = getattr(engine._control, "stop", None)
+    with pytest.raises(engine.RetrievalFailure) as caught:
+        adapter.run(
+            tmp_path / "source.mp4", 1, "en", tmp_path, threading.Event(), time.monotonic() + 10
+        )
+    assert caught.value.code == code and caught.value.cleanup_safe is safe
+    assert engine._control.stop is previous
 
 
 def test_readable_word_cues_punctuation_overlap_and_empty():
