@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { RenderVideo } from "./render-video";
+import { EditPlan, PlanState } from "./edit-plan";
 
 type Values = { brightness: number; contrast: number; saturation: number };
 type Recipe = { schema_version: 1; suggestion_algorithm_version: string; suggested: Values;
@@ -52,6 +53,7 @@ export function ColorRecipe({ projectId, analysesReady }: { projectId: string; a
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [confirmRegenerate, setConfirmRegenerate] = useState(false);
+  const [planState, setPlanState] = useState<PlanState>({ revision: null, ready: false, dirty: false, busy: false });
   const action = useRef<AbortController | null>(null);
   const recipe = result?.recipe;
   const dirty = !!recipe && (fields.some(f => draft.selected[f.name] !== recipe.selected[f.name]) || draft.strength !== recipe.strength);
@@ -122,6 +124,7 @@ export function ColorRecipe({ projectId, analysesReady }: { projectId: string; a
     </>}
     <button disabled={busy} onClick={() => void run("reload")}>{dirty ? "Discard changes and reload" : "Reload saved recipe"}</button>
     {busy && <p role="status">Saving or loading recipe…</p>}
-    <RenderVideo projectId={projectId} revision={recipe?.revision ?? null} recipeReady={result?.status === "ready"} dirty={dirty} busy={busy} />
+    <EditPlan key={projectId} projectId={projectId} recipeReady={result?.status === "ready" && !dirty && !busy} onState={setPlanState} />
+    <RenderVideo projectId={projectId} revision={recipe?.revision ?? null} recipeReady={result?.status === "ready"} dirty={dirty} busy={busy} planState={planState} />
   </section>;
 }

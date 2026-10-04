@@ -8,6 +8,23 @@ const ready = { ...idle, status: "ready", spec: { recipe_revision: 2 }, output: 
 const ok = (value: unknown) => ({ ok: true, json: async () => value } as Response);
 afterEach(() => vi.unstubAllGlobals());
 
+it("binds saved plan and recipe revisions and blocks unsaved cuts only in cut mode", async () => {
+  const mock = vi.fn(async (_url: string, options: RequestInit) => {
+    if (options.method === "POST") expect(JSON.parse(options.body as string)).toEqual({ expected_revision: 2, expected_plan_revision: 3 });
+    return ok(idle);
+  });
+  vi.stubGlobal("fetch", mock);
+  const plan = { revision: 3, ready: true, dirty: true, busy: false };
+  const view = render(<RenderVideo projectId="project" revision={2} recipeReady dirty={false} busy={false} planState={plan} />);
+  await screen.findByRole("combobox", { name: "Render mode" });
+  expect(screen.getByRole("button", { name: "Render video" })).toBeEnabled();
+  fireEvent.change(screen.getByRole("combobox"), { target: { value: "cuts" } });
+  expect(screen.getByRole("button", { name: "Render video" })).toBeDisabled();
+  view.rerender(<RenderVideo projectId="project" revision={2} recipeReady dirty={false} busy={false} planState={{ ...plan, dirty: false }} />);
+  fireEvent.click(screen.getByRole("button", { name: "Render video" }));
+  await waitFor(() => expect(mock).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ method: "POST" })));
+});
+
 it("requires a saved valid recipe and sends only its revision, then restores native playback", async () => {
   let result = idle as unknown;
   const mock = vi.fn(async (_url: string, options: RequestInit) => {
