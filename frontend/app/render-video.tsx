@@ -74,6 +74,7 @@ export function RenderVideo({ savedStrength, savedValues, projectId, revision, r
   return <section className="reference-section" aria-label="Rendered video">
     <h3>Rendered video</h3>
     <p className="hint">Uses the saved color recipe, framing, audio choices and optional captions, with optional saved cuts. No transitions. These controls have no live preview; render to see the actual result.</p>
+    {navigation && <button onClick={() => navigation.open("style", `preview-${projectId}`)}>Review before/after frame</button>}
     <label>Render mode <select value={mode} onChange={e => setMode(e.target.value)} disabled={starting || running}>
       <option value="whole">Whole clip (color + saved audio)</option><option value="cuts">Saved cut plan (cuts + color)</option></select></label>
     <div className="export-summary" aria-label="Saved export settings">

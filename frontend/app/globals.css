@@ -85,3 +85,9 @@ summary:focus-visible { outline: 2px solid #84ccbe; outline-offset: 4px; }
 .hero { padding-top: 38px; padding-bottom: 38px; }
 .hero h1 { font-size: clamp(2.4rem, 5vw, 4rem); }
 @media (max-width: 600px) { .workspace-nav { grid-template-columns: repeat(2, minmax(0, 1fr)); } .workspace-nav button:last-child { grid-column: 1 / -1; } .guided-workspace h2 { scroll-margin-top: 190px; } .reference-form-row { flex-wrap: wrap; } }
+
+.frame-preview-images { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: start; }
+.frame-preview-images figure { margin: 0; min-width: 0; }
+.frame-preview-images figcaption { font-weight: 700; margin: 12px 0; }
+.frame-preview-images img { display: block; width: 100%; height: auto; background: black; }
+@media (max-width: 600px) { .frame-preview-images { grid-template-columns: minmax(0, 1fr); } }

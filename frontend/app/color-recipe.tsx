@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { WorkspaceSection, useWorkspaceReport } from "./guided-workspace";
+import { FramePreview } from "./frame-preview";
 import { RenderVideo } from "./render-video";
 import { EditPlan, PlanState } from "./edit-plan";
 import { AudioChoices, AudioState } from "./audio-choices";
@@ -51,7 +52,7 @@ async function request(projectId: string, signal: AbortSignal, body?: unknown, g
   } finally { clearTimeout(timer); signal.removeEventListener("abort", abort); }
 }
 
-export function ColorRecipe({ projectId, analysesReady }: { projectId: string; analysesReady: boolean }) {
+export function ColorRecipe({ projectId, analysesReady, footageDuration = null }: { projectId: string; analysesReady: boolean; footageDuration?: number | null }) {
   const [result, setResult] = useState<Result | null>(null);
   const [draft, setDraft] = useState({ selected: neutral, strength: .5 });
   const [busy, setBusy] = useState(false);
@@ -133,6 +134,7 @@ export function ColorRecipe({ projectId, analysesReady }: { projectId: string; a
     <button disabled={busy} onClick={() => void run("reload")}>{dirty ? "Discard changes and reload" : "Reload saved recipe"}</button>
     {busy && <p role="status">Saving or loading recipe…</p>}
     </section>
+    <FramePreview key={`preview-${projectId}`} projectId={projectId} duration={footageDuration} revision={recipe?.revision ?? null} recipeReady={result?.status === "ready"} recipeDirty={dirty} recipeBusy={busy} framing={framingState} />
     <EditPlan key={`plan-${projectId}`} projectId={projectId} recipeReady={result?.status === "ready" && !dirty && !busy} onState={setPlanState} /></WorkspaceSection>
     <WorkspaceSection section="audio">
     <AudioChoices key={`audio-${projectId}`} projectId={projectId} onState={setAudioState} />

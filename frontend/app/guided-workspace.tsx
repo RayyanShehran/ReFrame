@@ -6,7 +6,7 @@ export const sections = { reference: "Reference", footage: "Footage", style: "St
 export type Section = keyof typeof sections;
 type Report = { section: Section; state: "Needs input" | "Ready" | "Working" | "Needs attention"; message?: string };
 type Action = { section: Section; label: string };
-const Context = createContext<null | { active: Section; open: (section: Section) => void; report: (key: string, value: Report | null) => void; next: (value: Action | null) => void }>(null);
+const Context = createContext<null | { active: Section; open: (section: Section, focusId?: string) => void; report: (key: string, value: Report | null) => void; next: (value: Action | null) => void }>(null);
 export function useWorkspaceNavigation() { return useContext(Context); }
 export function useWorkspaceReport(key: string, section: Section, state: Report["state"], message?: string) {
   const report = useContext(Context)?.report;
@@ -22,7 +22,7 @@ export function GuidedWorkspace({ hasFootage, footageUnavailable = false, childr
   const [reports, setReports] = useState<Record<string, Report>>({});
   const [action, setAction] = useState<Action | null>(null);
   const heading = useRef<HTMLHeadingElement>(null);
-  const open = useCallback((section: Section) => { setActive(section); requestAnimationFrame(() => heading.current?.focus()); }, []);
+  const open = useCallback((section: Section, focusId?: string) => { setActive(section); requestAnimationFrame(() => ((focusId ? document.getElementById(focusId) : null) ?? heading.current)?.focus()); }, []);
   const report = useCallback((key: string, value: Report | null) => setReports(previous => {
     const updated = { ...previous };
     if (value) updated[key] = value; else delete updated[key];
