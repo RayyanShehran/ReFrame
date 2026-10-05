@@ -16,6 +16,7 @@ import color_analysis
 import color_recipe
 import edit_plan
 import footage_analysis
+import framing
 import pacing_analysis
 import projects
 import reference_jobs
@@ -222,6 +223,18 @@ async def read_audio_settings(project_id: str):
 async def save_audio_settings(project_id: str, request: audio_settings.SaveRequest):
     async with projects.operation_lock:
         return await projects.storage_call(audio_settings.save, project_id, request)
+
+
+@app.get("/api/projects/{project_id}/framing", response_model=framing.Result)
+async def read_framing(project_id: str):
+    async with projects.operation_lock:
+        return await projects.storage_call(framing.read, project_id)
+
+
+@app.post("/api/projects/{project_id}/framing", response_model=framing.Result)
+async def save_framing(project_id: str, request: framing.SaveRequest):
+    async with projects.operation_lock:
+        return await projects.storage_call(framing.save, project_id, request)
 
 
 @app.get("/api/projects/{project_id}/captions", response_model=captions.Result)
