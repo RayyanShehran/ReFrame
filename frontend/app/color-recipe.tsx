@@ -133,7 +133,7 @@ export function ColorRecipe({ projectId, analysesReady }: { projectId: string; a
     <button disabled={busy} onClick={() => void run("reload")}>{dirty ? "Discard changes and reload" : "Reload saved recipe"}</button>
     {busy && <p role="status">Saving or loading recipe…</p>}
     </section>
-    <details><summary>Optional cut plan</summary><EditPlan key={`plan-${projectId}`} projectId={projectId} recipeReady={result?.status === "ready" && !dirty && !busy} onState={setPlanState} /></details></WorkspaceSection>
+    <EditPlan key={`plan-${projectId}`} projectId={projectId} recipeReady={result?.status === "ready" && !dirty && !busy} onState={setPlanState} /></WorkspaceSection>
     <WorkspaceSection section="audio">
     <AudioChoices key={`audio-${projectId}`} projectId={projectId} onState={setAudioState} />
     <CaptionEditor key={`captions-${projectId}`} projectId={projectId} planState={planState} onState={setCaptionState} />

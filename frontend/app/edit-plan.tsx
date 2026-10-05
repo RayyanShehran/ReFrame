@@ -1,5 +1,6 @@
 "use client";
 
+import { useWorkspaceReport } from "./guided-workspace";
 import { useEffect, useRef, useState } from "react";
 
 export type PlanState = { revision: number | null; ready: boolean; dirty: boolean; busy: boolean; duration?: number | null };
@@ -81,11 +82,12 @@ export function EditPlan({ projectId, recipeReady, onState }: { projectId: strin
     } finally { if (action.current === controller) { action.current = null; if (!controller.signal.aborted) setBusy(false); } }
   }
   const continuous = !!plan && starts.every((s, i) => !i || Math.round(Number(s) * 30) === Math.round(Number(starts[i - 1]) * 30) + plan.segments[i - 1].output_end_frame - plan.segments[i - 1].output_start_frame);
+  useWorkspaceReport("cut-plan", "style", busy ? "Working" : error || result?.status === "stale" ? "Needs attention" : ready ? "Ready" : "Needs input", "Saving or loading cut plan…");
   return <section className="reference-section" aria-label="Cut plan">
-    <h3>Reference-paced cut plan</h3>
-    <p className="hint">An experimental timing suggestion from estimated reference shot lengths, not semantic matching. Review the footage ranges. No transitions are added. Audio and manual captions are saved separately below.</p>
+    <h3>Optional reference-paced cut plan</h3>
+    <p className="hint">Optional for whole-clip export. An experimental timing suggestion from estimated reference shot lengths, not semantic matching. Review the footage ranges. No transitions are added. Audio and manual captions are saved separately below.</p>
     {!result && !error && <p role="status">Loading cut plan…</p>}
-    {result?.message && <p role={ready ? "note" : "alert"}>{result.message}</p>}
+    {result?.message && <p role={result.status === "stale" ? "alert" : "note"}>{result.message}</p>}
     {!recipeReady && <p>Save a valid color recipe before generating or rendering cuts.</p>}
     {error && <p role="alert">{error}</p>}
     <label htmlFor={`duration-${projectId}`}>Requested output duration (seconds)

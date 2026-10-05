@@ -46,8 +46,8 @@ export function PacingBlueprint({ projectId }: { projectId: string }) {
   const { operation, error, starting, start } = useMediaOperation(projectId, "pacing", parse);
   const b = operation?.blueprint;
   return <section className="reference-section" aria-label="Style Blueprint — estimated cuts and pacing">
-    <h3>Style Blueprint — estimated cuts and pacing</h3>
-    <p className="hint">Read-only estimates from the retained reference. Transitions, captions and audio remain not analyzed.</p>
+    <h3>Optional reference pacing</h3>
+    <p className="hint">Optional for whole-clip export. Read-only estimates from the retained reference. Transitions, captions and audio remain not analyzed.</p>
     {!operation && !error && <p role="status">Loading pacing status…</p>}
     {operation?.status === "idle" && <p>Pacing has not been analyzed. Color results are independent.</p>}
     {operation?.status === "running" && <p role="status">Checking consecutive reference frames for likely cuts… Processing continues if you leave.</p>}
@@ -56,7 +56,7 @@ export function PacingBlueprint({ projectId }: { projectId: string }) {
     {operation && ["idle", "failed"].includes(operation.status) && <button disabled={starting} onClick={() => void start()}>{starting ? "Starting…" : operation.status === "failed" ? "Retry pacing analysis" : "Analyze pacing"}</button>}
     {operation?.status === "ready" && b && <>
       <p role="status">Estimated cuts and pacing are ready and saved locally.</p>
-      <dl className="clip-details">
+      <details><summary>Estimated pacing measurements and method</summary><dl className="clip-details">
         <dt>Estimated cut count</dt><dd>{b.estimated_cut_count}</dd>
         <dt>Estimated shot count</dt><dd>{b.shot_count}</dd>
         <dt>Mean shot length</dt><dd>{b.mean_shot_seconds.toFixed(3)} seconds</dd>
@@ -67,7 +67,7 @@ export function PacingBlueprint({ projectId }: { projectId: string }) {
         <dt>Tools</dt><dd>{Object.entries(b.tool_versions).map(([name, version]) => `${name}: ${version}`).join(" · ")}</dd>
         <dt>Source SHA-256</dt><dd style={{ overflowWrap: "anywhere" }}>{b.source.media_sha256}</dd>
         <dt>Analyzed</dt><dd>{b.analyzed_at}</dd>
-      </dl>
+      </dl></details>
       <details><summary>Estimated shot durations ({b.shot_count} shots)</summary>
         <div style={{ maxHeight: "16rem", overflow: "auto" }}><table>
           <caption>Contiguous estimated shots, in seconds</caption>

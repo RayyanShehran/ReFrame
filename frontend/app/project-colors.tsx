@@ -41,7 +41,7 @@ export function ProjectColors({ projectId, hasFootage }: { projectId: string; ha
         <p className="hint">Differences describe sampled pixels and can reflect different scene content. They are not exposure stops, white-balance corrections or a ready-to-apply grade.</p>
       </>}
     </section>
-    {mediaReady && <details><summary>Optional reference pacing</summary><PacingBlueprint projectId={projectId} /></details>}
+    {mediaReady && <PacingBlueprint projectId={projectId} />}
     </WorkspaceSection>
   </>;
 }
