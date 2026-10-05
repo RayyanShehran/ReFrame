@@ -21,7 +21,7 @@ def test_save_restore_revisions_timeline_rebind_preserves_text_and_analyses(loca
         "expected_revision": 0,
         "mode": "whole",
         "enabled": True,
-        "cues": [{"start": 0.5, "end": 1.5, "text": "Hello\nÙ…Ø±Ø­Ø¨Ø§ {\\b1}"}],
+        "cues": [{"start": 0.5, "end": 1.5, "text": "Hello\nمرحبا {\\b1}"}],
     }
     response = client.post(url, json=body)
     assert response.status_code == 200, response.text
@@ -106,10 +106,10 @@ def test_srt_real_body_preview_limits_plain_markup_and_no_persistence(local):
     client, directory, _ = local
     pid = seed_analyses(client, directory)[0]["id"]
     url = f"/api/projects/{pid}/captions"
-    text = "1\r\n00:00:00,100 --> 00:00:00,900\r\n<i>Hello</i> {\\b1}\r\nÙ…Ø±Ø­Ø¨Ø§\r\n"
+    text = "1\r\n00:00:00,100 --> 00:00:00,900\r\n<i>Hello</i> {\\b1}\r\nمرحبا\r\n"
     response = client.post(url + "/import", content=text.encode("utf-8"))
     assert response.status_code == 200, response.text
-    assert response.json()["cues"][0]["text"] == "<i>Hello</i> {\\b1}\nÙ…Ø±Ø­Ø¨Ø§"
+    assert response.json()["cues"][0]["text"] == "<i>Hello</i> {\\b1}\nمرحبا"
     assert response.json()["provenance"] == "srt_import"
     assert client.get(url).json()["track"]["revision"] == 0
     for content in [

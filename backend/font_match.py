@@ -132,6 +132,8 @@ def no_ranking():
 def mask(raw, width, height, polarity="light", *, tight=True):
     if len(raw) != width * height or min(width, height) < 8:
         no_ranking()
+    # ponytail: global threshold assumes one high-contrast caption; use foreground
+    # segmentation if complex backgrounds need support.
     histogram = [0] * 256
     for v in raw:
         histogram[v] += 1
