@@ -158,7 +158,7 @@ export function Workspace() {
     </>}
     {current && <section className="footage-section" aria-label="Saved project workspace">
       <h2>{current.name}</h2>
-      <GuidedWorkspace key={current.id} hasFootage={current.clip_status === "ready"}>
+      <GuidedWorkspace key={current.id} hasFootage={current.clip_status === "ready"} footageUnavailable={!["empty", "ready"].includes(current.clip_status)}>
       <WorkspaceSection section="reference"><div className="reference-card"><h3>{current.reference.title || "TikTok reference"}</h3>
         <p>Creator: {current.reference.author_name || "Unavailable"}</p>
         <a href={current.reference.canonical_url} target="_blank" rel="noreferrer">Open reference on TikTok</a>

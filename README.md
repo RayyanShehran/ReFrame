@@ -46,6 +46,12 @@ Paste a full HTTPS TikTok video URL such as `https://www.tiktok.com/@scout2015/v
 
 After selecting a reference, enter a project name (1–80 trimmed characters) and select **Create project**. In the saved workspace, choose one user-owned MP4 or MOV clip and select **Save clip**. Up to 10 projects are allowed, each with one fixed reference and one clip; a second upload returns 409. The saved-project list offers open and delete actions. Deletion requires confirmation naming the project and explaining removal of its uploaded clip. The limit is **100 MiB per file**, **101 MiB for the complete multipart request**, **120 seconds**, and **4096 pixels in either dimension**; audio is optional. The server allows one inspection at a time per process, caps the complete request at 30 seconds and FFprobe at 15 seconds, and rejects extra multipart fields or files. It verifies the MIME type, extension, container and video stream. Generic `application/octet-stream` MIME is accepted only when inspection confirms MP4 or MOV. The response reports container metadata, not full decoding or browser playback compatibility.
 
+## Guided editing workspace
+
+Open a saved project and use **Reference → Footage → Style & cuts → Audio & captions → Export**. The next-step button opens the relevant section without starting work. Section switches keep unsaved drafts and active-job status; refresh restores saved settings only. Cuts, captions and automatic proposals are optional for a whole-clip export.
+
+Export summarizes saved revisions, recipe strength, audio, captions and framing. Blocked renders explain what to save or repair and link to that section. Detailed measurements are expandable. An outdated output stays playable/downloadable until a replacement succeeds; navigation does not save, regenerate or replace anything.
+
 ## Local storage and recovery
 
 Run one backend process bound to `127.0.0.1`. This is a single-user development app with no authentication, suitable only for the local machine. Do not expose it to the network or run multiple workers.

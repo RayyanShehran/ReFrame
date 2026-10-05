@@ -64,7 +64,7 @@ export function ColorRecipe({ projectId, analysesReady }: { projectId: string; a
   const action = useRef<AbortController | null>(null);
   const recipe = result?.recipe;
   const dirty = !!recipe && (fields.some(f => draft.selected[f.name] !== recipe.selected[f.name]) || draft.strength !== recipe.strength);
-  useWorkspaceReport("recipe", "style", busy ? "Working" : error || result?.status === "stale" ? "Needs attention" : result?.status === "ready" ? "Ready" : "Needs input", busy ? "Saving or loading recipe…" : undefined);
+  useWorkspaceReport("recipe", "style", busy ? "Working" : error || result?.status === "stale" ? "Needs attention" : result?.status === "ready" && !dirty ? "Ready" : "Needs input", busy ? "Saving or loading recipe…" : undefined);
   function restore(value: Result) {
     setResult(value); setError(""); setConfirmRegenerate(false);
     if (value.recipe) setDraft({ selected: value.recipe.selected, strength: value.recipe.strength });
@@ -138,7 +138,7 @@ export function ColorRecipe({ projectId, analysesReady }: { projectId: string; a
     <AudioChoices key={`audio-${projectId}`} projectId={projectId} onState={setAudioState} />
     <CaptionEditor key={`captions-${projectId}`} projectId={projectId} planState={planState} onState={setCaptionState} />
     </WorkspaceSection><WorkspaceSection section="export">
-    <FramingControls key={`framing-${projectId}`} projectId={projectId} onState={setFramingState} />
     <RenderVideo savedStrength={recipe?.strength} savedValues={recipe?.selected} framingState={framingState} projectId={projectId} revision={recipe?.revision ?? null} recipeReady={result?.status === "ready"} dirty={dirty} busy={busy} planState={planState} audioState={audioState} captionState={captionState} />
+    <FramingControls key={`framing-${projectId}`} projectId={projectId} onState={setFramingState} />
   </WorkspaceSection></>;
 }

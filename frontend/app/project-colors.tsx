@@ -24,6 +24,7 @@ export function ProjectColors({ projectId, hasFootage }: { projectId: string; ha
   const differences = ready ? colorDifferences(reference.color, footage.color) : [];
   return <>
     <WorkspaceSection section="reference"><ReferenceMedia projectId={projectId} onReady={setMediaReady} showAnalysis={false} onColorChange={setReference} /></WorkspaceSection>
+    <ColorRecipe key={projectId} projectId={projectId} analysesReady={!!ready} />
     <WorkspaceSection section="style">
     {mediaReady && <StyleBlueprint projectId={projectId} onChange={setReference} />}
     {hasFootage && <StyleBlueprint projectId={projectId} footage onChange={setFootage} />}
@@ -42,6 +43,5 @@ export function ProjectColors({ projectId, hasFootage }: { projectId: string; ha
     </section>
     {mediaReady && <details><summary>Optional reference pacing</summary><PacingBlueprint projectId={projectId} /></details>}
     </WorkspaceSection>
-    <ColorRecipe key={projectId} projectId={projectId} analysesReady={!!ready} />
   </>;
 }

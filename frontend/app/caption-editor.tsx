@@ -111,7 +111,7 @@ export function CaptionEditor({ projectId, planState, onState }: { projectId: st
     } finally { if (action.current === controller) { action.current = null; if (!controller.signal.aborted) setBusy(false); } }
   }
   function edit(index: number, key: keyof DraftCue, value: string) { setCues(all => all.map((c, i) => i === index ? { ...c, [key]: value } : c)); setConfirm(false); }
-  useWorkspaceReport("caption-settings", "audio", busy || proposalBusy ? "Working" : error ? "Needs attention" : ready ? dirty ? "Needs input" : "Ready" : "Needs input", "Saving or loading caption…");
+  useWorkspaceReport("caption-settings", "audio", busy || proposalBusy ? "Working" : error || (!!result && !ready) ? "Needs attention" : ready ? dirty ? "Needs input" : "Ready" : "Needs input", "Saving or loading caption…");
   return <section className="reference-section" aria-label="Captions">
     <h3>Captions</h3>
     <p className="hint">Manual text, imported SRT, or reviewed automatic transcription. No reference-caption extraction. Times use the final output timeline after cuts: start inclusive, end exclusive. Saving does not create a video preview.</p>

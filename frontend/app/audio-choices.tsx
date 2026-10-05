@@ -97,7 +97,7 @@ export function AudioChoices({ projectId, onState }: { projectId: string; onStat
       return { ...previous, mode: value, ...(value === "original" ? { original_volume: 100 } : value === "reference" ? { reference_volume: 100 } : {}) };
     });
   }
-  useWorkspaceReport("audio-settings", "audio", busy ? "Working" : error ? "Needs attention" : ready ? dirty ? "Needs input" : "Ready" : "Needs input", "Saving or loading audio…");
+  useWorkspaceReport("audio-settings", "audio", busy ? "Working" : error || result?.status === "stale" ? "Needs attention" : ready ? dirty ? "Needs input" : "Ready" : "Needs input", "Saving or loading audio…");
   return <section className="reference-section" aria-label="Audio">
     <h3>Audio</h3>
     <p className="hint">Reference audio may include speech and sound effects. Retrieval does not grant permission to reuse content.</p>

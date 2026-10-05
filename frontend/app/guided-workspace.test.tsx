@@ -17,6 +17,9 @@ function SourceStatus({ working = false }: { working?: boolean }) {
   useWorkspaceReport("reference-media", "reference", "Ready");
   useWorkspaceReport("style-blueprint", "style", "Ready");
   useWorkspaceReport("footage-color", "style", working ? "Working" : "Ready", "Analyzing footage colors…");
+  useWorkspaceReport("audio-settings", "audio", "Ready");
+  useWorkspaceReport("caption-settings", "audio", "Ready");
+  useWorkspaceReport("transcription", "audio", "Needs input");
   return null;
 }
 
@@ -44,6 +47,7 @@ it("does not require optional cuts or captions to render a whole clip", async ()
   await screen.findByText(/Whole clip · Cuts optional/);
   expect(screen.getByRole("button", { name: "Render video" })).toBeEnabled();
   expect(screen.getByText(/Saved captions: disabled/)).toBeVisible();
+  expect(screen.getByRole("button", { name: "Audio & captions" })).toHaveAccessibleDescription("Ready");
   fireEvent.change(screen.getByLabelText("Render mode"), { target: { value: "cuts" } });
   expect(screen.getByRole("button", { name: "Render video" })).toBeDisabled();
 });
