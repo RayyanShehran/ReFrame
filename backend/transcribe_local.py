@@ -3,6 +3,7 @@
 import argparse
 import hashlib
 import json
+import math
 import os
 import shutil
 import sys
@@ -210,6 +211,34 @@ def run(path, duration, language, directory, stop, deadline):
             "uv run --locked --extra transcription python transcribe_local.py setup.",
         )
     with owned_scope(stop):
+        result = engine.run_command(
+            [
+                shutil.which("ffprobe") or "ffprobe",
+                "-v",
+                "error",
+                "-protocol_whitelist",
+                "file",
+                "-select_streams",
+                "v:0",
+                "-show_entries",
+                "stream=start_time",
+                "-of",
+                "json",
+                str(path),
+            ],
+            directory,
+            "transcription-timeline",
+            deadline,
+            10,
+            output_limit=8192,
+            temp_budget=TEMP_BUDGET,
+        )
+        try:
+            video_start = float(json.loads(result.stdout)["streams"][0]["start_time"])
+            if result.returncode or not math.isfinite(video_start):
+                raise ValueError
+        except (ValueError, KeyError, TypeError, IndexError):
+            invalid("Could not determine the rendered video's timeline.")
         pcm = directory / "audio.pcm"
         result = engine.run_command(
             [
@@ -220,10 +249,14 @@ def run(path, duration, language, directory, stop, deadline):
                 "-nostdin",
                 "-protocol_whitelist",
                 "file",
+                "-copyts",
                 "-i",
                 str(path),
                 "-map",
                 "0:a:0",
+                "-af",
+                f"asetpts=PTS-({video_start:.9f})/TB,"
+                "aresample=16000:async=1:first_pts=0:min_hard_comp=0.001",
                 "-t",
                 str(duration),
                 "-ac",

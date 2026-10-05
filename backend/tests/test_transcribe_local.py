@@ -1,13 +1,18 @@
 import json
 import math
+import shutil
 import subprocess
 import threading
 import time
+import uuid
+from array import array
+from types import SimpleNamespace
 
 import pytest
 
 import reference_engine as engine
 import transcribe_local as adapter
+import transcription
 
 
 def speech(words):
@@ -22,6 +27,8 @@ def test_adapter_uses_owned_runner_and_restores_cancellation(monkeypatch, tmp_pa
     def tool(args, directory, name, *a, **kw):
         assert engine._control.stop is stop
         calls.append(name)
+        if name == "transcription-timeline":
+            return subprocess.CompletedProcess(args, 0, b'{"streams":[{"start_time":"0"}]}', b"")
         if name == "transcription-audio":
             (directory / "audio.pcm").write_bytes(b"\0\0" * 16000)
             return subprocess.CompletedProcess(args, 0, b"", b"")
@@ -34,7 +41,7 @@ def test_adapter_uses_owned_runner_and_restores_cancellation(monkeypatch, tmp_pa
         adapter.run(tmp_path / "source.mp4", 1, "en", tmp_path, stop, time.monotonic() + 10)[0]
         == []
     )
-    assert calls == ["transcription-audio", "transcription-inference"]
+    assert calls == ["transcription-timeline", "transcription-audio", "transcription-inference"]
     assert engine._control.stop is previous
 
 
@@ -122,3 +129,168 @@ def test_missing_model_never_starts_a_process(tmp_path, monkeypatch):
     monkeypatch.setattr(engine, "run_command", lambda *a, **k: pytest.fail("No automatic download"))
     with pytest.raises(engine.RetrievalFailure, match="setup"):
         adapter.run(tmp_path / "input", 1, "en", tmp_path, threading.Event(), time.monotonic() + 2)
+
+
+@pytest.mark.parametrize(
+    "video_start,audio_start,gap",
+    [(0, 0, 0), (0, 0.936, 0), (0.5, 0, 0), (2, 2.936, 0), (0, 0, 0.5), (0, 0, 0.05)],
+)
+def test_real_pcm_keeps_video_relative_audio_timing(
+    tmp_path, monkeypatch, video_start, audio_start, gap
+):
+    ffmpeg, ffprobe = shutil.which("ffmpeg"), shutil.which("ffprobe")
+    if not ffmpeg or not ffprobe:
+        pytest.skip("FFmpeg/FFprobe required for local timing fixture")
+    path = tmp_path / "timed.mp4"
+    args = [
+        ffmpeg,
+        "-v",
+        "error",
+        "-copyts",
+        "-itsoffset",
+        str(video_start),
+        "-f",
+        "lavfi",
+        "-i",
+        "color=c=gray:s=64x64:r=30:d=3",
+        "-itsoffset",
+        str(audio_start),
+        "-f",
+        "lavfi",
+        "-i",
+        "sine=frequency=880:sample_rate=48000:duration=2.1",
+        "-map",
+        "0:v",
+        "-map",
+        "1:a",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "ultrafast",
+        "-bf",
+        "0",
+        "-c:a",
+        "aac",
+        "-avoid_negative_ts",
+        "disabled",
+    ]
+    if gap:
+        args += ["-af", f"aselect='not(between(t,0.8,{0.8 + gap}))'"]
+    subprocess.run(args + [str(path)], check=True, capture_output=True, timeout=10)
+    metadata = json.loads(
+        subprocess.run(
+            [ffprobe, "-v", "error", "-show_streams", "-of", "json", str(path)],
+            check=True,
+            capture_output=True,
+            timeout=10,
+        ).stdout
+    )
+    video, audio = metadata["streams"]
+    assert float(video["start_time"]) == pytest.approx(video_start, abs=0.001)
+    stage = tmp_path / "stage"
+    monkeypatch.setattr(adapter, "model_ready", lambda: True)
+    real_tool = engine.run_command
+    expected = max(0, audio_start - video_start)
+
+    def tool(args, directory, name, *a, **kw):
+        if name != "transcription-inference":
+            return real_tool(args, directory, name, *a, **kw)
+        raw = (directory / "audio.pcm").read_bytes()
+        samples = array("h")
+        samples.frombytes(raw)
+        assert 0 < len(raw) <= adapter.PCM_LIMIT and len(raw) % 2 == 0
+
+        def rms(start, end):
+            values = samples[round(start * 16000) : round(end * 16000)]
+            assert values
+            return math.sqrt(sum(v * v for v in values) / len(values))
+
+        windows = [rms(i / 100, (i + 1) / 100) for i in range(len(samples) // 160)]
+        onset = next(i / 100 for i, value in enumerate(windows) if value > 100)
+        # Two 48 kHz AAC packets plus one 10 ms measurement window.
+        tolerance = 2 * 1024 / 48000 + 0.01
+        print(
+            f"video={video_start:.3f} audio_stream={float(audio['start_time']):.3f} "
+            f"expected_tone={expected:.3f} measured_onset={onset:.3f} "
+            f"pcm_seconds={len(samples) / 16000:.3f}"
+        )
+        assert onset == pytest.approx(expected, abs=tolerance)
+        if expected > tolerance:
+            assert rms(0, expected - tolerance) < 1
+        assert rms(expected + 0.1, expected + 0.3) > 1000
+        if video_start > audio_start:
+            assert len(samples) / 16000 == pytest.approx(
+                2.1 - video_start + audio_start, abs=tolerance
+            )
+        if gap:
+            middle = 0.8 + gap / 2
+            silence = rms(middle - 0.005, middle + 0.005)
+            assert silence < 1 and rms(0.8 + gap + 0.2, 0.8 + gap + 0.3) > 1000
+            print(f"timestamp_gap={gap:.3f} seconds; interior PCM RMS={silence:.3f}")
+        # Mock only inference: model seconds already include PCM's padded initial silence.
+        data = {
+            "language": "en",
+            "versions": {"model": "mock"},
+            "segments": [
+                {
+                    "start": expected + 0.1,
+                    "end": expected + 0.5,
+                    "text": "Aligned.",
+                    "words": [{"start": expected + 0.1, "end": expected + 0.5, "word": "Aligned."}],
+                }
+            ],
+        }
+        return subprocess.CompletedProcess(args, 0, json.dumps(data).encode(), b"")
+
+    monkeypatch.setattr(engine, "run_command", tool)
+    binding = transcription.captions.AutomaticBinding(
+        timeline=transcription.captions.Timeline(
+            mode="whole",
+            duration_seconds=3,
+            footage={
+                "project_id": str(uuid.uuid4()),
+                "clip_id": "clip-" + "a" * 32 + ".mp4",
+                "media_sha256": "a" * 64,
+            },
+        ),
+        audio=transcription.audio_settings.Settings(),
+    )
+    value = {
+        "path": path,
+        "language": "en",
+        "binding": binding,
+        "output": SimpleNamespace(
+            duration_seconds=3,
+            output_id=uuid.uuid4(),
+            sha256="b" * 64,
+            ffmpeg_version="real fixture",
+        ),
+    }
+    _, proposal = transcription.pipeline(value, stage, threading.Event(), time.monotonic() + 20)
+    assert proposal.binding == binding
+    assert proposal.cues[0].start == pytest.approx(expected + 0.1) and proposal.cues[
+        0
+    ].end == pytest.approx(expected + 0.5)
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        {"streams": []},
+        {"streams": [{}]},
+        {"streams": [{"start_time": "NaN"}]},
+        {"streams": [{"start_time": "invalid"}]},
+    ],
+)
+def test_invalid_video_timeline_never_starts_inference(tmp_path, monkeypatch, data):
+    monkeypatch.setattr(adapter, "model_ready", lambda: True)
+
+    def tool(args, directory, name, *a, **kw):
+        assert name == "transcription-timeline"
+        return subprocess.CompletedProcess(args, 0, json.dumps(data).encode(), b"")
+
+    monkeypatch.setattr(engine, "run_command", tool)
+    with pytest.raises(engine.RetrievalFailure, match="video's timeline"):
+        adapter.run(
+            tmp_path / "source.mp4", 3, "en", tmp_path, threading.Event(), time.monotonic() + 10
+        )
