@@ -129,7 +129,7 @@ def no_ranking():
     )
 
 
-def mask(raw, width, height, polarity="light", *, tight=True):
+def mask(raw, width, height, polarity="light", *, tight=True, details=False):
     if len(raw) != width * height or min(width, height) < 8:
         no_ranking()
     # ponytail: global threshold assumes one high-contrast caption; use foreground
@@ -184,6 +184,8 @@ def mask(raw, width, height, polarity="light", *, tight=True):
         for y in range(64)
         for x in range(normalized_w)
     )
+    if details:
+        return result, normalized_w, points, (left, top, w, h)
     return result, normalized_w
 
 

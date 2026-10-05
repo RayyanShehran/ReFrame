@@ -259,7 +259,7 @@ def test_migration_and_interrupted_recovery_preserve_clip(local):
         connection.execute("PRAGMA user_version = 1")
     projects.initialize()
     with projects.database() as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 14
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 15
     operation, url = jobs.begin_operation(saved["id"])
     stage = jobs.staging(operation.operation_id)
     stage.mkdir()
