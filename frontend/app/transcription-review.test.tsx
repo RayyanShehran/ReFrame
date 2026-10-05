@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { CaptionEditor } from "./caption-editor";
 import { TranscriptionReview } from "./transcription-review";
+import { defaultStyle } from "./caption-style-controls";
 
 const timeline = { mode: "whole", plan_revision: null, duration_seconds: 4 };
 const cue = { start: .5, end: 2, text: "Hello world." };
@@ -18,6 +19,7 @@ it("generates, reviews and transfers unsaved cues, preserves style and restores 
   } };
   const saved: unknown[] = [];
   const fetcher = vi.fn(async (url: string, options: RequestInit) => {
+    if (url.endsWith("/caption-font")) return ok({ revision: 0, font: null, available: true, message: null });
     if (url.endsWith("/transcription/apply")) {
       const b = JSON.parse(options.body as string);
       expect(b).toEqual({ operation_id: "one", expected_caption_revision: 0, replace: false, cues: [{ ...cue, text: "Reviewed text." }] });
@@ -29,7 +31,7 @@ it("generates, reviews and transfers unsaved cues, preserves style and restores 
     }
     if (options.method === "POST") {
       const b = JSON.parse(options.body as string); saved.push(b);
-      expect(b).toEqual(expect.objectContaining({ provenance: "automatic_transcription", automatic_proposal_id: "one", style: { color: "yellow", size: "medium", placement: "center" } }));
+      expect(b).toEqual(expect.objectContaining({ provenance: "automatic_transcription", automatic_proposal_id: "one", style: { ...defaultStyle, color: "yellow", placement: "center" } }));
       captions = { status: "ready", message: null, whole_duration_seconds: 4, track: { ...b, schema_version: 1, revision: 1, timeline } };
     }
     return ok(captions);
@@ -44,7 +46,7 @@ it("generates, reviews and transfers unsaved cues, preserves style and restores 
   fireEvent.click(screen.getByRole("button", { name: "Use these captions" }));
   expect(await screen.findByLabelText("Cue 1 text")).toHaveValue("Reviewed text.");
   expect(saved).toHaveLength(0);
-  expect(screen.getByLabelText("Caption color")).toHaveValue("yellow");
+  expect(screen.getByLabelText("Text color")).toHaveValue("#ffff00");
   fireEvent.click(screen.getByRole("button", { name: "Save captions" }));
   await screen.findByText(/Captions saved.*Automatic transcription/);
   view.unmount(); render(<CaptionEditor projectId="p" planState={plan} onState={vi.fn()} />);
