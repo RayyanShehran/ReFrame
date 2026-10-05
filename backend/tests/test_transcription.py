@@ -180,6 +180,23 @@ def test_generate_review_apply_save_preserves_captions_and_style(local, monkeypa
     assert not list(trans.staging(result["operation_id"]).glob("*"))
     assert client.delete(url).status_code == 200
     assert client.get(cap).json()["status"] == "ready"  # saved provenance survives proposal discard
+    styled = client.post(
+        cap,
+        json={
+            "expected_revision": 2,
+            "mode": "whole",
+            "enabled": True,
+            "style": {"color": "yellow", "size_percent": 8.0, "bold": True},
+            "cues": track["cues"],
+            "provenance": track["provenance"],
+            "automatic_proposal_id": track["automatic_proposal_id"],
+        },
+    )
+    assert styled.status_code == 200, styled.text
+    updated = styled.json()["track"]
+    for key in ("cues", "timeline", "provenance", "automatic_binding", "automatic_proposal_id"):
+        assert updated[key] == track[key]
+    assert updated["style"]["size_percent"] == 8 and updated["style"]["bold"]
 
 
 def test_color_rerender_keeps_proposal_but_audio_and_plan_changes_stale(local, monkeypatch):

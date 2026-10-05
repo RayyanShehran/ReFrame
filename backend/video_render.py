@@ -457,6 +457,35 @@ def color_filter(values):
     )
 
 
+def whole_video_filter(resize, values):
+    return f"setpts=PTS-STARTPTS,{resize},{color_filter(values)},fps=30:round=near"
+
+
+def subtitle(track, project_id, directory, width, height, deadline, *, temp_budget=TEMP_BUDGET):
+    if not track.enabled:
+        return "", []
+    ffmpeg = shutil.which("ffmpeg") or "ffmpeg"
+    capability = tool(
+        [ffmpeg, "-hide_banner", "-h", "filter=ass"],
+        directory,
+        "render-caption-capability",
+        deadline,
+        5,
+        8192,
+        temp_budget=temp_budget,
+    )
+    if not re.search(rb"(?m)^Filter ass\s*$", capability):
+        raise engine.RetrievalFailure(
+            "captions_unavailable", "Install FFmpeg with the libass ASS filter to render captions."
+        )
+    fonts, family, warnings = font_assets.prepare(
+        project_id, track.font_binding, track.cues, directory, deadline
+    )
+    return caption_tracks.subtitle_filter(
+        track, directory, width, height, (fonts, family)
+    ), warnings
+
+
 def dimensions(video):
     return framing_choices.geometry(video, framing_choices.Settings())[1]
 
@@ -573,38 +602,15 @@ def pipeline(source, directory, stop, deadline):
         (scale_width, scale_height), (width, height), canvas_filter = framing_choices.geometry(
             video, spec.framing
         )
-        subtitle_filter = ""
-        font_warnings = []
-        if spec.captions.enabled:
-            capability = tool(
-                [ffmpeg, "-hide_banner", "-h", "filter=ass"],
-                directory,
-                "render-caption-capability",
-                deadline,
-                5,
-                8192,
-            )
-            if not re.search(rb"(?m)^Filter ass\s*$", capability):
-                raise engine.RetrievalFailure(
-                    "captions_unavailable",
-                    "Install FFmpeg with the libass ASS filter to render captions.",
-                )
-            fonts, family, font_warnings = font_assets.prepare(
-                source["project_id"],
-                spec.captions.font_binding,
-                spec.captions.cues,
-                directory,
-                deadline,
-            )
-            subtitle_filter = caption_tracks.subtitle_filter(
-                spec.captions, directory, width, height, (fonts, family)
-            )
+        subtitle_filter, font_warnings = subtitle(
+            spec.captions, source["project_id"], directory, width, height, deadline
+        )
         # Padding follows color processing so the bars stay black; captions follow framing.
         final_filter = ",".join(part for part in (canvas_filter, subtitle_filter) if part)
         values = spec.effective
         # Normalize range before eq; output is tagged limited BT.709. Autorotation is enabled.
         resize = resize_filter(scale_width, scale_height, metadata)
-        filters = f"setpts=PTS-STARTPTS,{resize},{color_filter(values)},fps=30:round=near"
+        filters = whole_video_filter(resize, values)
         target = directory / "output.mp4"
         args = [
             ffmpeg,

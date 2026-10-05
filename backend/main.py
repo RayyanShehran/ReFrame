@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 import audio_settings
+import caption_preview
 import captions
 import color_analysis
 import color_recipe
@@ -307,6 +308,22 @@ async def upload_caption_font(
 
 @app.post("/api/projects/{project_id}/frame-preview", response_model=frame_preview.Preview)
 async def preview_frame(project_id: str, request: frame_preview.PreviewRequest):
+    return await saved_still(project_id, request, frame_preview.generate)
+
+
+@app.post(
+    "/api/projects/{project_id}/reference-frame", response_model=caption_preview.ReferenceFrame
+)
+async def inspect_reference_frame(project_id: str, request: caption_preview.ReferenceRequest):
+    return await saved_still(project_id, request, caption_preview.reference_frame)
+
+
+@app.post("/api/projects/{project_id}/caption-preview", response_model=caption_preview.CaptionFrame)
+async def preview_caption(project_id: str, request: caption_preview.CaptionRequest):
+    return await saved_still(project_id, request, caption_preview.caption_frame)
+
+
+async def saved_still(project_id, request, generate):
     if reference_jobs.start_lock.locked() or reference_jobs.active or reference_jobs.stopping:
         raise ReferenceError(
             409, "reference_busy", "Wait for the current media job, then update preview."
@@ -314,7 +331,7 @@ async def preview_frame(project_id: str, request: frame_preview.PreviewRequest):
     async with reference_jobs.start_lock:
         async with projects.operation_lock:
             await projects.storage_call(reference_jobs.check_quarantine)
-            return await projects.storage_call(frame_preview.generate, project_id, request)
+            return await projects.storage_call(generate, project_id, request)
 
 
 @app.get("/api/projects/{project_id}/transcription", response_model=transcription.Operation)
