@@ -1,12 +1,34 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { CaptionEditor } from "./caption-editor";
+import { defaultStyle } from "./caption-style-controls";
 vi.mock("./transcription-review", () => ({ TranscriptionReview: () => null }));
+vi.mock("./caption-style-controls", async original => ({ ...await original<typeof import("./caption-style-controls")>(), FontPicker: () => null }));
 
-const initial = { status: "default", whole_duration_seconds: 4, message: null, track: { schema_version: 1, revision: 0, enabled: false, cues: [] as { start: number; end: number; text: string }[], style: { color: "white", size: "medium", placement: "bottom-center" }, provenance: "manual", timeline: null as null | { mode: string; plan_revision: number | null; duration_seconds: number } } };
+const initial = { status: "default", whole_duration_seconds: 4, message: null, track: { schema_version: 1, revision: 0, enabled: false, cues: [] as { start: number; end: number; text: string }[], style: defaultStyle, provenance: "manual", timeline: null as null | { mode: string; plan_revision: number | null; duration_seconds: number } } };
 const plan = { revision: 2, ready: true, dirty: false, busy: false, duration: 3 };
 const ok = (data: unknown) => ({ ok: true, json: async () => data } as Response);
 afterEach(() => vi.unstubAllGlobals());
+
+it("saves appearance edits without changing reviewed automatic text, timing or provenance", async () => {
+  const saved = { ...initial, status: "ready", track: { ...initial.track, revision: 2, enabled: true, provenance: "automatic_transcription", automatic_proposal_id: "proposal", cues: [{ start: .3, end: 1.4, text: "Reviewed مرحبا" }], timeline: { mode: "whole", plan_revision: null, duration_seconds: 4 } } };
+  vi.stubGlobal("fetch", vi.fn(async (_url: string, options: RequestInit) => {
+    if (options.method === "POST") {
+      const body = JSON.parse(options.body as string);
+      expect(body).toEqual(expect.objectContaining({ expected_revision: 2, automatic_proposal_id: "proposal", provenance: "automatic_transcription", cues: saved.track.cues, confirm_rebind: false }));
+      expect(body.style).toEqual({ ...defaultStyle, size_percent: 8, bold: true });
+      expect(body).not.toHaveProperty("font_binding");
+      return ok({ ...saved, track: { ...saved.track, style: body.style, revision: 3 } });
+    }
+    return ok(saved);
+  }));
+  render(<CaptionEditor projectId="one" planState={plan} onState={vi.fn()} />);
+  fireEvent.change(await screen.findByLabelText("Text size (% of output height)"), { target: { value: "8" } });
+  fireEvent.click(screen.getByLabelText("Bold"));
+  fireEvent.click(screen.getByRole("button", { name: "Save captions" }));
+  await screen.findByText(/Captions saved.*revision 3/);
+  expect(screen.getByLabelText("Cue 1 text")).toHaveValue("Reviewed مرحبا");
+});
 
 it("disables stale automatic captions while retaining cues outside the new cut duration", async () => {
   const old = { ...initial, status: "stale", message: "Render current audio before regeneration.", track: { ...initial.track, revision: 1, enabled: true, provenance: "automatic_transcription", automatic_proposal_id: "proposal", cues: [{ start: .5, end: 1, text: "Preserve timing" }], timeline: { mode: "cuts", plan_revision: 1, duration_seconds: 4 } } };

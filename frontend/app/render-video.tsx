@@ -7,9 +7,10 @@ import { PlanState } from "./edit-plan";
 import { AudioState, audioModeLabels } from "./audio-choices";
 import { CaptionState } from "./caption-editor";
 import { FramingState, formatLabels } from "./framing-controls";
+import { fontLabel, validFont, type FontBinding } from "./caption-style-controls";
 
-type Spec = { recipe_revision: number; edit_plan?: { revision: number } | null; audio?: { revision: number; mode: keyof typeof audioModeLabels }; captions?: { revision: number; enabled: boolean }; framing?: { revision: number; format: keyof typeof formatLabels } };
-type Output = { output_id: string; spec: Spec; width: number; height: number; duration_seconds: number; size_bytes: number };
+type Spec = { recipe_revision: number; edit_plan?: { revision: number } | null; audio?: { revision: number; mode: keyof typeof audioModeLabels }; captions?: { revision: number; enabled: boolean; font_binding?: FontBinding }; framing?: { revision: number; format: keyof typeof formatLabels } };
+type Output = { output_id: string; spec: Spec; width: number; height: number; duration_seconds: number; size_bytes: number; font_warnings?: string[] };
 type Operation = MediaOperation & { output: Output | null; spec: Spec | null; outdated: boolean };
 const apiBase = (process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000").replace(/\/$/, "");
 function parse(data: unknown): Operation {
@@ -23,6 +24,7 @@ function parse(data: unknown): Operation {
     if (o.spec.audio && (!Object.hasOwn(audioModeLabels, o.spec.audio.mode) || !Number.isSafeInteger(o.spec.audio.revision) || o.spec.audio.revision < 0)) throw new Error("Invalid rendered audio response.");
     if (o.spec.framing && (!Object.hasOwn(formatLabels, o.spec.framing.format) || !Number.isSafeInteger(o.spec.framing.revision) || o.spec.framing.revision < 0)) throw new Error("Invalid rendered framing response.");
     if (o.spec.captions && (!Number.isSafeInteger(o.spec.captions.revision) || o.spec.captions.revision < 0 || typeof o.spec.captions.enabled !== "boolean")) throw new Error("Invalid rendered captions response.");
+    if ((o.spec.captions?.font_binding && !validFont(o.spec.captions.font_binding)) || (o.font_warnings && (!Array.isArray(o.font_warnings) || !o.font_warnings.every(w => typeof w === "string")))) throw new Error("Invalid rendered font response.");
   }
   return value;
 }
@@ -100,6 +102,8 @@ export function RenderVideo({ savedStrength, savedValues, projectId, revision, r
       <p>{audioModeLabels[output.spec.audio?.mode ?? "original"]} · Audio revision {output.spec.audio?.revision ?? 0}</p>
       <p>{formatLabels[output.spec.framing?.format ?? "original"]} · Framing revision {output.spec.framing?.revision ?? 0}</p>
       <p>Captions {output.spec.captions?.enabled ? "enabled" : "disabled"} · Caption revision {output.spec.captions?.revision ?? 0}</p>
+      {output.spec.captions?.enabled && <p>{fontLabel(output.spec.captions.font_binding)} · Reference appearance not automatically verified</p>}
+      {output.font_warnings?.map(w => <p role="note" key={w}>{w}</p>)}
       {outdated && <p className="hint">{changed.length ? `Saved ${changed.join(", ")} changed since this output.` : "The saved settings or source no longer match this output."} This output stays playable and downloadable until replacement succeeds.</p>}
       <video key={output.output_id} className="rendered-video" controls preload="metadata" src={`${url}/video`} aria-label={`Rendered video, recipe revision ${output.spec.recipe_revision}`} />
       <p><a className="download-link" href={`${url}/download`}>Download MP4</a> · {(output.size_bytes / 1024 / 1024).toFixed(2)} MiB</p>

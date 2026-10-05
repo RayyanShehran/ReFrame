@@ -138,7 +138,7 @@ export function ColorRecipe({ projectId, analysesReady, footageDuration = null }
     <EditPlan key={`plan-${projectId}`} projectId={projectId} recipeReady={result?.status === "ready" && !dirty && !busy} onState={setPlanState} /></WorkspaceSection>
     <WorkspaceSection section="audio">
     <AudioChoices key={`audio-${projectId}`} projectId={projectId} onState={setAudioState} />
-    <CaptionEditor key={`captions-${projectId}`} projectId={projectId} planState={planState} onState={setCaptionState} />
+    <CaptionEditor key={`captions-${projectId}`} projectId={projectId} planState={planState} onState={setCaptionState} appearance={{ recipeRevision: recipe?.revision ?? null, recipeReady: result?.status === "ready", recipeDirty: dirty, recipeBusy: busy, framing: framingState }} />
     </WorkspaceSection><WorkspaceSection section="export">
     <RenderVideo savedStrength={recipe?.strength} savedValues={recipe?.selected} framingState={framingState} projectId={projectId} revision={recipe?.revision ?? null} recipeReady={result?.status === "ready"} dirty={dirty} busy={busy} planState={planState} audioState={audioState} captionState={captionState} />
     <FramingControls key={`framing-${projectId}`} projectId={projectId} onState={setFramingState} />
