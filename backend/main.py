@@ -16,6 +16,7 @@ import color_analysis
 import color_recipe
 import edit_plan
 import footage_analysis
+import frame_preview
 import framing
 import pacing_analysis
 import projects
@@ -255,6 +256,18 @@ async def framing_source(project_id: str):
 async def read_captions(project_id: str):
     async with projects.operation_lock:
         return await projects.storage_call(captions.read, project_id)
+
+
+@app.post("/api/projects/{project_id}/frame-preview", response_model=frame_preview.Preview)
+async def preview_frame(project_id: str, request: frame_preview.PreviewRequest):
+    if reference_jobs.start_lock.locked() or reference_jobs.active or reference_jobs.stopping:
+        raise ReferenceError(
+            409, "reference_busy", "Wait for the current media job, then update preview."
+        )
+    async with reference_jobs.start_lock:
+        async with projects.operation_lock:
+            await projects.storage_call(reference_jobs.check_quarantine)
+            return await projects.storage_call(frame_preview.generate, project_id, request)
 
 
 @app.get("/api/projects/{project_id}/transcription", response_model=transcription.Operation)

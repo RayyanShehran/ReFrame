@@ -384,9 +384,9 @@ def fail_operation(project_id, operation_id, failure):
         )
 
 
-def tool(args, directory, label, deadline, seconds=300, limit=65536):
+def tool(args, directory, label, deadline, seconds=300, limit=65536, *, temp_budget=TEMP_BUDGET):
     result = engine.run_command(
-        args, directory, label, deadline, seconds, output_limit=limit, temp_budget=TEMP_BUDGET
+        args, directory, label, deadline, seconds, output_limit=limit, temp_budget=temp_budget
     )
     if result.returncode:
         raise engine.RetrievalFailure(
@@ -395,7 +395,7 @@ def tool(args, directory, label, deadline, seconds=300, limit=65536):
     return result.stdout
 
 
-def probe(path, directory, deadline):
+def probe(path, directory, deadline, *, temp_budget=TEMP_BUDGET):
     raw = tool(
         [
             shutil.which("ffprobe") or "ffprobe",
@@ -413,6 +413,7 @@ def probe(path, directory, deadline):
         "render-probe",
         deadline,
         10,
+        temp_budget=temp_budget,
     )
     data = json.loads(raw)
     video = next(
@@ -430,6 +431,22 @@ def probe(path, directory, deadline):
     if audio and (type(audio["index"]) is not int or not 0 <= audio["index"] <= 4096):
         raise ValueError("Invalid audio metadata")
     return video, audio, duration
+
+
+def resize_filter(width, height, metadata):
+    return (
+        f"scale={width}:{height}:flags=area:"
+        f"in_range={'full' if metadata.color_range == 'pc' else 'limited'}:"
+        "out_range=limited:in_color_matrix=bt709:out_color_matrix=bt709,"
+        "setsar=1,format=yuv420p"
+    )
+
+
+def color_filter(values):
+    return (
+        f"eq=brightness={values.brightness}:contrast={values.contrast}:"
+        f"saturation={values.saturation}"
+    )
 
 
 def dimensions(video):
@@ -466,7 +483,7 @@ def cut_graph(spec, video, audio, video_start, resize, audio_label="aout"):
     graph = (
         f"[0:{video['index']}]setpts=PTS-STARTPTS,{resize},fps=30:round=near,"
         f"select='{selection}',setpts=N/(30*TB),"
-        f"eq=brightness={v.brightness}:contrast={v.contrast}:saturation={v.saturation}[vout]"
+        f"{color_filter(v)}[vout]"
     )
     if audio:
         count = len(plan.segments)
@@ -570,16 +587,8 @@ def pipeline(source, directory, stop, deadline):
         final_filter = ",".join(part for part in (canvas_filter, subtitle_filter) if part)
         values = spec.effective
         # Normalize range before eq; output is tagged limited BT.709. Autorotation is enabled.
-        resize = (
-            f"scale={scale_width}:{scale_height}:flags=area:"
-            f"in_range={'full' if metadata.color_range == 'pc' else 'limited'}:"
-            "out_range=limited:in_color_matrix=bt709:out_color_matrix=bt709,"
-            "setsar=1,format=yuv420p"
-        )
-        filters = (
-            f"setpts=PTS-STARTPTS,{resize},eq=brightness={values.brightness}:"
-            f"contrast={values.contrast}:saturation={values.saturation},fps=30:round=near"
-        )
+        resize = resize_filter(scale_width, scale_height, metadata)
+        filters = f"setpts=PTS-STARTPTS,{resize},{color_filter(values)},fps=30:round=near"
         target = directory / "output.mp4"
         args = [
             ffmpeg,

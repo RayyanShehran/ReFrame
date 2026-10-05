@@ -511,7 +511,11 @@ def check_quarantine():
             "UNION ALL SELECT 1 FROM render_operations WHERE cleanup_safe = 0 "
             "UNION ALL SELECT 1 FROM transcription_operations WHERE cleanup_safe = 0 LIMIT 1"
         ).fetchone()
-    if unsafe or any((projects.DATA_DIR / "framing-inspection").glob("*")):
+    if (
+        unsafe
+        or any((projects.DATA_DIR / "framing-inspection").glob("*"))
+        or any((projects.DATA_DIR / "preview-staging").glob("*"))
+    ):
         raise ReferenceError(
             500,
             "cleanup_failure",
