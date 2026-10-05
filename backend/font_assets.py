@@ -16,6 +16,7 @@ from uuid import UUID, uuid4
 from pydantic import Field
 
 import color_analysis as color
+import font_catalog
 import projects
 import reference_engine as engine
 from references import ReferenceError
@@ -26,11 +27,25 @@ BUNDLED_HASH = "7da195a74c55bef988d0d48f9508bd5d849425c1770dba5d7bfc6ce9ed848954
 
 
 class Binding(color.Schema):
-    kind: Literal["default", "custom"] = "default"
+    kind: Literal["default", "custom", "builtin"] = "default"
+    candidate_id: Literal["amiri-regular", "amiri-bold", "anton-regular"] | None = None
     font_id: UUID | None = None
     sha256: str = Field(default=BUNDLED_HASH, pattern=r"^[0-9a-f]{64}$")
     family: str = Field(default="DejaVu Sans", min_length=1, max_length=128)
     style: str = Field(default="Book", min_length=1, max_length=128)
+
+    @property
+    def choice(self):
+        return self.candidate_id if self.kind == "builtin" else self.kind
+
+
+def builtin(choice):
+    _, family, style, sha = font_catalog.FACES[choice]
+    return Binding(kind="builtin", candidate_id=choice, sha256=sha, family=family, style=style)
+
+
+def library():
+    return [Binding()] + [builtin(choice) for choice in font_catalog.FACES]
 
 
 class Metadata(color.Schema):
@@ -46,6 +61,7 @@ class Result(color.Schema):
     font: Binding | None = None
     available: bool = True
     message: str | None = None
+    candidates: list[Binding] = Field(default_factory=library)
 
 
 def row(project_id):
@@ -81,6 +97,8 @@ def read(project_id):
 def selected(project_id, choice):
     if choice == "default":
         return Binding()
+    if choice in font_catalog.FACES:
+        return builtin(choice)
     saved = read(project_id)
     if not saved.font or not saved.available:
         raise ReferenceError(409, "caption_font_unavailable", "Upload a usable custom font first.")
@@ -93,6 +111,14 @@ def default_codepoints():
 
     # The bundled, hash-checked asset is trusted; uploaded bytes use the owned subprocess.
     with TTFont(BUNDLED) as font:
+        return frozenset(font.getBestCmap())
+
+
+@lru_cache(maxsize=3)
+def builtin_codepoints(choice):
+    from fontTools.ttLib import TTFont
+
+    with TTFont(font_catalog.asset(choice)) as font:
         return frozenset(font.getBestCmap())
 
 
@@ -109,6 +135,21 @@ def validate(project_id, binding, cues, *, stop=None, deadline=None):
                 503, "caption_font_unavailable", "Bundled caption font is unavailable."
             )
         points = default_codepoints()
+    elif binding.kind == "builtin":
+        if (
+            binding.candidate_id not in font_catalog.FACES
+            or binding != builtin(binding.candidate_id)
+            or color.digest(
+                font_catalog.asset(binding.candidate_id), stop, deadline, max_bytes=MAX_BYTES
+            )
+            != binding.sha256
+        ):
+            raise ReferenceError(
+                503,
+                "caption_font_unavailable",
+                "Selected candidate font changed or is unavailable.",
+            )
+        points = builtin_codepoints(binding.candidate_id)
     else:
         saved = row(project_id)
         if not saved:
@@ -135,11 +176,11 @@ def validate(project_id, binding, cues, *, stop=None, deadline=None):
             if c != "\n" and unicodedata.category(c) != "Cf" and ord(c) not in points
         }
     )
-    if absent and binding.kind == "custom":
+    if absent and binding.kind != "default":
         raise ReferenceError(
             422,
             "unsupported_font_glyph",
-            "Custom font lacks "
+            "Selected font lacks "
             + ", ".join(f"U+{c:04X}" for c in absent[:6])
             + ". Choose another font or edit text; no substitution is used.",
         )
@@ -183,9 +224,12 @@ def prepare(project_id, binding, cues, directory, deadline):
     warnings = validate(project_id, binding, cues, deadline=deadline)
     if binding.kind == "default":
         return BUNDLED.parent, "DejaVu Sans", warnings
-    saved = row(project_id)
     raw = directory / "font-source.bin"
-    raw.write_bytes(saved["content"])
+    raw.write_bytes(
+        font_catalog.asset(binding.candidate_id).read_bytes()
+        if binding.kind == "builtin"
+        else row(project_id)["content"]
+    )
     fonts = directory / "selected-font"
     fonts.mkdir(exist_ok=True)
     internal = "ReFrameFont" + binding.sha256[:24]

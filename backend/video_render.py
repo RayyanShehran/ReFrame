@@ -172,7 +172,7 @@ def specification(
     return Spec(
         framing=saved_framing,
         renderer_version=STYLE_VERSION
-        if caption.track.style.font == "custom"
+        if caption.track.style.font != "default"
         or caption.track.style.model_dump(exclude={"color", "size", "placement"})
         != caption_tracks.Style().model_dump(exclude={"color", "size", "placement"})
         or caption.track.style.color not in {"white", "yellow"}

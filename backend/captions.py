@@ -47,7 +47,8 @@ class Style(color.Schema):
     color: str = Field(default="white", pattern=r"^(white|yellow|#[0-9a-fA-F]{6})$")
     size: Literal["small", "medium", "large"] = "medium"
     placement: Literal["bottom-center", "center"] = "bottom-center"
-    font: Literal["default", "custom"] = "default"
+    font: Literal["default", "custom", "amiri-regular", "amiri-bold", "anton-regular"] = "default"
+    font_origin: Literal["manual", "assisted"] = "manual"
     size_percent: float | None = Field(default=None, ge=2, le=15, strict=True, allow_inf_nan=False)
     outline_color: str = Field(default="#000000", pattern=r"^#[0-9a-fA-F]{6}$")
     outline_percent: float | None = Field(
@@ -114,7 +115,7 @@ class Track(Choices):
 
     @model_validator(mode="after")
     def bound(self):
-        if self.style.font != self.font_binding.kind:
+        if self.style.font != self.font_binding.choice:
             raise ValueError("Selected font must match its saved identity")
         if self.revision and not self.timeline:
             raise ValueError("Saved captions require a timeline")
@@ -425,7 +426,7 @@ def subtitle_filter(track, directory, width, height, prepared_font=None):
         0 if style.placement == "bottom-center" else 3
     )
     fonts, family = prepared_font or (font_assets.BUNDLED.parent, "DejaVu Sans")
-    if track.style.font == "custom" and not prepared_font:
+    if track.style.font != "default" and not prepared_font:
         raise ReferenceError(
             409, "caption_font_unavailable", "Prepare the selected custom font before rendering."
         )

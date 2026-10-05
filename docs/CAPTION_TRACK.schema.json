@@ -24,10 +24,28 @@
           "default": "default",
           "enum": [
             "default",
-            "custom"
+            "custom",
+            "builtin"
           ],
           "title": "Kind",
           "type": "string"
+        },
+        "candidate_id": {
+          "anyOf": [
+            {
+              "enum": [
+                "amiri-regular",
+                "amiri-bold",
+                "anton-regular"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Candidate Id"
         },
         "font_id": {
           "anyOf": [
@@ -235,9 +253,21 @@
           "default": "default",
           "enum": [
             "default",
-            "custom"
+            "custom",
+            "amiri-regular",
+            "amiri-bold",
+            "anton-regular"
           ],
           "title": "Font",
+          "type": "string"
+        },
+        "font_origin": {
+          "default": "manual",
+          "enum": [
+            "manual",
+            "assisted"
+          ],
+          "title": "Font Origin",
           "type": "string"
         },
         "size_percent": {
