@@ -34,6 +34,8 @@ def sources(tmp_path_factory):
         ("clean", 0.0, "0"),
         ("outlined", 0.6, "0"),
         ("compressed", 0.6, "28"),
+        ("varying-background", 0.6, "0"),
+        ("tonal-gradient", 0.6, "0"),
     ):
         directory = root / name
         directory.mkdir()
@@ -45,6 +47,12 @@ def sources(tmp_path_factory):
         )
         subtitle = captions.subtitle_filter(track, directory, 640, 360, prepared_font[:2])
         path = directory / "reference.mp4"
+        background = "color=c=0x204020:s=640x360:r=30:d=1.25"
+        if name == "varying-background":
+            background += ",drawbox=x=0:y=0:w=320:h=360:color=0x146414:t=fill"
+            background += ",drawbox=x=320:y=0:w=320:h=360:color=0x5a4114:t=fill"
+        if name == "tonal-gradient":
+            background += ",format=rgb24,geq=r=20+70*X/W:g=30+70*X/W:b=10+70*X/W"
         subprocess.run(
             [
                 shutil.which("ffmpeg"),
@@ -53,7 +61,7 @@ def sources(tmp_path_factory):
                 "-f",
                 "lavfi",
                 "-i",
-                "color=c=0x204020:s=640x360:r=30:d=1.25",
+                background,
                 "-vf",
                 subtitle,
                 "-c:v",
@@ -123,6 +131,10 @@ def test_real_clean_outlined_compressed_fit_and_partial_uncertainty(local, sourc
     for index, source in enumerate(sources):
         pid = selected(client, directory, source)
         response = suggest(client, pid)
+        if index == 4:
+            assert response.status_code == 422, response.text
+            assert response.json()["error"]["code"] == "appearance_unusable"
+            continue
         assert response.status_code == 200, response.text
         data = response.json()
         s = data["suggestion"]
@@ -140,6 +152,10 @@ def test_real_clean_outlined_compressed_fit_and_partial_uncertainty(local, sourc
             assert abs(v["outline_percent"] - 0.6) < 0.35
             outline = tuple(int(v["outline_color"][i : i + 2], 16) for i in (1, 3, 5))
             assert appearance.distance(outline, (8, 8, 16)) < 25
+        elif index == 3:
+            assert s["outline_status"] == "not_estimated"
+            assert v["outline_percent"] is None and v["outline_color"] is None
+            assert v["color"] is not None
         else:
             assert s["outline_status"] in ("measured", "not_estimated")
         assert data["reconstruction"]["width"] == 640 and data["reference"]["height"] == 360

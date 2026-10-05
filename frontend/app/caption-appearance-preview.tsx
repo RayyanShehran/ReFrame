@@ -1,11 +1,12 @@
 "use client";
 
 import Image from "next/image";
+import type { AppearancePatch } from "./caption-appearance-suggestions";
 import { useEffect, useRef, useState } from "react";
 import { FontMatching, RegionSelection, initialRectangle, type Rectangle } from "./font-matching";
 import type { FramingState } from "./framing-controls";
 import type { PlanState } from "./edit-plan";
-import { fontLabel, validFont, type FontBinding, type FontChoice } from "./caption-style-controls";
+import { fontLabel, validFont, type FontBinding, type FontChoice, type CaptionStyle } from "./caption-style-controls";
 import { useWorkspaceNavigation, useWorkspaceReport } from "./guided-workspace";
 
 type Picture = { width: number; height: number; png_base64: string };
@@ -23,7 +24,7 @@ function readReference(data: unknown): Reference {
   if (!r || !["idle", "running", "ready", "failed"].includes(r.status) || (r.status === "ready" && (!r.media || !number(r.media.duration_seconds) || !/^[0-9a-f]{64}$/.test(r.media.sha256) || !/^[0-9a-f-]{36}$/.test(r.operation_id)))) throw new Error("Invalid reference status.");
   return r;
 }
-export function CaptionAppearancePreview({ projectId, track, ready, dirty, disabled, context, plan, onFontChoice, onMatchBusy }: { projectId: string; track: PreviewTrack; ready: boolean; dirty: boolean; disabled: boolean; context: AppearanceContext; plan: PlanState; onFontChoice?: (font: FontChoice) => void; onMatchBusy?: (busy: boolean) => void }) {
+export function CaptionAppearancePreview({ projectId, track, ready, dirty, disabled, context, plan, onFontChoice, onMatchBusy, draftStyle, onAppearance }: { projectId: string; track: PreviewTrack; ready: boolean; dirty: boolean; disabled: boolean; context: AppearanceContext; plan: PlanState; onFontChoice?: (font: FontChoice) => void; onMatchBusy?: (busy: boolean) => void; draftStyle?: CaptionStyle; onAppearance?: (patch: AppearancePatch) => void }) {
   const [reference, setReference] = useState<Reference | null>(null), [referenceFrame, setReferenceFrame] = useState<ReferenceFrame | null>(null), [captionFrame, setCaptionFrame] = useState<CaptionFrame | null>(null);
   const [rectangle, setRectangle] = useState<Rectangle>(initialRectangle);
   const [time, setTime] = useState("0"), [cue, setCue] = useState(0), [busy, setBusy] = useState(false), [error, setError] = useState("");
@@ -88,7 +89,7 @@ export function CaptionAppearancePreview({ projectId, track, ready, dirty, disab
       <figure><figcaption>Retained reference frame</figcaption>{referenceFrame ? <>{onFontChoice ? <RegionSelection frame={referenceFrame} rectangle={rectangle} onChange={setRectangle} disabled={busy || disabled} /> : <Image unoptimized src={`data:image/png;base64,${referenceFrame.image.png_base64}`} width={referenceFrame.image.width} height={referenceFrame.image.height} alt={`Retained reference frame at ${referenceFrame.timestamp_seconds.toFixed(3)} seconds`} />}<p>{referenceFrame.reference_operation_id !== reference?.operation_id || referenceFrame.source.media_sha256 !== reference?.media?.sha256 ? "Outdated reference frame · " : ""}Source {referenceFrame.timestamp_seconds.toFixed(3)}s</p></> : <p>Inspect a frame explicitly.</p>}</figure>
       <figure><figcaption>Saved caption preview</figcaption>{captionFrame ? <><Image unoptimized src={`data:image/png;base64,${captionFrame.image.png_base64}`} width={captionFrame.image.width} height={captionFrame.image.height} alt={`Actual saved caption preview, cue ${captionFrame.cue_index + 1}, output ${captionFrame.output_timestamp_seconds.toFixed(3)} seconds`} /><p role="status">{outdated ? "Outdated caption preview" : "Caption preview"} · Cue {captionFrame.cue_index + 1} · Output {captionFrame.output_timestamp_seconds.toFixed(3)}s · Footage source {captionFrame.source_timestamp_seconds.toFixed(3)}s</p><p>Caption revision {captionFrame.caption_revision} · Recipe {captionFrame.recipe_revision} · Framing {captionFrame.framing_revision}{captionFrame.plan_revision !== null ? ` · Cut plan ${captionFrame.plan_revision}` : " · Whole clip"}</p><p>{fontLabel(captionFrame.font, captionFrame.font_origin)} · Font hash {captionFrame.font.sha256.slice(0, 12)}</p></> : <p>Save a cue and update explicitly.</p>}</figure>
     </div>
-    {onFontChoice && <FontMatching projectId={projectId} frame={referenceFrame && referenceFrame.reference_operation_id === reference?.operation_id && referenceFrame.source.media_sha256 === reference?.media?.sha256 ? referenceFrame : null} rectangle={rectangle} onRectangle={setRectangle} disabled={busy || disabled} onChoose={onFontChoice} onBusy={onMatchBusy} onInspectTime={seconds => { setTime(String(seconds)); void run("reference", seconds); }} />}
+    {onFontChoice && <FontMatching projectId={projectId} frame={referenceFrame && referenceFrame.reference_operation_id === reference?.operation_id && referenceFrame.source.media_sha256 === reference?.media?.sha256 ? referenceFrame : null} rectangle={rectangle} onRectangle={setRectangle} disabled={busy || disabled} onChoose={onFontChoice} onBusy={onMatchBusy} draftStyle={draftStyle} onAppearance={onAppearance} onInspectTime={seconds => { setTime(String(seconds)); void run("reference", seconds); }} />}
     {[...new Set([...(referenceFrame?.warnings ?? []), ...(captionFrame?.warnings ?? [])])].map(w => <p role="note" key={w}>{w}</p>)}
   </section>;
 }

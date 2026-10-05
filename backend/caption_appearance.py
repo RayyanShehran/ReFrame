@@ -206,7 +206,15 @@ def fill(raw, width, height, polarity):
         round(0.299 * raw[i] + 0.587 * raw[i + 1] + 0.114 * raw[i + 2])
         for i in range(0, len(raw), 3)
     )
-    _, _, points, _ = match.mask(gray, width, height, polarity, details=True)
+    try:
+        _, _, points, _ = match.mask(gray, width, height, polarity, details=True)
+    except ReferenceError as error:
+        if error.code != "no_useful_font_match":
+            raise
+        unusable(
+            "Fill could not be separated. Adjust crop/text/polarity; "
+            "gradients or heavy effects may be unsupported."
+        )
     buckets = Counter(tuple(raw[3 * i + c] // 16 for c in range(3)) for i in points)
     dominant = buckets.most_common(1)[0][0]
     core = {i for i in points if tuple(raw[3 * i + c] // 16 for c in range(3)) == dominant}
@@ -298,7 +306,7 @@ def render_sample(style, binding, text, width, height, directory, prepared, dead
     if len(raw) != width * height * 3:
         unusable("Caption calibration did not produce a complete frame.")
     points = {i for i in range(width * height) if raw[3 * i] > 127}
-    return bbox(points, width)
+    return bbox(points, width), match.mask(raw[::3], width, height, tight=False)
 
 
 def generate(project_id, request):
@@ -353,6 +361,9 @@ def generate(project_id, request):
         )
         points, observed, ink = fill(crop, cw, ch, selection.polarity)
         target = (left + observed[0], top + observed[1], observed[2], observed[3])
+        reference_shape = match.mask(
+            bytes(255 if i in points else 0 for i in range(cw * ch)), cw, ch
+        )
         prepared = fonts.prepare(
             project_id,
             binding,
@@ -366,7 +377,7 @@ def generate(project_id, request):
         size, fits, calibrated = 5.0, 0, None
         for attempt in range(MAX_FITS):
             color.guard(None, deadline)
-            calibrated = render_sample(
+            calibrated, rendered_shape = render_sample(
                 neutral.model_copy(update={"size_percent": size}),
                 binding,
                 selection.text,
@@ -396,6 +407,11 @@ def generate(project_id, request):
                     "Chosen font/text does not fit the caption shape reliably. Check "
                     "words, font, clipping or heavy effects."
                 )
+            )
+        if match.similarity(reference_shape, rendered_shape) < 45:
+            unusable(
+                "Fill shape disagrees with the reviewed font/text. "
+                "Check graphics, effects or the selected face."
             )
         horizontal = 0.5 + (target[0] + target[2] / 2 - calibrated[0] - calibrated[2] / 2) / width
         vertical = 0.5 + (target[1] + target[3] / 2 - calibrated[1] - calibrated[3] / 2) / height

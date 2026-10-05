@@ -89,6 +89,7 @@ it("mounts one automatic-caption panel alongside comparison and finishes referen
   let release!: (value: Response) => void;
   vi.stubGlobal("fetch", vi.fn(async (url: string) => {
     if (url.endsWith("/captions")) return ok({ status: "ready", track: { ...track, schema_version: 1, style: defaultStyle, provenance: "manual", timeline: { ...track.timeline, duration_seconds: 3 } }, whole_duration_seconds: 4, message: null });
+    if (url.endsWith("/caption-appearance")) return ok({revision: 0, status: "empty", suggestion: null, token: null, current_selection: null, message: null});
     if (url.endsWith("/font-match")) return ok({revision: 0, status: "empty", selection: null});
     if (url.endsWith("/caption-font")) return ok({ revision: 0, available: true, font: null, message: null });
     if (url.endsWith("/transcription")) return ok({ status: "idle", operation_id: null, stale: false, proposal: null });

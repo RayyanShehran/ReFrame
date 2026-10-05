@@ -1,14 +1,15 @@
 "use client";
 
 import Image from "next/image";
+import { AppearanceSuggestions, selectionKey, type AppearancePatch } from "./caption-appearance-suggestions";
 import { useEffect, useRef, useState } from "react";
-import { fontChoice, fontLabel, validFont, type FontBinding, type FontChoice } from "./caption-style-controls";
+import { fontChoice, fontLabel, validFont, type CaptionStyle, type FontBinding, type FontChoice } from "./caption-style-controls";
 
 export type Picture = { width: number; height: number; png_base64: string };
 export type MatchFrame = { project_id: string; reference_operation_id: string; source: { media_sha256: string }; requested_timestamp_seconds: number; timestamp_seconds: number; image: Picture };
 export type Rectangle = { x: number; y: number; width: number; height: number };
 export const initialRectangle: Rectangle = { x: .1, y: .3, width: .8, height: .4 };
-type Selection = { schema_version: 1; method: string; source: { media_sha256: string }; reference_operation_id: string; timestamp_seconds: number; requested_timestamp_seconds: number; rectangle: Rectangle; text: string; polarity: "light" | "dark"; reviewed_font: FontBinding | null };
+export type Selection = { schema_version: 1; method: string; source: { media_sha256: string }; reference_operation_id: string; timestamp_seconds: number; requested_timestamp_seconds: number; rectangle: Rectangle; text: string; polarity: "light" | "dark"; reviewed_font: FontBinding | null };
 type Saved = { revision: number; status: "empty" | "ready" | "stale"; selection: Selection | null };
 type Ranked = { project_id: string; revision: number; token: string; selection: Selection; crop: Picture; ranked: { font: FontBinding; visual_similarity: number; image: Picture }[]; skipped: string[]; warnings: string[] };
 const apiBase = (process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000").replace(/\/$/, "");
@@ -43,9 +44,11 @@ export function RegionSelection({ frame, rectangle, onChange, disabled }: { fram
   </div>;
 }
 
-export function FontMatching({ projectId, frame, rectangle, onRectangle, onInspectTime, onChoose, onBusy, disabled }: { projectId: string; frame: MatchFrame | null; rectangle: Rectangle; onRectangle: (r: Rectangle) => void; onInspectTime: (seconds: number) => void; onChoose: (choice: FontChoice) => void; onBusy?: (busy: boolean) => void; disabled: boolean }) {
+export function FontMatching({ projectId, frame, rectangle, onRectangle, onInspectTime, onChoose, onBusy, disabled, draftStyle, onAppearance }: { projectId: string; frame: MatchFrame | null; rectangle: Rectangle; onRectangle: (r: Rectangle) => void; onInspectTime: (seconds: number) => void; onChoose: (choice: FontChoice) => void; onBusy?: (busy: boolean) => void; disabled: boolean; draftStyle?: CaptionStyle; onAppearance?: (patch: AppearancePatch) => void }) {
+  const [appearanceBusy, setAppearanceBusy] = useState(false);
   const [saved, setSaved] = useState<Saved | null>(null), [result, setResult] = useState<Ranked | null>(null);
-  const [text, setText] = useState(""), [polarity, setPolarity] = useState<"light" | "dark">("light"), [busy, setBusy] = useState(false), [error, setError] = useState("");
+  const [text, setText] = useState(""), [polarity, setPolarity] = useState<"light" | "dark">("light"), [matchingBusy, setBusy] = useState(false), [error, setError] = useState("");
+  const busy = matchingBusy || appearanceBusy;
   const action = useRef<AbortController | null>(null), generation = useRef(0);
   const rectangleCallback = useRef(onRectangle);
   useEffect(() => { rectangleCallback.current = onRectangle; }, [onRectangle]);
@@ -92,6 +95,7 @@ export function FontMatching({ projectId, frame, rectangle, onRectangle, onInspe
     {result && <><p role="status">{current ? "Font comparison" : "Outdated font comparison — compare the current region/text before choosing"} · Visual similarity is not the probability of exact font identity.</p><div className="font-candidates"><figure><figcaption>Compared reference crop · <span className="caption-text" dir="auto">{result.selection.text}</span></figcaption><Image unoptimized src={`data:image/png;base64,${result.crop.png_base64}`} width={result.crop.width} height={result.crop.height} alt="Compared reference crop" /></figure>{result.ranked.map((c, i) => <figure key={`${c.font.kind}:${c.font.sha256}`}><figcaption>{i + 1}. {c.font.family} ({c.font.style}) · Visual similarity {c.visual_similarity.toFixed(1)}/100</figcaption><Image unoptimized src={`data:image/png;base64,${c.image.png_base64}`} width={c.image.width} height={c.image.height} alt={`${c.font.family} ${c.font.style} rendered with confirmed text`} /><p className="hint">Normalized glyph mask · Face hash {c.font.sha256.slice(0, 12)}</p><button disabled={busy || disabled || !current} onClick={() => void run(c)}>Choose {c.font.family} {c.font.style}</button></figure>)}</div>{[...result.skipped, ...result.warnings].map(w => <p role="note" key={w}>{w}</p>)}</>}
     {saved?.selection?.reviewed_font && <p role="status">{fontLabel(saved.selection.reviewed_font, "assisted")}. This review is saved separately; Save captions persists your styled draft.</p>}
     <button disabled={busy || disabled} onClick={() => document.getElementById(`caption-font-upload-${projectId}`)?.focus()}>None match—upload another font</button>
+    {draftStyle && onAppearance && <AppearanceSuggestions projectId={projectId} currentKey={saved?.status === "ready" && saved.selection && saved.selection.text === text && saved.selection.polarity === polarity && JSON.stringify(saved.selection.rectangle) === JSON.stringify(rectangle) && (!frame || (frame.source.media_sha256 === saved.selection.source.media_sha256 && frame.requested_timestamp_seconds === saved.selection.requested_timestamp_seconds)) ? selectionKey(saved.selection, saved.revision) : null} baseStyle={draftStyle} disabled={disabled || matchingBusy} onBusy={setAppearanceBusy} onApply={onAppearance} />}
     <p className="hint">Only the available static faces are compared. Size, color, outlines, shadows, placement and animation are not automatically matched. Refine the existing appearance controls, Save captions, then review the real preview/export. Complex backgrounds, compression and outlines can mislead; exact identity remains unverified.</p>
   </section>;
 }
