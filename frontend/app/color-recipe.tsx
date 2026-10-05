@@ -139,6 +139,6 @@ export function ColorRecipe({ projectId, analysesReady }: { projectId: string; a
     <CaptionEditor key={`captions-${projectId}`} projectId={projectId} planState={planState} onState={setCaptionState} />
     </WorkspaceSection><WorkspaceSection section="export">
     <FramingControls key={`framing-${projectId}`} projectId={projectId} onState={setFramingState} />
-    <RenderVideo framingState={framingState} projectId={projectId} revision={recipe?.revision ?? null} recipeReady={result?.status === "ready"} dirty={dirty} busy={busy} planState={planState} audioState={audioState} captionState={captionState} />
+    <RenderVideo savedStrength={recipe?.strength} savedValues={recipe?.selected} framingState={framingState} projectId={projectId} revision={recipe?.revision ?? null} recipeReady={result?.status === "ready"} dirty={dirty} busy={busy} planState={planState} audioState={audioState} captionState={captionState} />
   </WorkspaceSection></>;
 }

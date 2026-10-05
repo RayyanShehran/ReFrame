@@ -1,5 +1,6 @@
 "use client";
 
+import { useWorkspaceReport } from "./guided-workspace";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 export const formatLabels = { original: "Original", portrait: "Portrait", square: "Square", landscape: "Landscape" };
@@ -75,6 +76,7 @@ export function FramingControls({ projectId, onState }: { projectId: string; onS
   const canvas = fixed ? sizes[draft.format as keyof typeof sizes] : null;
   const factor = geometry && canvas ? Math.max(canvas[0] / geometry.display_width, canvas[1] / geometry.display_height) : 0;
   const movement = geometry && canvas ? [Math.ceil(geometry.display_width * factor / 2 - 1e-9) * 2 - canvas[0], Math.ceil(geometry.display_height * factor / 2 - 1e-9) * 2 - canvas[1]] : [0, 0];
+  useWorkspaceReport("framing-settings", "export", busy ? "Working" : error ? "Needs attention" : !!result ? dirty ? "Needs input" : "Ready" : "Needs input", "Saving or loading framing…");
   return <section className="reference-section" aria-label="Output framing">
     <h3>Output framing</h3>
     <p className="hint">Fit keeps the whole image with black padding. Fill can remove content at the edges. Fixed formats may upscale small footage; Original keeps the existing size limit without upscaling. No live crop preview.</p>
