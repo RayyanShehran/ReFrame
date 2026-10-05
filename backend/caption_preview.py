@@ -2,6 +2,7 @@
 
 import math
 import shutil
+from contextlib import nullcontext
 from typing import Literal
 from uuid import UUID
 
@@ -51,6 +52,7 @@ class CaptionFrame(color.Schema):
     framing_revision: int
     caption_revision: int
     font: font_assets.Binding
+    font_origin: Literal["manual", "assisted"] = "manual"
     cue_index: int
     cue_start_seconds: float
     cue_end_seconds: float
@@ -116,8 +118,8 @@ def png(graph, path, directory, deadline, size):
     return preview.image(target, size)
 
 
-def reference_frame(project_id, request):
-    with preview.operation() as (directory, deadline):
+def reference_frame(project_id, request, *, stage=None):
+    with nullcontext(stage) if stage else preview.operation() as (directory, deadline):
         source = color.source(project_id, deadline=deadline)
         if str(request.expected_reference_operation_id) != source["reference_operation_id"]:
             raise ReferenceError(
@@ -285,6 +287,7 @@ def caption_frame(project_id, request):
             framing_revision=spec.framing.revision,
             caption_revision=spec.captions.revision,
             font=spec.captions.font_binding,
+            font_origin=spec.captions.style.font_origin,
             cue_index=request.cue_index,
             cue_start_seconds=cue.start,
             cue_end_seconds=cue.end,

@@ -186,7 +186,13 @@ def test_generate_review_apply_save_preserves_captions_and_style(local, monkeypa
             "expected_revision": 2,
             "mode": "whole",
             "enabled": True,
-            "style": {"color": "yellow", "size_percent": 8.0, "bold": True},
+            "style": {
+                "color": "yellow",
+                "size_percent": 8.0,
+                "bold": True,
+                "font": "amiri-regular",
+                "font_origin": "assisted",
+            },
             "cues": track["cues"],
             "provenance": track["provenance"],
             "automatic_proposal_id": track["automatic_proposal_id"],
@@ -197,6 +203,8 @@ def test_generate_review_apply_save_preserves_captions_and_style(local, monkeypa
     for key in ("cues", "timeline", "provenance", "automatic_binding", "automatic_proposal_id"):
         assert updated[key] == track[key]
     assert updated["style"]["size_percent"] == 8 and updated["style"]["bold"]
+    assert updated["font_binding"]["candidate_id"] == "amiri-regular"
+    assert updated["style"]["font_origin"] == "assisted"
 
 
 def test_color_rerender_keeps_proposal_but_audio_and_plan_changes_stale(local, monkeypatch):

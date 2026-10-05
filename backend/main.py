@@ -18,6 +18,7 @@ import color_analysis
 import color_recipe
 import edit_plan
 import font_assets
+import font_match
 import footage_analysis
 import frame_preview
 import framing
@@ -321,6 +322,23 @@ async def inspect_reference_frame(project_id: str, request: caption_preview.Refe
 @app.post("/api/projects/{project_id}/caption-preview", response_model=caption_preview.CaptionFrame)
 async def preview_caption(project_id: str, request: caption_preview.CaptionRequest):
     return await saved_still(project_id, request, caption_preview.caption_frame)
+
+
+@app.get("/api/projects/{project_id}/font-match")
+async def read_font_match(project_id: str):
+    async with projects.operation_lock:
+        return await projects.storage_call(font_match.read, project_id)
+
+
+@app.post("/api/projects/{project_id}/font-match")
+async def compare_fonts(project_id: str, request: font_match.Request):
+    return await saved_still(project_id, request, font_match.generate)
+
+
+@app.post("/api/projects/{project_id}/font-match/review")
+async def review_font_match(project_id: str, request: font_match.Review):
+    async with projects.operation_lock:
+        return await projects.storage_call(font_match.review, project_id, request)
 
 
 async def saved_still(project_id, request, generate):
