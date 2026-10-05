@@ -193,3 +193,10 @@ uv run --locked --extra transcription python transcribe_local.py smoke C:\path\s
 ```
 
 This prints actual cues, versions and elapsed time; it does not download a model or save a project. Ordinary CI excludes the optional extra, model downloads and real inference. CPU/int8 uses two inference threads, a 300-second deadline, bounded 16 kHz mono PCM/JSON, and the existing shared media worker/containment. If saved automatic captions are stale, disable and save them before rendering current audio/cuts; their text and original timing remain available for inspection. Footage, cut-plan or saved audio changes require rendering current settings and explicitly regenerating the proposal; color/style changes and a new MP4 hash alone do not. [Method and proposal schema](docs/ARCHITECTURE.md#local-automatic-caption-proposals) document limits and provenance.
+
+
+## Saved output framing
+
+Choose **Original**, **Portrait (720 × 1280)**, **Square (720 × 720)** or **Landscape (1280 × 720)**. Original is the existing-project default and keeps the previous size limit without upscaling. Fixed **Fit** preserves the image with black padding; **Fill** crops the edges proportionally, with left/right and top/bottom positioning where movement is available. Fixed formats may upscale. Reset changes only the draft to Original; **Save framing** persists it. Save before rendering. The saved format, dimensions and framing revision restore after refresh, together with playback/download of the last completed MP4.
+
+Framing applies to whole clips and saved cuts. Captions are drawn on the final canvas; audio and timing are unchanged. Saving new framing marks the previous video outdated but keeps it available until replacement succeeds. No live crop preview or subject tracking. [Method and schema](docs/ARCHITECTURE.md#saved-output-framing) describe geometry, bounds and compatibility.

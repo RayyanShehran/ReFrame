@@ -92,3 +92,11 @@ def test_geometry_rotation_pixels_fit_fill_and_bounds():
             scaled, canvas, _ = framing.geometry(video, framing.Settings(format=format, fit=fit))
             assert all(n % 2 == 0 for n in scaled)
             assert all((s <= c if fit == "fit" else s >= c) for s, c in zip(scaled, canvas))
+
+
+def test_exact_canvas_ratio_does_not_gain_crop_movement_from_float_rounding():
+    for fit in ["fit", "fill"]:
+        scaled, canvas, _ = framing.geometry(
+            {"width": 169, "height": 169}, framing.Settings(format="square", fit=fit)
+        )
+        assert scaled == canvas == (720, 720)

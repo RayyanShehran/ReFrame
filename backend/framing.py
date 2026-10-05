@@ -122,7 +122,8 @@ def geometry(video, settings):
     factor = (min if settings.fit == "fit" else max)(canvas[0] / width, canvas[1] / height)
     # Fit rounds down to avoid clipping; Fill rounds up to cover every canvas pixel.
     rounding = math.floor if settings.fit == "fit" else math.ceil
-    scaled = tuple(max(2, rounding(size * factor / 2) * 2) for size in (width, height))
+    epsilon = 1e-9 if settings.fit == "fit" else -1e-9
+    scaled = tuple(max(2, rounding(size * factor / 2 + epsilon) * 2) for size in (width, height))
     if max(scaled) > 8192:
         raise ValueError("Framing would require a scaled dimension above 8192 pixels")
     if settings.fit == "fit":

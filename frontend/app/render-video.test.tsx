@@ -8,9 +8,26 @@ const ready = { ...idle, status: "ready", spec: { recipe_revision: 2 }, output: 
 const ok = (value: unknown) => ({ ok: true, json: async () => value } as Response);
 afterEach(() => vi.unstubAllGlobals());
 
+it("requires saved framing, binds its revision and retains older playable output", async () => {
+  const fetcher = vi.fn(async (_url: string, options: RequestInit) => {
+    if (options.method === "POST") expect(JSON.parse(options.body as string)).toEqual({ expected_revision: 2, expected_audio_revision: 0, expected_caption_revision: 0, expected_framing_revision: 3 });
+    return ok(ready);
+  });
+  vi.stubGlobal("fetch", fetcher);
+  const framing = { revision: 3, ready: true, busy: false, dirty: true, format: "square" as const, dimensions: "720 × 720" };
+  const view = render(<RenderVideo projectId="one" revision={2} recipeReady dirty={false} busy={false} framingState={framing} />);
+  expect(await screen.findByText(/Outdated output/)).toBeInTheDocument();
+  expect(screen.getByText("Saved format: Square · 720 × 720")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Render video" })).toBeDisabled();
+  expect(screen.getByLabelText("Rendered video, recipe revision 2")).toBeInTheDocument();
+  view.rerender(<RenderVideo projectId="one" revision={2} recipeReady dirty={false} busy={false} framingState={{ ...framing, dirty: false }} />);
+  fireEvent.click(screen.getByRole("button", { name: "Render video" }));
+  await waitFor(() => expect(fetcher).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ method: "POST" })));
+});
+
 it("requires saved captions for the selected timeline and binds their revision", async () => {
   const fetcher = vi.fn(async (_url: string, options: RequestInit) => {
-    if (options.method === "POST") expect(JSON.parse(options.body as string)).toEqual({ expected_revision: 2, expected_audio_revision: 0, expected_caption_revision: 4, expected_plan_revision: 3 });
+    if (options.method === "POST") expect(JSON.parse(options.body as string)).toEqual({ expected_revision: 2, expected_audio_revision: 0, expected_caption_revision: 4, expected_framing_revision: 0, expected_plan_revision: 3 });
     return ok(idle);
   });
   vi.stubGlobal("fetch", fetcher);
@@ -46,7 +63,7 @@ it("binds saved plan and recipe revisions and blocks unsaved cuts only in cut mo
 it("requires a saved valid recipe and sends only its revision, then restores native playback", async () => {
   let result = idle as unknown;
   const mock = vi.fn(async (_url: string, options: RequestInit) => {
-    if (options.method === "POST") { expect(JSON.parse(options.body as string)).toEqual({ expected_revision: 2, expected_audio_revision: 0, expected_caption_revision: 0 }); result = ready; }
+    if (options.method === "POST") { expect(JSON.parse(options.body as string)).toEqual({ expected_revision: 2, expected_audio_revision: 0, expected_caption_revision: 0, expected_framing_revision: 0 }); result = ready; }
     return ok(result);
   });
   vi.stubGlobal("fetch", mock);
@@ -86,7 +103,7 @@ it("blocks stale recipes and rejects malformed output instead of creating file l
 
 it("blocks unsaved audio and binds its saved revision while preserving outdated playback", async () => {
   vi.stubGlobal("fetch", vi.fn(async (_url: string, options: RequestInit) => {
-    if (options.method === "POST") expect(JSON.parse(options.body as string)).toEqual({ expected_revision: 2, expected_audio_revision: 3, expected_caption_revision: 0 });
+    if (options.method === "POST") expect(JSON.parse(options.body as string)).toEqual({ expected_revision: 2, expected_audio_revision: 3, expected_caption_revision: 0, expected_framing_revision: 0 });
     return ok({ ...ready, output: { ...ready.output, spec: { recipe_revision: 2, audio: { revision: 2, mode: "reference" } } } });
   }));
   const state = { revision: 3, ready: true, dirty: true, busy: false };

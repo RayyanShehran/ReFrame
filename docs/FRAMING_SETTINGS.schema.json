@@ -1,0 +1,79 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "format": {
+      "default": "original",
+      "enum": [
+        "original",
+        "portrait",
+        "square",
+        "landscape"
+      ],
+      "title": "Format",
+      "type": "string"
+    },
+    "fit": {
+      "default": "fit",
+      "enum": [
+        "fit",
+        "fill"
+      ],
+      "title": "Fit",
+      "type": "string"
+    },
+    "horizontal": {
+      "default": 0.5,
+      "maximum": 1,
+      "minimum": 0,
+      "title": "Horizontal",
+      "type": "number"
+    },
+    "vertical": {
+      "default": 0.5,
+      "maximum": 1,
+      "minimum": 0,
+      "title": "Vertical",
+      "type": "number"
+    },
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "revision": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Revision",
+      "type": "integer"
+    },
+    "created_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Created At"
+    },
+    "updated_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Updated At"
+    }
+  },
+  "title": "Settings",
+  "type": "object"
+}

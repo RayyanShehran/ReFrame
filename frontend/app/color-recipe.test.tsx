@@ -6,6 +6,7 @@ vi.mock("./render-video", () => ({ RenderVideo: () => null }));
 vi.mock("./edit-plan", () => ({ EditPlan: () => null }));
 vi.mock("./audio-choices", () => ({ AudioChoices: () => null }));
 vi.mock("./caption-editor", () => ({ CaptionEditor: () => null }));
+vi.mock("./framing-controls", () => ({ FramingControls: () => null }));
 
 const values = { brightness: .1, contrast: 1.2, saturation: .8 };
 const saved = { status: "ready", recipe: { schema_version: 1, suggestion_algorithm_version: "sampled-color-ratios-v1", suggested: values, selected: values, strength: .5, revision: 1, updated_at: "today", explanations: ["Insufficient footage contrast variation; multiplier is neutral."] }, effective: { brightness: .05, contrast: 1.1, saturation: .9 }, message: null };
