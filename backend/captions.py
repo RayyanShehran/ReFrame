@@ -4,7 +4,6 @@ import re
 import unicodedata
 from datetime import datetime
 from decimal import ROUND_CEILING, Decimal
-from pathlib import Path
 from typing import Literal
 from uuid import UUID
 
@@ -13,6 +12,7 @@ from pydantic import Field, field_validator, model_validator
 import audio_settings
 import color_analysis as color
 import edit_plan
+import font_assets
 import footage_analysis as footage
 import projects
 from references import ReferenceError
@@ -44,9 +44,22 @@ class Cue(color.Schema):
 
 
 class Style(color.Schema):
-    color: Literal["white", "yellow"] = "white"
+    color: str = Field(default="white", pattern=r"^(white|yellow|#[0-9a-fA-F]{6})$")
     size: Literal["small", "medium", "large"] = "medium"
     placement: Literal["bottom-center", "center"] = "bottom-center"
+    font: Literal["default", "custom"] = "default"
+    size_percent: float | None = Field(default=None, ge=2, le=15, strict=True, allow_inf_nan=False)
+    outline_color: str = Field(default="#000000", pattern=r"^#[0-9a-fA-F]{6}$")
+    outline_percent: float | None = Field(
+        default=None, ge=0, le=2, strict=True, allow_inf_nan=False
+    )
+    shadow_color: str = Field(default="#000000", pattern=r"^#[0-9a-fA-F]{6}$")
+    shadow_percent: float = Field(default=0, ge=0, le=3, strict=True, allow_inf_nan=False)
+    alignment: Literal["left", "center", "right"] = "center"
+    horizontal: float | None = Field(default=None, ge=0, le=1, strict=True, allow_inf_nan=False)
+    vertical: float | None = Field(default=None, ge=0, le=1, strict=True, allow_inf_nan=False)
+    bold: bool = Field(default=False, strict=True)
+    italic: bool = Field(default=False, strict=True)
 
 
 class Choices(color.Schema):
@@ -97,9 +110,12 @@ class Track(Choices):
     created_at: datetime | None = None
     updated_at: datetime | None = None
     automatic_binding: AutomaticBinding | None = None
+    font_binding: font_assets.Binding = Field(default_factory=font_assets.Binding)
 
     @model_validator(mode="after")
     def bound(self):
+        if self.style.font != self.font_binding.kind:
+            raise ValueError("Selected font must match its saved identity")
         if self.revision and not self.timeline:
             raise ValueError("Saved captions require a timeline")
         if self.timeline:
@@ -118,6 +134,8 @@ class Result(color.Schema):
     track: Track
     message: str | None = None
     whole_duration_seconds: float | None = Field(default=None, gt=0, le=120, allow_inf_nan=False)
+    font_warnings: list[str] = Field(default_factory=list)
+    font_available: bool = True
 
 
 class SaveRequest(Choices):
@@ -180,6 +198,13 @@ def read(project_id):
         return Result(status="default", track=Track(), whole_duration_seconds=whole_duration)
     track = Track.model_validate_json(row["track"])
     message = row["message"]
+    font_warnings = []
+    font_unavailable = False
+    try:
+        font_warnings = font_assets.validate(project_id, track.font_binding, track.cues)
+    except ReferenceError as exc:
+        # Font problems are recoverable style errors, not sticky timeline invalidation.
+        font_unavailable, message = True, exc.message
     if row["state"] == "ready":
         try:
             if timeline(project_id, track.timeline.mode) != track.timeline:
@@ -210,10 +235,12 @@ def read(project_id):
                     (message, project_id, track.revision),
                 )
     return Result(
-        status="stale" if message or row["state"] == "stale" else "ready",
+        status="stale" if font_unavailable or message or row["state"] == "stale" else "ready",
         track=track,
         message=message,
         whole_duration_seconds=whole_duration,
+        font_warnings=font_warnings,
+        font_available=not font_unavailable,
     )
 
 
@@ -255,6 +282,8 @@ def save(project_id, request):
     except ValueError as exc:
         raise ReferenceError(422, "invalid_caption", str(exc)) from None
     timestamp = projects.now()
+    font_binding = font_assets.selected(project_id, request.style.font)
+    font_assets.validate(project_id, font_binding, request.cues)
     automatic_binding = None
     if request.provenance == "automatic_transcription":
         if previous and previous.automatic_proposal_id == request.automatic_proposal_id:
@@ -285,6 +314,7 @@ def save(project_id, request):
         created_at=previous.created_at if previous else timestamp,
         updated_at=timestamp,
         automatic_binding=automatic_binding,
+        font_binding=font_binding,
     )
     with projects.database() as connection:
         project = projects.row_project(connection, project_id)
@@ -379,25 +409,57 @@ def filter_path(path):
     return "".join("\\" + c if c in "\\'[],;" else c for c in value)
 
 
-def subtitle_filter(track, directory, width, height):
+def subtitle_filter(track, directory, width, height, prepared_font=None):
     style = track.style
-    size = height * {"small": 0.035, "medium": 0.05, "large": 0.07}[style.size]
-    ink = "&H00FFFFFF" if style.color == "white" else "&H0000FFFF"
-    alignment = 2 if style.placement == "bottom-center" else 5
+    size = height * (
+        style.size_percent / 100
+        if style.size_percent is not None
+        else {"small": 0.035, "medium": 0.05, "large": 0.07}[style.size]
+    )
+
+    def ink(value):
+        value = {"white": "#FFFFFF", "yellow": "#FFFF00"}.get(value, value)[1:]
+        return "&H00" + value[4:6] + value[2:4] + value[:2]
+
+    alignment = {"left": 1, "center": 2, "right": 3}[style.alignment] + (
+        0 if style.placement == "bottom-center" else 3
+    )
+    fonts, family = prepared_font or (font_assets.BUNDLED.parent, "DejaVu Sans")
+    if track.style.font == "custom" and not prepared_font:
+        raise ReferenceError(
+            409, "caption_font_unavailable", "Prepare the selected custom font before rendering."
+        )
+    outline = (
+        max(0.5, height * 0.003)
+        if style.outline_percent is None
+        else height * style.outline_percent / 100
+    )
+    position = ""
+    if style.horizontal is not None or style.vertical is not None:
+        x = (style.horizontal if style.horizontal is not None else 0.5) * width
+        y = (
+            style.vertical
+            if style.vertical is not None
+            else (0.94 if style.placement == "bottom-center" else 0.5)
+        ) * height
+        position = f"{{\\pos({x:.3f},{y:.3f})}}"  # Server-generated numeric override only.
     header = (
         f"[Script Info]\nScriptType: v4.00+\nPlayResX: {width}\nPlayResY: {height}\n"
         "WrapStyle: 0\nScaledBorderAndShadow: yes\n\n[V4+ Styles]\n"
         "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, "
         "BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, "
         "BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n"
-        f"Style: Default,DejaVu Sans,{size:.3f},{ink},{ink},&H00000000,&H00000000,"
-        f"0,0,0,0,100,100,0,0,1,{max(0.5, height * 0.003):.3f},0,{alignment},"
+        f"Style: Default,{family},{size:.3f},{ink(style.color)},{ink(style.color)},"
+        f"{ink(style.outline_color)},{ink(style.shadow_color)},"
+        f"{-int(style.bold)},{-int(style.italic)},0,0,100,100,0,0,1,{outline:.3f},"
+        f"{height * style.shadow_percent / 100:.3f},{alignment},"
         f"{round(width * 0.04)},{round(width * 0.04)},{round(height * 0.06)},-1\n\n"
         "[Events]\nFormat: Layer, Start, End, Style, Name, "
         "MarginL, MarginR, MarginV, Effect, Text\n"
     )
     content = header + "".join(
-        f"Dialogue: 0,{ass_time(c.start)},{ass_time(c.end)},Default,,0,0,0,,{literal_ass(c.text)}\n"
+        f"Dialogue: 0,{ass_time(c.start)},{ass_time(c.end)},Default,,0,0,0,,"
+        f"{position}{literal_ass(c.text)}\n"
         for c in track.cues
         if ass_time(c.start) != ass_time(c.end)
     )
@@ -406,8 +468,9 @@ def subtitle_filter(track, directory, width, height):
         raise ReferenceError(422, "caption_data_limit", "Subtitle data exceeds its 512 KiB bound.")
     target = directory / "captions.ass"
     target.write_bytes(encoded)
-    fonts = Path(__file__).resolve().parent / "fonts"
-    if not (fonts / "DejaVuSans.ttf").is_file():
+    if not fonts.is_dir() or (
+        track.style.font == "default" and not (fonts / "DejaVuSans.ttf").is_file()
+    ):
         raise ReferenceError(
             503, "caption_font_unavailable", "Bundled caption font is unavailable."
         )

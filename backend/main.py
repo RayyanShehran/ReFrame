@@ -1,10 +1,11 @@
 """ReFrame API."""
 
+import asyncio
 import os
 from contextlib import asynccontextmanager
 from typing import Literal
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -15,6 +16,7 @@ import captions
 import color_analysis
 import color_recipe
 import edit_plan
+import font_assets
 import footage_analysis
 import frame_preview
 import framing
@@ -256,6 +258,51 @@ async def framing_source(project_id: str):
 async def read_captions(project_id: str):
     async with projects.operation_lock:
         return await projects.storage_call(captions.read, project_id)
+
+
+@app.get("/api/projects/{project_id}/caption-font", response_model=font_assets.Result)
+async def read_caption_font(project_id: str):
+    async with projects.operation_lock:
+        return await projects.storage_call(font_assets.read, project_id)
+
+
+@app.post("/api/projects/{project_id}/caption-font", response_model=font_assets.Result)
+async def upload_caption_font(
+    project_id: str,
+    request: Request,
+    expected_revision: int = Query(ge=0),
+    expected_caption_revision: int = Query(ge=0),
+    replace: bool = False,
+):
+    if reference_jobs.start_lock.locked() or reference_jobs.active or reference_jobs.stopping:
+        raise ReferenceError(
+            409, "reference_busy", "Wait for the current media job before uploading a font."
+        )
+    async with reference_jobs.start_lock:
+        async with projects.operation_lock:
+            await projects.storage_call(reference_jobs.check_quarantine)
+            await projects.storage_call(font_assets.row, project_id)
+            raw = bytearray()
+            try:
+                async with asyncio.timeout(15):
+                    async for chunk in request.stream():
+                        if len(raw) + len(chunk) > font_assets.MAX_BYTES:
+                            raise ReferenceError(
+                                413, "font_size_limit", "Font upload is limited to 2 MiB."
+                            )
+                        raw.extend(chunk)
+            except TimeoutError:
+                raise ReferenceError(
+                    408, "font_upload_timeout", "Font upload exceeded 15 seconds."
+                ) from None
+            return await projects.storage_call(
+                font_assets.upload,
+                project_id,
+                bytes(raw),
+                expected_revision,
+                expected_caption_revision,
+                replace,
+            )
 
 
 @app.post("/api/projects/{project_id}/frame-preview", response_model=frame_preview.Preview)

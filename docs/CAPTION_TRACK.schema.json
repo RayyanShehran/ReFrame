@@ -17,6 +17,55 @@
       "title": "AutomaticBinding",
       "type": "object"
     },
+    "Binding": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "default": "default",
+          "enum": [
+            "default",
+            "custom"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "font_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Font Id"
+        },
+        "sha256": {
+          "default": "7da195a74c55bef988d0d48f9508bd5d849425c1770dba5d7bfc6ce9ed848954",
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "family": {
+          "default": "DejaVu Sans",
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Family",
+          "type": "string"
+        },
+        "style": {
+          "default": "Book",
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Style",
+          "type": "string"
+        }
+      },
+      "title": "Binding",
+      "type": "object"
+    },
     "Cue": {
       "additionalProperties": false,
       "properties": {
@@ -159,10 +208,7 @@
       "properties": {
         "color": {
           "default": "white",
-          "enum": [
-            "white",
-            "yellow"
-          ],
+          "pattern": "^(white|yellow|#[0-9a-fA-F]{6})$",
           "title": "Color",
           "type": "string"
         },
@@ -184,6 +230,110 @@
           ],
           "title": "Placement",
           "type": "string"
+        },
+        "font": {
+          "default": "default",
+          "enum": [
+            "default",
+            "custom"
+          ],
+          "title": "Font",
+          "type": "string"
+        },
+        "size_percent": {
+          "anyOf": [
+            {
+              "maximum": 15,
+              "minimum": 2,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Size Percent"
+        },
+        "outline_color": {
+          "default": "#000000",
+          "pattern": "^#[0-9a-fA-F]{6}$",
+          "title": "Outline Color",
+          "type": "string"
+        },
+        "outline_percent": {
+          "anyOf": [
+            {
+              "maximum": 2,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Outline Percent"
+        },
+        "shadow_color": {
+          "default": "#000000",
+          "pattern": "^#[0-9a-fA-F]{6}$",
+          "title": "Shadow Color",
+          "type": "string"
+        },
+        "shadow_percent": {
+          "default": 0,
+          "maximum": 3,
+          "minimum": 0,
+          "title": "Shadow Percent",
+          "type": "number"
+        },
+        "alignment": {
+          "default": "center",
+          "enum": [
+            "left",
+            "center",
+            "right"
+          ],
+          "title": "Alignment",
+          "type": "string"
+        },
+        "horizontal": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Horizontal"
+        },
+        "vertical": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Vertical"
+        },
+        "bold": {
+          "default": false,
+          "title": "Bold",
+          "type": "boolean"
+        },
+        "italic": {
+          "default": false,
+          "title": "Italic",
+          "type": "boolean"
         }
       },
       "title": "Style",
@@ -386,6 +536,9 @@
         }
       ],
       "default": null
+    },
+    "font_binding": {
+      "$ref": "#/$defs/Binding"
     }
   },
   "title": "Track",

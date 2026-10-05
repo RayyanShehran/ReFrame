@@ -17,6 +17,7 @@ import captions as caption_tracks
 import color_analysis as color
 import color_recipe as recipe
 import edit_plan as cuts
+import font_assets
 import footage_analysis as footage
 import framing as framing_choices
 import projects
@@ -28,6 +29,7 @@ CUTS_VERSION = "sdr-eq-mp4-v3"
 AUDIO_VERSION = "sdr-eq-mp4-v4"
 CAPTION_VERSION = "sdr-eq-mp4-v5"
 FRAMING_VERSION = "sdr-eq-mp4-v6"
+STYLE_VERSION = "sdr-eq-mp4-v7"
 TOTAL_SECONDS = 300
 MAX_BYTES = 100 * 1024 * 1024
 TEMP_BUDGET = 120 * 1024 * 1024
@@ -77,6 +79,7 @@ class Output(color.Schema):
     has_audio: bool
     decoded_frames: int = Field(gt=0, le=3603)
     decoded_audio_samples: int = Field(ge=0, le=5764800)
+    font_warnings: list[str] = Field(default_factory=list)
     ffmpeg_version: str
     created_at: str
 
@@ -168,7 +171,12 @@ def specification(
         raise ReferenceError(409, "revision_conflict", "Framing changed. Reload before rendering.")
     return Spec(
         framing=saved_framing,
-        renderer_version=FRAMING_VERSION
+        renderer_version=STYLE_VERSION
+        if caption.track.style.font == "custom"
+        or caption.track.style.model_dump(exclude={"color", "size", "placement"})
+        != caption_tracks.Style().model_dump(exclude={"color", "size", "placement"})
+        or caption.track.style.color not in {"white", "yellow"}
+        else FRAMING_VERSION
         if saved_framing.revision
         else CAPTION_VERSION
         if caption.track.revision
@@ -566,6 +574,7 @@ def pipeline(source, directory, stop, deadline):
             video, spec.framing
         )
         subtitle_filter = ""
+        font_warnings = []
         if spec.captions.enabled:
             capability = tool(
                 [ffmpeg, "-hide_banner", "-h", "filter=ass"],
@@ -580,8 +589,15 @@ def pipeline(source, directory, stop, deadline):
                     "captions_unavailable",
                     "Install FFmpeg with the libass ASS filter to render captions.",
                 )
+            fonts, family, font_warnings = font_assets.prepare(
+                source["project_id"],
+                spec.captions.font_binding,
+                spec.captions.cues,
+                directory,
+                deadline,
+            )
             subtitle_filter = caption_tracks.subtitle_filter(
-                spec.captions, directory, width, height
+                spec.captions, directory, width, height, (fonts, family)
             )
         # Padding follows color processing so the bars stay black; captions follow framing.
         final_filter = ",".join(part for part in (canvas_filter, subtitle_filter) if part)
@@ -788,6 +804,7 @@ def pipeline(source, directory, stop, deadline):
             has_audio=has_audio,
             decoded_frames=frames,
             decoded_audio_samples=samples,
+            font_warnings=font_warnings,
             ffmpeg_version=version,
             created_at=projects.now(),
         )
@@ -837,6 +854,13 @@ def commit(project_id, operation_id, path, output, stop, deadline):
             )
     target = destination(project_id, output.output_id)
     if output.spec.captions.enabled:
+        font_assets.validate(
+            project_id,
+            output.spec.captions.font_binding,
+            output.spec.captions.cues,
+            stop=stop,
+            deadline=deadline,
+        )
         binding = caption_tracks.timeline(
             project_id, "cuts" if output.spec.edit_plan else "whole", stop=stop, deadline=deadline
         )

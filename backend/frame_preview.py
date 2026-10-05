@@ -7,6 +7,7 @@ import shutil
 import struct
 import tempfile
 import time
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Literal
 
@@ -171,18 +172,58 @@ def image(path, expected):
     )
 
 
-def generate(project_id, request):
+@contextmanager
+def operation():
     deadline = time.monotonic() + TOTAL_SECONDS
     previous_stop = getattr(engine._control, "stop", None)
     engine._control.stop = None
     directory = None
     safe = True
     try:
-        saved, settings = snapshot(project_id, request, deadline)
-        source = footage.source(project_id, deadline=deadline)
         root = projects.DATA_DIR / "preview-staging"
         root.mkdir(exist_ok=True)
         directory = Path(tempfile.mkdtemp(dir=root))
+        yield directory, deadline
+    except engine.ProcessCleanupError:
+        safe = False
+        raise ReferenceError(
+            500,
+            "cleanup_failure",
+            "Preview containment failed; staging retained for manual review.",
+        ) from None
+    except engine.ProbeTimeout:
+        raise ReferenceError(
+            408, "preview_timeout", "Processing exceeded its 30-second deadline. Retry explicitly."
+        ) from None
+    except (engine.SizeLimit, engine.ToolOutputError):
+        raise ReferenceError(
+            413, "preview_limit", "Processing exceeded its image, tool-output or staging limit."
+        ) from None
+    except engine.RetrievalFailure as exc:
+        raise ReferenceError(409, exc.code, exc.message) from None
+    except (ValueError, KeyError, StopIteration, FileNotFoundError):
+        raise ReferenceError(
+            409,
+            "preview_failed",
+            "A valid frame or font could not be decoded. Check the source and retry.",
+        ) from None
+    finally:
+        engine._control.stop = previous_stop
+        if directory is not None and safe:
+            try:
+                shutil.rmtree(directory)
+            except OSError:
+                raise ReferenceError(
+                    500,
+                    "cleanup_failure",
+                    "Staging could not be removed; manual review is required.",
+                ) from None
+
+
+def generate(project_id, request):
+    with operation() as (directory, deadline):
+        saved, settings = snapshot(project_id, request, deadline)
+        source = footage.source(project_id, deadline=deadline)
         video, _, duration = render.probe(
             source["path"], directory, deadline, temp_budget=TEMP_BUDGET
         )
@@ -268,37 +309,3 @@ def generate(project_id, request):
             warnings=metadata.warnings,
             ffmpeg_version=version,
         )
-    except engine.ProcessCleanupError:
-        safe = False
-        raise ReferenceError(
-            500,
-            "cleanup_failure",
-            "Preview containment failed; staging retained for manual review.",
-        ) from None
-    except engine.ProbeTimeout:
-        raise ReferenceError(
-            408, "preview_timeout", "Preview exceeded its 30-second deadline. Retry explicitly."
-        ) from None
-    except (engine.SizeLimit, engine.ToolOutputError):
-        raise ReferenceError(
-            413, "preview_limit", "Preview exceeded its image, timing-output or staging limit."
-        ) from None
-    except engine.RetrievalFailure as exc:
-        raise ReferenceError(409, exc.code, exc.message) from None
-    except (ValueError, KeyError, StopIteration, FileNotFoundError):
-        raise ReferenceError(
-            409,
-            "preview_failed",
-            "A valid footage frame could not be decoded. Check the source and retry.",
-        ) from None
-    finally:
-        engine._control.stop = previous_stop
-        if directory is not None and safe:
-            try:
-                shutil.rmtree(directory)
-            except OSError:
-                raise ReferenceError(
-                    500,
-                    "cleanup_failure",
-                    "Preview staging could not be removed; manual review is required.",
-                ) from None
