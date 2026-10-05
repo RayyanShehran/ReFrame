@@ -7,6 +7,7 @@ import pytest
 
 import captions
 import framing
+import projects
 import reference_engine as engine
 import reference_jobs as jobs
 import transcription
@@ -193,6 +194,14 @@ def test_snapshot_revision_outdated_playable_and_timeline_bindings_unchanged(loc
         "cues": [{"start": 0, "end": 1, "text": "Keep timing"}],
     }
     assert client.post(base + "/captions", json=body).status_code == 200
+    # Make the existing output current for captions first: only framing may outdate it.
+    output = output.model_copy(update={"spec": render.specification(pid, 1, 1, 0, 1)})
+    with projects.database() as connection:
+        connection.execute(
+            "UPDATE render_outputs SET metadata=? WHERE project_id=?",
+            (output.model_dump_json(), pid),
+        )
+    assert not client.get(base + "/render").json()["outdated"]
     routes = ["color-recipe", "style-blueprint", "footage-color", "edit-plan", "audio", "captions"]
     before = [client.get(base + "/" + r).json() for r in routes]
     audio_timeline = transcription.binding(pid, captions.read(pid).track.timeline)
