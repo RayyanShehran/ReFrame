@@ -2,16 +2,17 @@
 
 import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
+import { FontMatching, RegionSelection, initialRectangle, type Rectangle } from "./font-matching";
 import type { FramingState } from "./framing-controls";
 import type { PlanState } from "./edit-plan";
-import { fontLabel, validFont, type FontBinding } from "./caption-style-controls";
+import { fontLabel, validFont, type FontBinding, type FontChoice } from "./caption-style-controls";
 import { useWorkspaceNavigation, useWorkspaceReport } from "./guided-workspace";
 
 type Picture = { width: number; height: number; png_base64: string };
 type Reference = { operation_id: string; status: string; media: { duration_seconds: number; sha256: string } | null };
 type ReferenceFrame = { schema_version: 1; project_id: string; reference_operation_id: string; source: { media_sha256: string }; requested_timestamp_seconds: number; timestamp_seconds: number; image: Picture; warnings: string[] };
-type CaptionFrame = { schema_version: 1; source: { project_id: string; media_sha256: string }; recipe_revision: number; framing_revision: number; caption_revision: number; font: FontBinding; cue_index: number; cue_start_seconds: number; cue_end_seconds: number; output_timestamp_seconds: number; source_timestamp_seconds: number; mode: "whole" | "cuts"; plan_revision: number | null; image: Picture; warnings: string[] };
-export type PreviewTrack = { revision: number; enabled: boolean; cues: { start: number; end: number; text: string }[]; font_binding?: FontBinding; timeline: { mode: "whole" | "cuts"; plan_revision: number | null } | null };
+type CaptionFrame = { schema_version: 1; source: { project_id: string; media_sha256: string }; recipe_revision: number; framing_revision: number; caption_revision: number; font: FontBinding; font_origin?: string; cue_index: number; cue_start_seconds: number; cue_end_seconds: number; output_timestamp_seconds: number; source_timestamp_seconds: number; mode: "whole" | "cuts"; plan_revision: number | null; image: Picture; warnings: string[] };
+export type PreviewTrack = { revision: number; enabled: boolean; cues: { start: number; end: number; text: string }[]; font_binding?: FontBinding; style?: { font_origin?: string }; timeline: { mode: "whole" | "cuts"; plan_revision: number | null } | null };
 export type AppearanceContext = { recipeRevision: number | null; recipeReady: boolean; recipeDirty: boolean; recipeBusy: boolean; framing: FramingState };
 const apiBase = (process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000").replace(/\/$/, "");
 const number = (v: unknown) => typeof v === "number" && Number.isFinite(v) && v >= 0 && v <= 120.1;
@@ -22,8 +23,9 @@ function readReference(data: unknown): Reference {
   if (!r || !["idle", "running", "ready", "failed"].includes(r.status) || (r.status === "ready" && (!r.media || !number(r.media.duration_seconds) || !/^[0-9a-f]{64}$/.test(r.media.sha256) || !/^[0-9a-f-]{36}$/.test(r.operation_id)))) throw new Error("Invalid reference status.");
   return r;
 }
-export function CaptionAppearancePreview({ projectId, track, ready, dirty, disabled, context, plan }: { projectId: string; track: PreviewTrack; ready: boolean; dirty: boolean; disabled: boolean; context: AppearanceContext; plan: PlanState }) {
+export function CaptionAppearancePreview({ projectId, track, ready, dirty, disabled, context, plan, onFontChoice, onMatchBusy }: { projectId: string; track: PreviewTrack; ready: boolean; dirty: boolean; disabled: boolean; context: AppearanceContext; plan: PlanState; onFontChoice?: (font: FontChoice) => void; onMatchBusy?: (busy: boolean) => void }) {
   const [reference, setReference] = useState<Reference | null>(null), [referenceFrame, setReferenceFrame] = useState<ReferenceFrame | null>(null), [captionFrame, setCaptionFrame] = useState<CaptionFrame | null>(null);
+  const [rectangle, setRectangle] = useState<Rectangle>(initialRectangle);
   const [time, setTime] = useState("0"), [cue, setCue] = useState(0), [busy, setBusy] = useState(false), [error, setError] = useState("");
   const action = useRef<AbortController | null>(null), generation = useRef(0);
   const navigation = useWorkspaceNavigation();
@@ -43,13 +45,13 @@ export function CaptionAppearancePreview({ projectId, track, ready, dirty, disab
     }).catch(cause => { if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : "Reference status could not be loaded."); }).finally(() => clearTimeout(timer));
     return () => { clearTimeout(timer); controller.abort(); };
   }, [projectId]);
-  async function run(kind: "status" | "reference" | "caption") {
+  async function run(kind: "status" | "reference" | "caption", requestedTime = Number(time)) {
     if (action.current || (kind === "reference" && (!validTime || reference?.status !== "ready")) || (kind === "caption" && !canPreview)) return;
     const controller = new AbortController(); action.current = controller; const current = ++generation.current;
     setBusy(true); setError(""); const timer = setTimeout(() => controller.abort(), 35000);
     try {
       const path = kind === "status" ? "reference-media" : kind === "reference" ? "reference-frame" : "caption-preview";
-      const body = kind === "reference" ? { timestamp_seconds: Number(time), expected_reference_operation_id: reference!.operation_id } : { cue_index: cue, expected_recipe_revision: context.recipeRevision, expected_framing_revision: context.framing.revision, expected_caption_revision: track.revision, expected_plan_revision: track.timeline?.mode === "cuts" ? track.timeline.plan_revision : null };
+      const body = kind === "reference" ? { timestamp_seconds: requestedTime, expected_reference_operation_id: reference!.operation_id } : { cue_index: cue, expected_recipe_revision: context.recipeRevision, expected_framing_revision: context.framing.revision, expected_caption_revision: track.revision, expected_plan_revision: track.timeline?.mode === "cuts" ? track.timeline.plan_revision : null };
       const response = await fetch(`${apiBase}/api/projects/${encodeURIComponent(projectId)}/${path}`, { signal: controller.signal, method: kind === "status" ? "GET" : "POST", ...(kind !== "status" ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : {}) });
       const data = await response.json();
       if (!response.ok) throw new Error(data?.error?.message || "Frame request failed. Retry explicitly.");
@@ -58,7 +60,7 @@ export function CaptionAppearancePreview({ projectId, track, ready, dirty, disab
         if (generation.current === current && !controller.signal.aborted) setReference(r);
       } else if (kind === "reference") {
         const r = data as ReferenceFrame;
-        if (!r || r.schema_version !== 1 || r.project_id !== projectId || r.reference_operation_id !== reference!.operation_id || r.source?.media_sha256 !== reference!.media?.sha256 || r.requested_timestamp_seconds !== Number(time) || !number(r.timestamp_seconds) || r.timestamp_seconds > Number(time) || !image(r.image) || !warnings(r.warnings)) throw new Error("Invalid reference frame response.");
+        if (!r || r.schema_version !== 1 || r.project_id !== projectId || r.reference_operation_id !== reference!.operation_id || r.source?.media_sha256 !== reference!.media?.sha256 || r.requested_timestamp_seconds !== requestedTime || !number(r.timestamp_seconds) || r.timestamp_seconds > requestedTime || !image(r.image) || !warnings(r.warnings)) throw new Error("Invalid reference frame response.");
         if (generation.current === current && !controller.signal.aborted) setReferenceFrame(r);
       } else {
         const r = data as CaptionFrame, savedCue = track.cues[cue];
@@ -70,22 +72,23 @@ export function CaptionAppearancePreview({ projectId, track, ready, dirty, disab
   }
   useWorkspaceReport("caption-preview", "audio", busy ? "Working" : error ? "Needs attention" : "Ready", "Updating caption comparison…");
   return <section className="reference-section" aria-label="Caption appearance comparison"><h4>Reference / caption appearance</h4>
-    <p className="hint">Reference appearance not automatically verified. Inspect a caption-bearing source frame, choose the actual font and compare manually. No reference scanning or font identification.</p>
+    <p className="hint">Reference appearance not automatically verified. Inspect a caption-bearing source frame, confirm its text and compare available fonts. Visual similarity does not prove exact font identity; no reference scanning.</p>
     <label>Reference source time (seconds)<input type="number" min="0" max={reference?.media?.duration_seconds ?? 0} step="any" value={time} disabled={!reference?.media} onChange={e => { cancel(); setTime(e.target.value); setError(""); }} /></label>
     {reference?.media && <p>Retained reference: {reference.media.duration_seconds.toFixed(3)} seconds.</p>}
     {reference?.status !== "ready" && <p>Retrieve a ready reference in Reference to inspect its frames. Saved-caption preview can still work independently.</p>}
     <button disabled={busy || disabled || !validTime || reference?.status !== "ready"} onClick={() => void run("reference")}>Inspect reference frame</button><button disabled={busy} onClick={() => void run("status")}>Reload reference status</button>
     <label>Saved cue <select value={cue} disabled={!track.cues.length} onChange={e => { cancel(); setCue(Number(e.target.value)); setError(""); }}>{track.cues.map((c, i) => <option key={i} value={i}>Cue {i + 1}: {c.start}–{c.end}s · {c.text.slice(0, 40)}</option>)}</select></label>
-    <p>{fontLabel(track.font_binding)}</p>
+    <p>{fontLabel(track.font_binding, track.style?.font_origin)}</p>
     {!ready || !track.enabled || !track.cues.length ? <p>Enable and save valid captions before previewing.</p> : !context.recipeReady ? <p>Generate or regenerate a saved color recipe before previewing captions.</p> : null}
     {unsaved && <p role="status">Save your unsaved caption, color, framing or cut-plan changes before updating the caption preview. {context.recipeDirty && <button onClick={() => navigation?.open("style")}>Open Style & cuts</button>} {context.framing.dirty && <button onClick={() => navigation?.open("export")}>Open Export</button>}</p>}
     <button disabled={!canPreview || busy} onClick={() => void run("caption")}>Update caption preview</button>
     <p className="hint">Saved cue at a visible 30 fps output frame, using actual export font, color, framing and subtitle rendering. Stills may downscale to a 960-pixel edge; they do not preview encoded-video quality.</p>
     {busy && <p role="status">Updating comparison… Previous images remain visible. Frame processing is capped at 30 seconds.</p>}{error && <p role="alert">{error}</p>}
     <div className="frame-preview-images">
-      <figure><figcaption>Retained reference frame</figcaption>{referenceFrame ? <><Image unoptimized src={`data:image/png;base64,${referenceFrame.image.png_base64}`} width={referenceFrame.image.width} height={referenceFrame.image.height} alt={`Retained reference frame at ${referenceFrame.timestamp_seconds.toFixed(3)} seconds`} /><p>{referenceFrame.reference_operation_id !== reference?.operation_id || referenceFrame.source.media_sha256 !== reference?.media?.sha256 ? "Outdated reference frame · " : ""}Source {referenceFrame.timestamp_seconds.toFixed(3)}s</p></> : <p>Inspect a frame explicitly.</p>}</figure>
-      <figure><figcaption>Saved caption preview</figcaption>{captionFrame ? <><Image unoptimized src={`data:image/png;base64,${captionFrame.image.png_base64}`} width={captionFrame.image.width} height={captionFrame.image.height} alt={`Actual saved caption preview, cue ${captionFrame.cue_index + 1}, output ${captionFrame.output_timestamp_seconds.toFixed(3)} seconds`} /><p role="status">{outdated ? "Outdated caption preview" : "Caption preview"} · Cue {captionFrame.cue_index + 1} · Output {captionFrame.output_timestamp_seconds.toFixed(3)}s · Footage source {captionFrame.source_timestamp_seconds.toFixed(3)}s</p><p>Caption revision {captionFrame.caption_revision} · Recipe {captionFrame.recipe_revision} · Framing {captionFrame.framing_revision}{captionFrame.plan_revision !== null ? ` · Cut plan ${captionFrame.plan_revision}` : " · Whole clip"}</p><p>{fontLabel(captionFrame.font)} · Font hash {captionFrame.font.sha256.slice(0, 12)}</p></> : <p>Save a cue and update explicitly.</p>}</figure>
+      <figure><figcaption>Retained reference frame</figcaption>{referenceFrame ? <>{onFontChoice ? <RegionSelection frame={referenceFrame} rectangle={rectangle} onChange={setRectangle} disabled={busy || disabled} /> : <Image unoptimized src={`data:image/png;base64,${referenceFrame.image.png_base64}`} width={referenceFrame.image.width} height={referenceFrame.image.height} alt={`Retained reference frame at ${referenceFrame.timestamp_seconds.toFixed(3)} seconds`} />}<p>{referenceFrame.reference_operation_id !== reference?.operation_id || referenceFrame.source.media_sha256 !== reference?.media?.sha256 ? "Outdated reference frame · " : ""}Source {referenceFrame.timestamp_seconds.toFixed(3)}s</p></> : <p>Inspect a frame explicitly.</p>}</figure>
+      <figure><figcaption>Saved caption preview</figcaption>{captionFrame ? <><Image unoptimized src={`data:image/png;base64,${captionFrame.image.png_base64}`} width={captionFrame.image.width} height={captionFrame.image.height} alt={`Actual saved caption preview, cue ${captionFrame.cue_index + 1}, output ${captionFrame.output_timestamp_seconds.toFixed(3)} seconds`} /><p role="status">{outdated ? "Outdated caption preview" : "Caption preview"} · Cue {captionFrame.cue_index + 1} · Output {captionFrame.output_timestamp_seconds.toFixed(3)}s · Footage source {captionFrame.source_timestamp_seconds.toFixed(3)}s</p><p>Caption revision {captionFrame.caption_revision} · Recipe {captionFrame.recipe_revision} · Framing {captionFrame.framing_revision}{captionFrame.plan_revision !== null ? ` · Cut plan ${captionFrame.plan_revision}` : " · Whole clip"}</p><p>{fontLabel(captionFrame.font, captionFrame.font_origin)} · Font hash {captionFrame.font.sha256.slice(0, 12)}</p></> : <p>Save a cue and update explicitly.</p>}</figure>
     </div>
+    {onFontChoice && <FontMatching projectId={projectId} frame={referenceFrame && referenceFrame.reference_operation_id === reference?.operation_id && referenceFrame.source.media_sha256 === reference?.media?.sha256 ? referenceFrame : null} rectangle={rectangle} onRectangle={setRectangle} disabled={busy || disabled} onChoose={onFontChoice} onBusy={onMatchBusy} onInspectTime={seconds => { setTime(String(seconds)); void run("reference", seconds); }} />}
     {[...new Set([...(referenceFrame?.warnings ?? []), ...(captionFrame?.warnings ?? [])])].map(w => <p role="note" key={w}>{w}</p>)}
   </section>;
 }

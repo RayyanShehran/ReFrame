@@ -91,3 +91,12 @@ summary:focus-visible { outline: 2px solid #84ccbe; outline-offset: 4px; }
 .frame-preview-images figcaption { font-weight: 700; margin: 12px 0; }
 .frame-preview-images img { display: block; width: 100%; height: auto; background: black; }
 @media (max-width: 600px) { .frame-preview-images { grid-template-columns: minmax(0, 1fr); } }
+
+.font-region { position: relative; touch-action: none; cursor: crosshair; }
+.font-region img { display: block; width: 100%; height: auto; user-select: none; }
+.font-region-box { position: absolute; border: 2px solid #fbbf24; box-shadow: 0 0 0 1px #000; pointer-events: none; }
+.font-region:focus-visible { outline: 3px solid #fbbf24; outline-offset: 3px; }
+.font-region-numbers, .font-candidates { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr)); gap: 1rem; }
+.font-candidates figure { margin: 0; min-width: 0; }
+.font-candidates img, .font-crop { width: 100%; height: auto; max-height: 160px; object-fit: contain; }
+.font-candidates img { background: #000; }

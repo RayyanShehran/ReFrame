@@ -58,6 +58,7 @@ export function CaptionEditor({ projectId, planState, onState, appearance }: { p
   const [automaticId, setAutomaticId] = useState<string | null>(null);
   const [proposalBusy, setProposalBusy] = useState(false);
   const [fontBusy, setFontBusy] = useState(false);
+  const [matchBusy, setMatchBusy] = useState(false);
   const [preview, setPreview] = useState<Cue[] | null>(null);
   const [confirmation, setConfirmation] = useState<string | null>(null);
   const confirmationTarget = `${mode}:${mode === "cuts" ? planState.revision : 0}`;
@@ -73,7 +74,7 @@ export function CaptionEditor({ projectId, planState, onState, appearance }: { p
   const boundMode = track?.timeline?.mode ?? null, boundPlan = track?.timeline?.plan_revision ?? null;
   const ready = !!track && (!track.enabled || (result?.status !== "stale" && (boundMode !== "cuts" || (planState.ready && planState.revision === boundPlan))));
   const savedEnabled = track?.enabled ?? false;
-  useEffect(() => { onState({ revision, ready, dirty, busy: busy || proposalBusy || fontBusy, enabled: savedEnabled, mode: boundMode, planRevision: boundPlan }); }, [onState, revision, ready, dirty, busy, proposalBusy, fontBusy, savedEnabled, boundMode, boundPlan]);
+  useEffect(() => { onState({ revision, ready, dirty, busy: busy || proposalBusy || fontBusy || matchBusy, enabled: savedEnabled, mode: boundMode, planRevision: boundPlan }); }, [onState, revision, ready, dirty, busy, proposalBusy, fontBusy, matchBusy, savedEnabled, boundMode, boundPlan]);
   const disablingAutomatic = provenance === "automatic_transcription" && !enabled && !!track?.revision;
   const duration = disablingAutomatic ? track?.timeline?.duration_seconds ?? null : mode === "cuts" ? planState.duration ?? null : result?.whole_duration_seconds ?? null;
   const needsRebind = !disablingAutomatic && !!track?.revision && ((result?.status === "stale" && result.font_available !== false) || mode !== boundMode || (mode === "cuts" && boundPlan !== planState.revision));
@@ -125,12 +126,12 @@ export function CaptionEditor({ projectId, planState, onState, appearance }: { p
       {result.font_warnings?.map(w => <p role="note" key={w}>{w}</p>)}
       <TranscriptionReview key={projectId} projectId={projectId} revision={revision ?? 0} hasText={!!(cues.length || track?.cues.length || dirty)} draftToken={JSON.stringify(cues)} busy={busy}
         onBusy={setProposalBusy} onApply={(value: Application) => { setCues(drafts(value.cues)); setMode(value.timeline.mode); setProvenance(value.provenance); setAutomaticId(value.automatic_proposal_id); setEnabled(true); setPreview(null); setConfirmation(null); setError(""); }} />
-      <fieldset className="recipe-controls" disabled={busy || proposalBusy || fontBusy}>
+      <fieldset className="recipe-controls" disabled={busy || proposalBusy || fontBusy || matchBusy}>
         <legend>Caption track</legend>
         <label><input type="checkbox" checked={enabled} onChange={e => { setEnabled(e.target.checked); setConfirm(false); }} /> Enable captions</label>
         <label>Caption timeline <select value={mode} onChange={e => { setMode(e.target.value as Mode); setConfirm(false); }}><option value="whole">Whole clip</option><option value="cuts" disabled={!planState.ready}>Saved cut plan</option></select></label>
         <p>{duration !== null ? `Selected output: ${duration.toFixed(3)} seconds${mode === "cuts" ? ` · Cut plan revision ${planState.revision}` : ""}.` : "Save footage and, for cuts, a valid cut plan first."} Select the matching render mode when captions are enabled.</p>
-        <FontPicker key={projectId} projectId={projectId} revision={revision ?? 0} value={style.font} dirty={dirty} disabled={busy || proposalBusy} onChange={font => setStyle(v => ({ ...v, font }))} onUploaded={() => run("reload")} onBusy={setFontBusy} />
+        <FontPicker key={projectId} projectId={projectId} revision={revision ?? 0} value={style.font} dirty={dirty} disabled={busy || proposalBusy} onChange={font => setStyle(v => ({ ...v, font, font_origin: "manual" }))} onUploaded={() => run("reload")} onBusy={setFontBusy} />
         <StyleControls value={style} onChange={setStyle} />
         <label>Import SRT<input type="file" accept=".srt,text/plain,application/x-subrip" onChange={e => { const file = e.target.files?.[0]; e.target.value = ""; if (file) void run("import", file); }} /></label>
         <p className="hint">UTF-8, at most 128 KiB, 200 cues, 200 characters and two explicit lines per cue. Formatting-looking text is shown literally.</p>
@@ -147,9 +148,9 @@ export function CaptionEditor({ projectId, planState, onState, appearance }: { p
         <button disabled={!canSave || (!dirty && !needsRebind)} onClick={() => { if (needsRebind) setConfirm(true); else void run("save"); }}>Save captions</button>
         {confirm && <div role="group" aria-label="Confirm caption timeline rebind"><p>Rebind to {mode === "cuts" ? `cut plan revision ${planState.revision}` : "the whole clip"}? Text and entered times are preserved and every cue is revalidated. No cue shifts or truncation.</p><button disabled={!canSave} onClick={() => void run("save")}>Confirm rebind and save</button><button onClick={() => setConfirm(false)}>Cancel rebind</button></div>}
       </fieldset>
-      {appearance && track && <CaptionAppearancePreview key={`appearance-${projectId}`} projectId={projectId} track={track} ready={ready} dirty={dirty} disabled={busy || proposalBusy || fontBusy} context={appearance} plan={planState} />}
+      {appearance && track && <CaptionAppearancePreview key={`appearance-${projectId}`} projectId={projectId} track={track} ready={ready} dirty={dirty} disabled={busy || proposalBusy || fontBusy} context={appearance} plan={planState} onFontChoice={font => setStyle(v => ({ ...v, font, font_origin: "assisted" }))} onMatchBusy={setMatchBusy} />}
     </>}
-    <button disabled={busy || proposalBusy || fontBusy} onClick={() => void run("reload")}>{dirty ? "Discard caption changes and reload" : "Reload saved captions"}</button>
+    <button disabled={busy || proposalBusy || fontBusy || matchBusy} onClick={() => void run("reload")}>{dirty ? "Discard caption changes and reload" : "Reload saved captions"}</button>
     {busy && <p role="status">Saving, importing or loading captions…</p>}
   </section>;
 }

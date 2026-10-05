@@ -2,26 +2,30 @@
 
 import { useEffect, useRef, useState } from "react";
 
-export type FontBinding = { kind: "default" | "custom"; font_id: string | null; sha256: string; family: string; style: string };
-export type CaptionStyle = { color: string; size: "small" | "medium" | "large"; placement: "bottom-center" | "center"; font: "default" | "custom"; size_percent: number | null; outline_color: string; outline_percent: number | null; shadow_color: string; shadow_percent: number; alignment: "left" | "center" | "right"; horizontal: number | null; vertical: number | null; bold: boolean; italic: boolean };
-export const defaultStyle: CaptionStyle = { color: "white", size: "medium", placement: "bottom-center", font: "default", size_percent: null, outline_color: "#000000", outline_percent: null, shadow_color: "#000000", shadow_percent: 0, alignment: "center", horizontal: null, vertical: null, bold: false, italic: false };
+export const fontChoices = ["default", "custom", "amiri-regular", "amiri-bold", "anton-regular"] as const;
+export type FontChoice = typeof fontChoices[number];
+export type FontBinding = { kind: "default" | "custom" | "builtin"; candidate_id?: FontChoice | null; font_id: string | null; sha256: string; family: string; style: string };
+export type CaptionStyle = { color: string; size: "small" | "medium" | "large"; placement: "bottom-center" | "center"; font: FontChoice; font_origin: "manual" | "assisted"; size_percent: number | null; outline_color: string; outline_percent: number | null; shadow_color: string; shadow_percent: number; alignment: "left" | "center" | "right"; horizontal: number | null; vertical: number | null; bold: boolean; italic: boolean };
+export const defaultStyle: CaptionStyle = { color: "white", size: "medium", placement: "bottom-center", font: "default", font_origin: "manual", size_percent: null, outline_color: "#000000", outline_percent: null, shadow_color: "#000000", shadow_percent: 0, alignment: "center", horizontal: null, vertical: null, bold: false, italic: false };
 const color = (v: unknown) => typeof v === "string" && /^(white|yellow|#[0-9a-f]{6})$/i.test(v);
 const bounded = (v: unknown, min: number, max: number, nullable = false) => (nullable && v === null) || (typeof v === "number" && Number.isFinite(v) && v >= min && v <= max);
 export function readStyle(value: unknown): CaptionStyle {
   if (!value || typeof value !== "object") throw new Error("Invalid caption style.");
   const s = { ...defaultStyle, ...value } as CaptionStyle;
-  if (!color(s.color) || !/^#[0-9a-f]{6}$/i.test(s.outline_color) || !/^#[0-9a-f]{6}$/i.test(s.shadow_color) || !["small", "medium", "large"].includes(s.size) || !["bottom-center", "center"].includes(s.placement) || !["default", "custom"].includes(s.font) || !["left", "center", "right"].includes(s.alignment) || !bounded(s.size_percent, 2, 15, true) || !bounded(s.outline_percent, 0, 2, true) || !bounded(s.shadow_percent, 0, 3) || !bounded(s.horizontal, 0, 1, true) || !bounded(s.vertical, 0, 1, true) || typeof s.bold !== "boolean" || typeof s.italic !== "boolean") throw new Error("Invalid caption style.");
+  if (!color(s.color) || !/^#[0-9a-f]{6}$/i.test(s.outline_color) || !/^#[0-9a-f]{6}$/i.test(s.shadow_color) || !["small", "medium", "large"].includes(s.size) || !["bottom-center", "center"].includes(s.placement) || !fontChoices.includes(s.font) || !["manual", "assisted"].includes(s.font_origin) || !["left", "center", "right"].includes(s.alignment) || !bounded(s.size_percent, 2, 15, true) || !bounded(s.outline_percent, 0, 2, true) || !bounded(s.shadow_percent, 0, 3) || !bounded(s.horizontal, 0, 1, true) || !bounded(s.vertical, 0, 1, true) || typeof s.bold !== "boolean" || typeof s.italic !== "boolean") throw new Error("Invalid caption style.");
   return s;
 }
 export function validFont(f: FontBinding): boolean {
-  return !!f && ["default", "custom"].includes(f.kind) && /^[0-9a-f]{64}$/.test(f.sha256) && typeof f.family === "string" && f.family.length > 0 && f.family.length <= 128 && typeof f.style === "string" && f.style.length <= 128 && (f.kind === "default" ? f.font_id === null : typeof f.font_id === "string" && /^[0-9a-f-]{36}$/.test(f.font_id));
+  return !!f && ["default", "custom", "builtin"].includes(f.kind) && /^[0-9a-f]{64}$/.test(f.sha256) && typeof f.family === "string" && f.family.length > 0 && f.family.length <= 128 && typeof f.style === "string" && f.style.length <= 128 && (f.kind === "builtin" ? f.font_id === null && ["amiri-regular", "amiri-bold", "anton-regular"].includes(f.candidate_id ?? "") : f.kind === "default" ? f.font_id === null : typeof f.font_id === "string" && /^[0-9a-f-]{36}$/.test(f.font_id));
 }
-export const fontLabel = (f?: FontBinding) => !f || f.kind === "default" ? "Default font · DejaVu Sans" : `Manually selected font · ${f.family} (${f.style})`;
+export const fontChoice = (f: FontBinding): FontChoice => f.kind === "builtin" ? f.candidate_id! : f.kind;
+export const fontLabel = (f?: FontBinding, origin?: string) => origin === "assisted" && f ? `Suggested font, user selected · ${f.family} (${f.style})` : !f || f.kind === "default" ? "Default font · DejaVu Sans" : `Manually selected font · ${f.family} (${f.style})`;
 const apiBase = (process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000").replace(/\/$/, "");
-type Asset = { revision: number; available: boolean; message: string | null; font: FontBinding | null };
+type Asset = { revision: number; available: boolean; message: string | null; font: FontBinding | null; candidates?: FontBinding[] };
 function asset(data: unknown): Asset {
   const a = data as Asset;
   if (!a || !Number.isSafeInteger(a.revision) || a.revision < 0 || typeof a.available !== "boolean" || (a.font && (!validFont(a.font) || a.font.kind !== "custom"))) throw new Error("Invalid font response.");
+  if (a.candidates && (!Array.isArray(a.candidates) || a.candidates.length > 4 || a.candidates.some(f => !validFont(f) || f.kind === "custom"))) throw new Error("Invalid candidate library.");
   return a;
 }
 export function FontPicker({ projectId, revision, value, dirty, disabled, onChange, onUploaded, onBusy }: { projectId: string; revision: number; value: CaptionStyle["font"]; dirty: boolean; disabled: boolean; onChange: (value: CaptionStyle["font"]) => void; onUploaded: () => Promise<void>; onBusy?: (busy: boolean) => void }) {
@@ -54,10 +58,10 @@ export function FontPicker({ projectId, revision, value, dirty, disabled, onChan
     return () => { clearTimeout(timer); controller.abort(); action.current?.abort(); action.current = null; };
   }, [projectId]);
   return <fieldset className="caption-cue" disabled={disabled || busy}><legend>Caption font</legend>
-    <label>Font <select value={value} onChange={e => onChange(e.target.value as CaptionStyle["font"])}><option value="default">Default font · DejaVu Sans</option><option value="custom" disabled={!saved?.available || !saved.font}>{saved?.font ? `Manually selected font · ${saved.font.family} (${saved.font.style})` : "Upload a custom font first"}</option></select></label>
+    <label>Font <select value={value} onChange={e => onChange(e.target.value as CaptionStyle["font"])}><option value="default">Default font · DejaVu Sans</option>{saved?.candidates?.filter(f => f.kind === "builtin").map(f => <option key={f.sha256} value={fontChoice(f)}>{f.family} ({f.style})</option>)}<option value="custom" disabled={!saved?.available || !saved.font}>{saved?.font ? `Manually selected font · ${saved.font.family} (${saved.font.style})` : "Upload a custom font first"}</option></select></label>
     {saved?.font && <p>Saved custom font: {saved.font.family} ({saved.font.style}) · Font revision {saved.revision}{!saved.available && " · Unavailable"}</p>}
     <p className="hint">Reference appearance not automatically verified. Choose a font you have rights to use. Static TTF/OTF only, up to 2 MiB; variable, collection and color fonts are unsupported. Unsupported custom-font characters are rejected.</p>
-    <label>Upload custom font<input type="file" accept=".ttf,.otf" onChange={e => { const chosen = e.target.files?.[0]; e.target.value = ""; setReplace(false); if (!chosen) return; if (!chosen.size || chosen.size > 2 * 1024 * 1024) { setError("Choose a nonempty font no larger than 2 MiB."); return; } setFile(chosen); setError(""); }} /></label>
+    <label>Upload custom font<input id={`caption-font-upload-${projectId}`} type="file" accept=".ttf,.otf" onChange={e => { const chosen = e.target.files?.[0]; e.target.value = ""; setReplace(false); if (!chosen) return; if (!chosen.size || chosen.size > 2 * 1024 * 1024) { setError("Choose a nonempty font no larger than 2 MiB."); return; } setFile(chosen); setError(""); }} /></label>
     {file && <p>Selected file: {file.name}</p>}
     {file && saved?.font && <label><input type="checkbox" checked={replace} onChange={e => setReplace(e.target.checked)} /> Replace the saved custom font; captions using it keep their text and timing and get a new revision.</label>}
     {dirty && <p>Save or discard caption edits before uploading a font.</p>}
