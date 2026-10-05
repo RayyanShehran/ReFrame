@@ -8,7 +8,7 @@ type Choices = { format: Format; fit: "fit" | "fill"; horizontal: number; vertic
 type Settings = Choices & { schema_version: 1; revision: number };
 type Result = { status: "default" | "ready"; settings: Settings };
 type Geometry = { display_width: number; display_height: number; original_width: number; original_height: number };
-export type FramingState = { ready: boolean; dirty: boolean; busy: boolean; revision: number | null; format?: Format; dimensions?: string };
+export type FramingState = { ready: boolean; dirty: boolean; busy: boolean; revision: number | null; format?: Format; dimensions?: string; fit?: "fit" | "fill" };
 const defaults: Choices = { format: "original", fit: "fit", horizontal: .5, vertical: .5 };
 const sizes = { portrait: [720, 1280], square: [720, 720], landscape: [1280, 720] } as const;
 const apiBase = (process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000").replace(/\/$/, "");
@@ -42,7 +42,7 @@ export function FramingControls({ projectId, onState }: { projectId: string; onS
   const geometryAction = useRef<AbortController | null>(null);
   const [inspecting, setInspecting] = useState(false);
   const dirty = !!result && (Object.keys(defaults) as (keyof Choices)[]).some(key => draft[key] !== result.settings[key]);
-  useEffect(() => { onState({ ready: !!result, dirty, busy, revision: result?.settings.revision ?? null, format: result?.settings.format, dimensions: result ? dimensions(result.settings, geometry) : undefined }); }, [result, dirty, busy, geometry, onState]);
+  useEffect(() => { onState({ ready: !!result, dirty, busy, revision: result?.settings.revision ?? null, format: result?.settings.format, fit: result?.settings.fit, dimensions: result ? dimensions(result.settings, geometry) : undefined }); }, [result, dirty, busy, geometry, onState]);
   const loadGeometry = useCallback(async (signal: AbortSignal) => {
     try {
       const g = await request(projectId, signal, undefined, true) as Geometry;

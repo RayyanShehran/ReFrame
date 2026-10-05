@@ -19,9 +19,10 @@ function parse(data: unknown): Operation {
   return operation;
 }
 
-export function ReferenceMedia({ projectId, onColorChange }: { projectId: string; onColorChange?: (blueprint: Blueprint | null) => void }) {
+export function ReferenceMedia({ projectId, onColorChange, onReady, showAnalysis = true }: { projectId: string; onReady?: (ready: boolean) => void; showAnalysis?: boolean; onColorChange?: (blueprint: Blueprint | null) => void }) {
   const { operation, error, starting, start } = useMediaOperation(projectId, "reference-media", parse);
   const media = operation?.media;
+  useEffect(() => { onReady?.(!error && operation?.status === "ready"); }, [operation, error, onReady]);
   useEffect(() => { if (error || operation?.status !== "ready") onColorChange?.(null); }, [operation, error, onColorChange]);
   return <section className="reference-section" aria-labelledby={`media-${projectId}`}>
     <h3 id={`media-${projectId}`}>Reference media</h3>
@@ -34,7 +35,7 @@ export function ReferenceMedia({ projectId, onColorChange }: { projectId: string
     {operation && ["idle", "failed"].includes(operation.status) && <button disabled={starting} onClick={() => void start()}>{starting ? "Starting…" : operation.status === "failed" ? "Retry reference retrieval" : "Retrieve reference"}</button>}
     {operation?.status === "ready" && media && <>
       <p role="status">Reference media is available for color and pacing analysis.</p>
-      <dl className="clip-details">
+      <details><summary>Reference media details</summary><dl className="clip-details">
         <dt>Duration</dt><dd>{media.duration_seconds} seconds</dd>
         <dt>Dimensions</dt><dd>{media.width} × {media.height}</dd>
         <dt>Size</dt><dd>{media.size_bytes} bytes</dd>
@@ -43,9 +44,9 @@ export function ReferenceMedia({ projectId, onColorChange }: { projectId: string
         <dt>Retrieved</dt><dd>{media.retrieved_at}</dd>
         <dt>SHA-256</dt><dd style={{ overflowWrap: "anywhere" }}>{media.sha256}</dd>
         <dt>Tools</dt><dd>{Object.entries(media.versions).map(([tool, version]) => `${tool}: ${version}`).join(" · ")}</dd>
-      </dl>
-      <StyleBlueprint key={projectId} projectId={projectId} onChange={onColorChange} />
-      <PacingBlueprint key={`pacing-${projectId}`} projectId={projectId} />
+      </dl></details>
+      {showAnalysis && <><StyleBlueprint key={projectId} projectId={projectId} onChange={onColorChange} />
+      <PacingBlueprint key={`pacing-${projectId}`} projectId={projectId} /></>}
     </>}
   </section>;
 }

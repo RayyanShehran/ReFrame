@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 
-export type AudioState = { revision: number | null; ready: boolean; dirty: boolean; busy: boolean };
+export type AudioState = { revision: number | null; ready: boolean; dirty: boolean; busy: boolean; mode?: Mode };
 type Mode = "original" | "reference" | "mix" | "mute";
 type Choices = { mode: Mode; original_volume: number; reference_volume: number; reference_offset_seconds: number };
 type Result = { status: "default" | "ready" | "stale"; settings: Choices & { schema_version: 1; revision: number };
@@ -59,7 +59,7 @@ export function AudioChoices({ projectId, onState }: { projectId: string; onStat
     (draft.mode !== "mix" || result.availability.original_has_audio);
   const valid = available && (!reference || (!!offset.trim() && finite(Number(offset), 120) &&
     Number(offset) < (result?.availability.reference_duration_seconds ?? 0)));
-  useEffect(() => { onState({ revision, ready, dirty, busy }); }, [onState, revision, ready, dirty, busy]);
+  useEffect(() => { onState({ revision, ready, dirty, busy, mode: result?.settings.mode }); }, [onState, revision, ready, dirty, busy, result?.settings.mode]);
   function restore(value: Result) {
     setResult(value); setDraft(choices(value.settings)); setOffset(String(value.settings.reference_offset_seconds)); setError("");
     if (value.settings.mode === "mix") mixedBefore.current = true;

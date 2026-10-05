@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { WorkspaceSection, useWorkspaceReport } from "./guided-workspace";
 import { RenderVideo } from "./render-video";
 import { EditPlan, PlanState } from "./edit-plan";
 import { AudioChoices, AudioState } from "./audio-choices";
@@ -63,6 +64,7 @@ export function ColorRecipe({ projectId, analysesReady }: { projectId: string; a
   const action = useRef<AbortController | null>(null);
   const recipe = result?.recipe;
   const dirty = !!recipe && (fields.some(f => draft.selected[f.name] !== recipe.selected[f.name]) || draft.strength !== recipe.strength);
+  useWorkspaceReport("recipe", "style", busy ? "Working" : error || result?.status === "stale" ? "Needs attention" : result?.status === "ready" ? "Ready" : "Needs input", busy ? "Saving or loading recipe…" : undefined);
   function restore(value: Result) {
     setResult(value); setError(""); setConfirmRegenerate(false);
     if (value.recipe) setDraft({ selected: value.recipe.selected, strength: value.recipe.strength });
@@ -98,7 +100,7 @@ export function ColorRecipe({ projectId, analysesReady }: { projectId: string; a
     } finally { if (action.current === controller) { action.current = null; if (!controller.signal.aborted) setBusy(false); } }
   }
 
-  return <section className="reference-section" aria-label="Color recipe">
+  return <><WorkspaceSection section="style"><section className="reference-section" aria-label="Color recipe">
     <h3>Color recipe</h3>
     <p className="hint">Experimental creative settings, not exposure stops, recovered LUTs or a guarantee of matching appearance. White balance is not inferred. Changing these controls does not produce a live video preview. Save, then render to see the result.</p>
     {!result && !error && <p role="status">Loading recipe…</p>}
@@ -130,10 +132,13 @@ export function ColorRecipe({ projectId, analysesReady }: { projectId: string; a
     </>}
     <button disabled={busy} onClick={() => void run("reload")}>{dirty ? "Discard changes and reload" : "Reload saved recipe"}</button>
     {busy && <p role="status">Saving or loading recipe…</p>}
-    <EditPlan key={`plan-${projectId}`} projectId={projectId} recipeReady={result?.status === "ready" && !dirty && !busy} onState={setPlanState} />
+    </section>
+    <details><summary>Optional cut plan</summary><EditPlan key={`plan-${projectId}`} projectId={projectId} recipeReady={result?.status === "ready" && !dirty && !busy} onState={setPlanState} /></details></WorkspaceSection>
+    <WorkspaceSection section="audio">
     <AudioChoices key={`audio-${projectId}`} projectId={projectId} onState={setAudioState} />
     <CaptionEditor key={`captions-${projectId}`} projectId={projectId} planState={planState} onState={setCaptionState} />
+    </WorkspaceSection><WorkspaceSection section="export">
     <FramingControls key={`framing-${projectId}`} projectId={projectId} onState={setFramingState} />
     <RenderVideo framingState={framingState} projectId={projectId} revision={recipe?.revision ?? null} recipeReady={result?.status === "ready"} dirty={dirty} busy={busy} planState={planState} audioState={audioState} captionState={captionState} />
-  </section>;
+  </WorkspaceSection></>;
 }

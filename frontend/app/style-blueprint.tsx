@@ -51,7 +51,7 @@ export function StyleBlueprint({ projectId, footage = false, onChange }: { proje
     {operation && ["idle", "failed"].includes(operation.status) && <button disabled={starting} onClick={() => void start()}>{starting ? "Starting…" : operation.status === "failed" ? footage ? "Retry footage analysis" : "Retry color analysis" : footage ? "Analyze my footage" : "Analyze reference"}</button>}
     {operation?.status === "ready" && b && <>
       <p role="status">Color analysis is ready and saved locally.</p>
-      <h4>Representative palette</h4>
+      <details><summary>Color measurements and sampling details</summary><h4>Representative palette</h4>
       <ul className="palette">{b.color.palette.map(c => <li key={c.hex}>
         <span aria-hidden="true" className="palette-swatch" style={{ backgroundColor: c.hex }} />
         <span>{c.hex} · {percent(c.proportion)} of sampled pixels</span>
@@ -68,7 +68,7 @@ export function StyleBlueprint({ projectId, footage = false, onChange }: { proje
         <dt>Version</dt><dd>Schema {b.schema_version} · {b.algorithm_version}</dd>
         <dt>Analyzed</dt><dd>{b.analyzed_at}</dd>
         <dt>Tools</dt><dd>{Object.entries(b.tool_versions).map(([name, version]) => `${name}: ${version}`).join(" · ")}</dd>
-      </dl>
+      </dl></details>
       {b.color_metadata.warnings.map(w => <p role="note" className="error" key={w}>{w}</p>)}
       <p className="hint">{b.color_metadata.assumption}</p>
       <ul className="hint">{b.interpretation_limits.map(limit => <li key={limit}>{limit}</li>)}</ul>

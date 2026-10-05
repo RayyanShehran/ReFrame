@@ -23,7 +23,7 @@ it("creates, uploads, restores on refresh, and confirms deletion by name", async
   const view = render(<Workspace />);
   fireEvent.change(screen.getByLabelText("TikTok video URL"), { target: { value: reference.canonical_url } });
   fireEvent.click(screen.getByRole("button", { name: "Check reference" }));
-  await screen.findByText("Reference");
+  await screen.findByText("Reference", { selector: "h3" });
   fireEvent.click(screen.getByRole("button", { name: "Use this reference" }));
   fireEvent.change(screen.getByLabelText("Project name"), { target: { value: "First" } });
   const form = screen.getByRole("button", { name: "Create project" }).closest("form")!;
@@ -32,6 +32,7 @@ it("creates, uploads, restores on refresh, and confirms deletion by name", async
   expect(fetchMock.mock.calls.filter(([, options]) => options?.method === "POST" && !(options.body instanceof FormData))).toHaveLength(2); // reference + creation
   expect(window.location.search).toContain(first.id);
   fireEvent.change(screen.getByLabelText("Video clip"), { target: { files: [new File(["video"], "saved.mp4", { type: "video/mp4" })] } });
+  fireEvent.click(screen.getByRole("button", { name: "Footage" }));
   fireEvent.click(screen.getByRole("button", { name: "Save clip" }));
   await screen.findByLabelText("Accepted clip details");
   expect(screen.getByText(/Your original clip is saved locally; rendering creates a separate output/)).toBeInTheDocument();
@@ -73,10 +74,11 @@ it("aborts uploads and ignores late project responses across navigation", async 
   fireEvent.click(screen.getByRole("button", { name: "Open Second" }));
   await screen.findByText("Second reference");
   await act(async () => lateRead(ok(first)));
-  expect(screen.queryByText("Reference")).not.toBeInTheDocument();
+  expect(screen.queryByText("Reference", { selector: "h3" })).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Open First" }));
-  await screen.findByText("Reference");
+  await screen.findByText("Reference", { selector: "h3" });
   fireEvent.change(screen.getByLabelText("Video clip"), { target: { files: [new File(["video"], "saved.mp4", { type: "video/mp4" })] } });
+  fireEvent.click(screen.getByRole("button", { name: "Footage" }));
   fireEvent.click(screen.getByRole("button", { name: "Save clip" }));
   fireEvent.click(screen.getByRole("button", { name: "Open Second" }));
   expect(uploadSignal.aborted).toBe(true);
@@ -118,11 +120,11 @@ it("reopens the same project and restores repeated history entries", async () =>
   window.history.replaceState(null, "", `/?project=${first.id}`);
   vi.stubGlobal("fetch", vi.fn(async (url: string) => ok(url.endsWith("/api/projects") ? [first] : first)));
   render(<Workspace />);
-  await screen.findByText("Reference");
+  await screen.findByText("Reference", { selector: "h3" });
   fireEvent.click(screen.getByRole("button", { name: "Open First" }));
-  await screen.findByText("Reference");
+  await screen.findByText("Reference", { selector: "h3" });
   await act(async () => window.dispatchEvent(new PopStateEvent("popstate")));
-  await screen.findByText("Reference");
+  await screen.findByText("Reference", { selector: "h3" });
   expect(screen.getByLabelText("Video clip")).toBeInTheDocument();
 });
 

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ClipUpload, parseClipDetails, type ClipDetails } from "./clip-upload";
 import { ReferenceSelection } from "./reference-selection";
+import { GuidedWorkspace, WorkspaceSection } from "./guided-workspace";
 import { ProjectColors } from "./project-colors";
 
 type Project = {
@@ -157,16 +158,18 @@ export function Workspace() {
     </>}
     {current && <section className="footage-section" aria-label="Saved project workspace">
       <h2>{current.name}</h2>
-      <div className="reference-card"><h3>{current.reference.title || "TikTok reference"}</h3>
+      <GuidedWorkspace key={current.id} hasFootage={current.clip_status === "ready"}>
+      <WorkspaceSection section="reference"><div className="reference-card"><h3>{current.reference.title || "TikTok reference"}</h3>
         <p>Creator: {current.reference.author_name || "Unavailable"}</p>
         <a href={current.reference.canonical_url} target="_blank" rel="noreferrer">Open reference on TikTok</a>
         <p className="hint">Saved metadata snapshot from {current.reference_inspected_at}. The reference is fixed for this project.</p>
-      </div>
+      </div></WorkspaceSection>
       {current.status === "active" && <ProjectColors key={current.id} projectId={current.id} hasFootage={current.clip_status === "ready"} />}
-      {current.status === "deleting" ? <p role="alert">Deletion is incomplete. Retry deletion from the project list.</p> :
+      <WorkspaceSection section="footage">{current.status === "deleting" ? <p role="alert">Deletion is incomplete. Retry deletion from the project list.</p> :
         current.clip_status === "empty" || current.clip_status === "ready" ?
           <ClipUpload key={`${current.id}-${current.clip_status}`} projectId={current.id} initialDetails={current.clip} onSaved={() => setRevision((value) => value + 1)} /> :
-          <p role="alert">{current.clip_status === "unavailable" ? "Saved media is unavailable or corrupt. Delete this project and create a new one." : "A clip save is incomplete. Reopen after the operation finishes; restart the backend if it was interrupted."}</p>}
+          <p role="alert">{current.clip_status === "unavailable" ? "Saved media is unavailable or corrupt. Delete this project and create a new one." : "A clip save is incomplete. Reopen after the operation finishes; restart the backend if it was interrupted."}</p>}</WorkspaceSection>
+      </GuidedWorkspace>
     </section>}
   </>;
 }

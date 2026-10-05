@@ -1,5 +1,6 @@
 "use client";
 
+import { useWorkspaceReport } from "./guided-workspace";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 
 export type ClipDetails = {
@@ -55,6 +56,7 @@ export function ClipUpload({ projectId, initialDetails = null, onSaved }: { proj
   const [details, setDetails] = useState<ClipDetails | null>(initialDetails);
   const [checking, setChecking] = useState(false);
   const [error, setError] = useState("");
+  useWorkspaceReport("clip", "footage", checking ? "Working" : error ? "Needs attention" : details ? "Ready" : "Needs input", "Saving and inspecting footage…");
   const active = useRef<AbortController | null>(null);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const version = useRef(0);

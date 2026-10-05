@@ -1,5 +1,6 @@
 "use client";
 
+import { useWorkspaceReport, type Section } from "./guided-workspace";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 export type MediaOperation = { status: "idle" | "running" | "ready" | "failed"; message: string | null; failure_code: string | null };
@@ -10,6 +11,9 @@ export function useMediaOperation<T extends MediaOperation>(projectId: string, r
   const [error, setError] = useState("");
   const [revision, setRevision] = useState(0);
   const [starting, setStarting] = useState(false);
+  const section: Section = route === "reference-media" ? "reference" : route === "render" ? "export" : route === "transcription" ? "audio" : "style";
+  const labels: Record<string, string> = { "reference-media": "Retrieving reference…", "style-blueprint": "Analyzing reference colors…", "footage-color": "Analyzing footage colors…", pacing: "Analyzing reference pacing…", render: "Rendering video…", transcription: "Generating caption proposal…" };
+  useWorkspaceReport(route, section, starting || operation?.status === "running" ? "Working" : error || operation?.status === "failed" ? "Needs attention" : operation?.status === "ready" ? "Ready" : "Needs input", labels[route] || "Processing…");
   const action = useRef<AbortController | null>(null);
   const generation = useRef(0);
   const request = useCallback(async (method: string, controller: AbortController, body?: unknown): Promise<T> => {
