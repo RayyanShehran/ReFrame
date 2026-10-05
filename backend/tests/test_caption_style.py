@@ -114,6 +114,10 @@ def test_custom_font_preview_matches_real_export_and_outdated_style_preserves_ti
     assert data["source_timestamp_seconds"] == data["output_timestamp_seconds"]
     assert data["font"] == uploaded.json()["font"]
     png = pixels(data["image"], directory, "caption")
+    assert (
+        sum(png[i] > 180 and png[i + 1] > 140 and png[i + 2] < 100 for i in range(0, len(png), 3))
+        > 80
+    )  # Actual yellow subtitle pixels, absent from the green source fixture.
     endpoint = f"/api/projects/{pid}/render"
     req = {"expected_revision": 1, "expected_caption_revision": 1}
     assert client.post(endpoint, json=req).status_code == 202
@@ -154,6 +158,8 @@ def test_custom_font_preview_matches_real_export_and_outdated_style_preserves_ti
 def test_reference_inspection_and_cut_cue_use_the_correct_source_moment(local, source):
     client, directory, _ = local
     pid = setup(client, directory, source)
+    uploaded = upload(client, pid, fonts.BUNDLED.read_bytes())
+    assert uploaded.status_code == 200, uploaded.text
     media = client.get(f"/api/projects/{pid}/reference-media").json()
     inspected = client.post(
         f"/api/projects/{pid}/reference-frame",
@@ -179,13 +185,14 @@ def test_reference_inspection_and_cut_cue_use_the_correct_source_moment(local, s
         "mode": "cuts",
         "expected_plan_revision": 2,
         "enabled": True,
-        "style": {"placement": "center", "size": "large"},
+        "style": {"font": "custom", "placement": "center", "size": "large"},
         "cues": [{"start": 1.2, "end": 1.7, "text": "Cut frame مرحبا"}],
     }
     assert client.post(f"/api/projects/{pid}/captions", json=body).status_code == 200
     still = preview(client, pid, plan_revision=2)
     assert still.status_code == 200, still.text
     data = still.json()
+    assert data["font"] == uploaded.json()["font"]
     assert data["source_timestamp_seconds"] == pytest.approx(data["output_timestamp_seconds"] + 1)
     raw = pixels(data["image"], directory, "cut-caption")
     color = pixel(raw, 20, 20, 480)
@@ -203,6 +210,7 @@ def test_reference_inspection_and_cut_cue_use_the_correct_source_moment(local, s
         == 202
     )
     output = finish(client, endpoint)["output"]
+    assert output["spec"]["captions"]["font_binding"] == data["font"]
     actual = frame(
         render.destination(pid, output["output_id"]),
         second=data["output_timestamp_seconds"],

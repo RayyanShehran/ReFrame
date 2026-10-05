@@ -147,7 +147,7 @@ export function CaptionEditor({ projectId, planState, onState, appearance }: { p
         <button disabled={!canSave || (!dirty && !needsRebind)} onClick={() => { if (needsRebind) setConfirm(true); else void run("save"); }}>Save captions</button>
         {confirm && <div role="group" aria-label="Confirm caption timeline rebind"><p>Rebind to {mode === "cuts" ? `cut plan revision ${planState.revision}` : "the whole clip"}? Text and entered times are preserved and every cue is revalidated. No cue shifts or truncation.</p><button disabled={!canSave} onClick={() => void run("save")}>Confirm rebind and save</button><button onClick={() => setConfirm(false)}>Cancel rebind</button></div>}
       </fieldset>
-      {appearance && track && <CaptionAppearancePreview key={projectId} projectId={projectId} track={track} ready={ready} dirty={dirty} disabled={busy || proposalBusy || fontBusy} context={appearance} plan={planState} />}
+      {appearance && track && <CaptionAppearancePreview key={`appearance-${projectId}`} projectId={projectId} track={track} ready={ready} dirty={dirty} disabled={busy || proposalBusy || fontBusy} context={appearance} plan={planState} />}
     </>}
     <button disabled={busy || proposalBusy || fontBusy} onClick={() => void run("reload")}>{dirty ? "Discard caption changes and reload" : "Reload saved captions"}</button>
     {busy && <p role="status">Saving, importing or loading captions…</p>}

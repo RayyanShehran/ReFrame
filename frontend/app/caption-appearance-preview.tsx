@@ -17,6 +17,11 @@ const apiBase = (process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000"
 const number = (v: unknown) => typeof v === "number" && Number.isFinite(v) && v >= 0 && v <= 120.1;
 const image = (p: Picture) => p && [p.width, p.height].every(n => Number.isInteger(n) && n >= 2 && n <= 960) && typeof p.png_base64 === "string" && p.png_base64.length <= 4194304 && /^iVBORw0KGgo[A-Za-z0-9+/]*={0,2}$/.test(p.png_base64);
 const warnings = (v: unknown): v is string[] => Array.isArray(v) && v.length <= 12 && v.every(w => typeof w === "string" && w.length <= 2000);
+function readReference(data: unknown): Reference {
+  const r = data as Reference;
+  if (!r || !["idle", "running", "ready", "failed"].includes(r.status) || (r.status === "ready" && (!r.media || !number(r.media.duration_seconds) || !/^[0-9a-f]{64}$/.test(r.media.sha256) || !/^[0-9a-f-]{36}$/.test(r.operation_id)))) throw new Error("Invalid reference status.");
+  return r;
+}
 export function CaptionAppearancePreview({ projectId, track, ready, dirty, disabled, context, plan }: { projectId: string; track: PreviewTrack; ready: boolean; dirty: boolean; disabled: boolean; context: AppearanceContext; plan: PlanState }) {
   const [reference, setReference] = useState<Reference | null>(null), [referenceFrame, setReferenceFrame] = useState<ReferenceFrame | null>(null), [captionFrame, setCaptionFrame] = useState<CaptionFrame | null>(null);
   const [time, setTime] = useState("0"), [cue, setCue] = useState(0), [busy, setBusy] = useState(false), [error, setError] = useState("");
@@ -29,7 +34,15 @@ export function CaptionAppearancePreview({ projectId, track, ready, dirty, disab
   const outdated = !!captionFrame && (!ready || !context.recipeReady || captionFrame.caption_revision !== track.revision || captionFrame.font.sha256 !== track.font_binding?.sha256 || captionFrame.recipe_revision !== context.recipeRevision || captionFrame.framing_revision !== context.framing.revision || captionFrame.plan_revision !== track.timeline?.plan_revision);
   function cancel() { generation.current++; action.current?.abort(); action.current = null; setBusy(false); }
   useEffect(() => () => cancel(), [token]);
-  useEffect(() => { void run("status"); return () => cancel(); }, [projectId]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 10000);
+    void fetch(`${apiBase}/api/projects/${encodeURIComponent(projectId)}/reference-media`, { signal: controller.signal }).then(async response => {
+      const data = await response.json();
+      if (!response.ok) throw new Error(data?.error?.message || "Reference status could not be loaded.");
+      const result = readReference(data); if (!controller.signal.aborted) setReference(result);
+    }).catch(cause => { if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : "Reference status could not be loaded."); }).finally(() => clearTimeout(timer));
+    return () => { clearTimeout(timer); controller.abort(); };
+  }, [projectId]);
   async function run(kind: "status" | "reference" | "caption") {
     if (action.current || (kind === "reference" && (!validTime || reference?.status !== "ready")) || (kind === "caption" && !canPreview)) return;
     const controller = new AbortController(); action.current = controller; const current = ++generation.current;
@@ -41,8 +54,7 @@ export function CaptionAppearancePreview({ projectId, track, ready, dirty, disab
       const data = await response.json();
       if (!response.ok) throw new Error(data?.error?.message || "Frame request failed. Retry explicitly.");
       if (kind === "status") {
-        const r = data as Reference;
-        if (!r || !["idle", "running", "ready", "failed"].includes(r.status) || (r.status === "ready" && (!r.media || !number(r.media.duration_seconds) || !/^[0-9a-f]{64}$/.test(r.media.sha256) || !/^[0-9a-f-]{36}$/.test(r.operation_id)))) throw new Error("Invalid reference status.");
+        const r = readReference(data);
         if (generation.current === current && !controller.signal.aborted) setReference(r);
       } else if (kind === "reference") {
         const r = data as ReferenceFrame;

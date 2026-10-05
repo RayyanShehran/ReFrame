@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, expect, it, vi } from "vitest";
 import { FontPicker, defaultStyle, readStyle } from "./caption-style-controls";
 import { CaptionAppearancePreview } from "./caption-appearance-preview";
+import { CaptionEditor } from "./caption-editor";
 
 const font = { kind: "custom" as const, font_id: "11111111-1111-4111-8111-111111111111", sha256: "a".repeat(64), family: "Licensed fixture", style: "Book" };
 const image = { width: 480, height: 270, png_base64: "iVBORw0KGgoAAA==" };
@@ -82,4 +83,23 @@ it("retains the prior image on failure and discards late results after saved rev
 it("retains legacy appearance defaults and rejects invalid extended numeric styles", () => {
   expect(readStyle({ color: "yellow", size: "small", placement: "center" })).toEqual({ ...defaultStyle, color: "yellow", size: "small", placement: "center" });
   for (const style of [{ size_percent: NaN }, { horizontal: 1.01 }, { outline_percent: -1 }, { shadow_percent: Infinity }, { bold: "true" }]) expect(() => readStyle({ ...defaultStyle, ...style })).toThrow("Invalid caption style.");
+});
+
+it("mounts one automatic-caption panel alongside comparison and finishes reference loading across recipe initialization", async () => {
+  let release!: (value: Response) => void;
+  vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+    if (url.endsWith("/captions")) return ok({ status: "ready", track: { ...track, schema_version: 1, style: defaultStyle, provenance: "manual", timeline: { ...track.timeline, duration_seconds: 3 } }, whole_duration_seconds: 4, message: null });
+    if (url.endsWith("/caption-font")) return ok({ revision: 0, available: true, font: null, message: null });
+    if (url.endsWith("/transcription")) return ok({ status: "idle", operation_id: null, stale: false, proposal: null });
+    return new Promise<Response>(resolve => { release = resolve; });
+  }));
+  const onState = vi.fn();
+  const view = render(<CaptionEditor projectId="one" onState={onState} planState={plan} appearance={{ ...context, recipeReady: false, recipeRevision: null }} />);
+  await screen.findByRole("region", { name: "Automatic captions" });
+  view.rerender(<CaptionEditor projectId="one" onState={onState} planState={plan} appearance={context} />);
+  await act(async () => release(ok(reference)));
+  await screen.findByText("Retained reference: 4.000 seconds.");
+  fireEvent.click(screen.getByLabelText("Bold"));
+  expect(screen.getAllByRole("region", { name: "Automatic captions" })).toHaveLength(1);
+  expect(onState).toHaveBeenLastCalledWith(expect.objectContaining({ dirty: true }));
 });
