@@ -18,6 +18,7 @@ import color_analysis as color
 import color_recipe as recipe
 import edit_plan as cuts
 import footage_analysis as footage
+import framing as framing_choices
 import projects
 import reference_engine as engine
 from references import ReferenceError
@@ -26,6 +27,7 @@ VERSION = "sdr-eq-mp4-v2"
 CUTS_VERSION = "sdr-eq-mp4-v3"
 AUDIO_VERSION = "sdr-eq-mp4-v4"
 CAPTION_VERSION = "sdr-eq-mp4-v5"
+FRAMING_VERSION = "sdr-eq-mp4-v6"
 TOTAL_SECONDS = 300
 MAX_BYTES = 100 * 1024 * 1024
 TEMP_BUDGET = 120 * 1024 * 1024
@@ -61,6 +63,7 @@ class Spec(color.Schema):
     edit_plan: cuts.Plan | None = None
     audio: audio_choices.Settings = Field(default_factory=audio_choices.Settings)
     captions: caption_tracks.Track = Field(default_factory=caption_tracks.Track)
+    framing: framing_choices.Settings = Field(default_factory=framing_choices.Settings)
 
 
 class Output(color.Schema):
@@ -95,6 +98,7 @@ class RenderRequest(color.Schema):
     expected_plan_revision: int | None = Field(default=None, ge=1, strict=True)
     expected_audio_revision: int | None = Field(default=None, ge=0, strict=True)
     expected_caption_revision: int | None = Field(default=None, ge=0, strict=True)
+    expected_framing_revision: int | None = Field(default=None, ge=0, strict=True)
 
 
 def destination(project_id, output_id):
@@ -112,6 +116,7 @@ def specification(
     expected_plan_revision=None,
     expected_audio_revision=None,
     expected_caption_revision=None,
+    expected_framing_revision=None,
 ):
     result = recipe.read(project_id)
     if result.status != "ready":
@@ -155,8 +160,17 @@ def specification(
                 "captions_stale",
                 "Rebind and save captions for this output timeline before rendering.",
             )
+    saved_framing = framing_choices.read(project_id).settings
+    if expected_framing_revision is None:
+        if saved_framing.revision:
+            raise ReferenceError(409, "revision_conflict", "Include the saved framing revision.")
+    elif expected_framing_revision != saved_framing.revision:
+        raise ReferenceError(409, "revision_conflict", "Framing changed. Reload before rendering.")
     return Spec(
-        renderer_version=CAPTION_VERSION
+        framing=saved_framing,
+        renderer_version=FRAMING_VERSION
+        if saved_framing.revision
+        else CAPTION_VERSION
         if caption.track.revision
         else AUDIO_VERSION
         if audio.settings.revision
@@ -231,6 +245,7 @@ def get_operation(project_id, require_active=False):
                     current_plan.plan.revision if current_plan and current_plan.plan else None,
                     current_audio.settings.revision,
                     current_captions.track.revision,
+                    framing_choices.read(project_id).settings.revision,
                 )
                 != bound
             )
@@ -255,6 +270,7 @@ def reusable(
     expected_plan_revision=None,
     expected_audio_revision=None,
     expected_caption_revision=None,
+    expected_framing_revision=None,
 ):
     spec = specification(
         project_id,
@@ -262,6 +278,7 @@ def reusable(
         expected_plan_revision,
         expected_audio_revision,
         expected_caption_revision,
+        expected_framing_revision,
     )
     current = get_operation(project_id, True)
     return current if current.status in {"running", "ready"} and current.spec == spec else None
@@ -302,6 +319,8 @@ class VideoResponse(FileResponse):
             self.headers["X-Audio-Revision"] = str(output.spec.audio.revision)
             self.headers["X-Audio-Mode"] = output.spec.audio.mode
             self.headers["X-Caption-Revision"] = str(output.spec.captions.revision)
+            self.headers["X-Framing-Revision"] = str(output.spec.framing.revision)
+            self.headers["X-Output-Format"] = output.spec.framing.format
             self.headers["Cache-Control"] = "no-store"
             await super().__call__(scope, receive, send)
 
@@ -312,6 +331,7 @@ def begin_operation(
     expected_plan_revision=None,
     expected_audio_revision=None,
     expected_caption_revision=None,
+    expected_framing_revision=None,
 ):
     current = reusable(
         project_id,
@@ -319,6 +339,7 @@ def begin_operation(
         expected_plan_revision,
         expected_audio_revision,
         expected_caption_revision,
+        expected_framing_revision,
     )
     if current:
         return current, None
@@ -329,6 +350,7 @@ def begin_operation(
         expected_plan_revision,
         expected_audio_revision,
         expected_caption_revision,
+        expected_framing_revision,
     )
     source = footage.source(project_id)
     operation_id = str(uuid.uuid4())
@@ -411,26 +433,7 @@ def probe(path, directory, deadline):
 
 
 def dimensions(video):
-    sar = Fraction(video.get("sample_aspect_ratio", "1:1").replace(":", "/"))
-    if not 0 < sar <= 100:
-        raise ValueError("Invalid pixel aspect ratio")
-    width, height = float(video["width"] * sar), float(video["height"])
-    angle = float(
-        next(
-            (s["rotation"] for s in video.get("side_data_list", []) if "rotation" in s),
-            video.get("tags", {}).get("rotate", 0),
-        )
-    )
-    if not math.isfinite(angle) or abs(angle / 90 - round(angle / 90)) > 0.001:
-        raise ValueError("Only orthogonal display rotation is supported")
-    if round(angle / 90) % 2:
-        width, height = height, width
-    maximum = (720, 1280) if height > width else (1280, 720)
-    factor = min(1, maximum[0] / width, maximum[1] / height)
-    result = (int(width * factor) // 2 * 2, int(height * factor) // 2 * 2)
-    if min(result) < 2:
-        raise ValueError("Video dimensions are too small")
-    return result
+    return framing_choices.geometry(video, framing_choices.Settings())[1]
 
 
 def decode_counts(raw, has_audio):
@@ -542,7 +545,9 @@ def pipeline(source, directory, stop, deadline):
         if not math.isfinite(video_start):
             raise ValueError("Invalid video start timestamp")
         metadata = color.inspect_colors(video)
-        width, height = dimensions(video)
+        (scale_width, scale_height), (width, height), canvas_filter = framing_choices.geometry(
+            video, spec.framing
+        )
         subtitle_filter = ""
         if spec.captions.enabled:
             capability = tool(
@@ -561,10 +566,12 @@ def pipeline(source, directory, stop, deadline):
             subtitle_filter = caption_tracks.subtitle_filter(
                 spec.captions, directory, width, height
             )
+        # Padding follows color processing so the bars stay black; captions follow framing.
+        final_filter = ",".join(part for part in (canvas_filter, subtitle_filter) if part)
         values = spec.effective
         # Normalize range before eq; output is tagged limited BT.709. Autorotation is enabled.
         resize = (
-            f"scale={width}:{height}:flags=area:"
+            f"scale={scale_width}:{scale_height}:flags=area:"
             f"in_range={'full' if metadata.color_range == 'pc' else 'limited'}:"
             "out_range=limited:in_color_matrix=bt709:out_color_matrix=bt709,"
             "setsar=1,format=yuv420p"
@@ -624,15 +631,15 @@ def pipeline(source, directory, stop, deadline):
                 resize,
                 "aorig" if custom_audio else "aout",
             )
-            if subtitle_filter:
-                graph += f";[vout]{subtitle_filter}[vcaption]"
-            args += ["-map", "[vcaption]" if subtitle_filter else "[vout]"]
+            if final_filter:
+                graph += f";[vout]{final_filter}[vfinal]"
+            args += ["-map", "[vfinal]" if final_filter else "[vout]"]
         else:
             args += [
                 "-map",
                 f"0:{video['index']}",
                 "-vf",
-                filters + ("," + subtitle_filter if subtitle_filter else ""),
+                filters + ("," + final_filter if final_filter else ""),
             ]
         if custom_audio:
             extra = audio_graph(

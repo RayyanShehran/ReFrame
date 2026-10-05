@@ -1,14 +1,20 @@
 """Saved output framing, independent of source analysis and timeline bindings."""
 
 import math
+import shutil
+import tempfile
+import time
 from datetime import datetime
 from fractions import Fraction
+from pathlib import Path
 from typing import Literal
 
 from pydantic import Field
 
 import color_analysis as color
+import footage_analysis as footage
 import projects
+import reference_engine as engine
 from references import ReferenceError
 
 FORMATS = {"portrait": (720, 1280), "square": (720, 720), "landscape": (1280, 720)}
@@ -117,6 +123,8 @@ def geometry(video, settings):
     # Fit rounds down to avoid clipping; Fill rounds up to cover every canvas pixel.
     rounding = math.floor if settings.fit == "fit" else math.ceil
     scaled = tuple(max(2, rounding(size * factor / 2) * 2) for size in (width, height))
+    if max(scaled) > 8192:
+        raise ValueError("Framing would require a scaled dimension above 8192 pixels")
     if settings.fit == "fit":
         final = f"pad={canvas[0]}:{canvas[1]}:(ow-iw)/2:(oh-ih)/2:color=black"
     else:
@@ -124,3 +132,64 @@ def geometry(video, settings):
         y = round((scaled[1] - canvas[1]) * settings.vertical / 2) * 2
         final = f"crop={canvas[0]}:{canvas[1]}:{x}:{y}"
     return scaled, canvas, final
+
+
+class SourceGeometry(color.Schema):
+    display_width: float = Field(gt=0, allow_inf_nan=False)
+    display_height: float = Field(gt=0, allow_inf_nan=False)
+    original_width: int = Field(ge=2, le=1280)
+    original_height: int = Field(ge=2, le=1280)
+
+
+def inspect_source(project_id):
+    """A short, bounded metadata check under the existing shared slot's start lock."""
+    from video_render import probe
+
+    deadline = time.monotonic() + 20
+    source = footage.source(project_id, deadline=deadline)
+    root = projects.DATA_DIR / "framing-inspection"
+    root.mkdir(exist_ok=True)
+    directory = Path(tempfile.mkdtemp(dir=root))
+    previous_stop = getattr(engine._control, "stop", None)
+    engine._control.stop = None
+    safe = True
+    try:
+        video, _, _ = probe(source["path"], directory, deadline)
+        width, height = display_dimensions(video)
+        original, _, _ = geometry(video, Settings())
+        return SourceGeometry(
+            display_width=width,
+            display_height=height,
+            original_width=original[0],
+            original_height=original[1],
+        )
+    except engine.ProcessCleanupError:
+        safe = False
+        raise ReferenceError(
+            500,
+            "cleanup_failure",
+            "Framing inspection containment failed; staging retained for manual review.",
+        ) from None
+    except (
+        engine.ProbeTimeout,
+        engine.SizeLimit,
+        engine.ToolOutputError,
+        engine.RetrievalFailure,
+        ValueError,
+        KeyError,
+        StopIteration,
+    ):
+        raise ReferenceError(
+            409,
+            "geometry_unavailable",
+            "Cannot inspect footage framing. Check FFprobe and retained footage, then retry.",
+        ) from None
+    finally:
+        engine._control.stop = previous_stop
+        if safe:
+            try:
+                shutil.rmtree(directory)
+            except OSError:
+                raise ReferenceError(
+                    500, "cleanup_failure", "Framing inspection staging could not be removed."
+                ) from None

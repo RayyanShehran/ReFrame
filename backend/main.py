@@ -237,6 +237,20 @@ async def save_framing(project_id: str, request: framing.SaveRequest):
         return await projects.storage_call(framing.save, project_id, request)
 
 
+@app.get("/api/projects/{project_id}/framing/source", response_model=framing.SourceGeometry)
+async def framing_source(project_id: str):
+    async with reference_jobs.start_lock:
+        if reference_jobs.active:
+            raise ReferenceError(
+                409,
+                "reference_busy",
+                "Wait for the current media job, then retry framing inspection.",
+            )
+        async with projects.operation_lock:
+            await projects.storage_call(reference_jobs.check_quarantine)
+            return await projects.storage_call(framing.inspect_source, project_id)
+
+
 @app.get("/api/projects/{project_id}/captions", response_model=captions.Result)
 async def read_captions(project_id: str):
     async with projects.operation_lock:
@@ -320,6 +334,7 @@ async def start_render(project_id: str, request: video_render.RenderRequest):
         expected_plan_revision=request.expected_plan_revision,
         expected_audio_revision=request.expected_audio_revision,
         expected_caption_revision=request.expected_caption_revision,
+        expected_framing_revision=request.expected_framing_revision,
     )
 
 

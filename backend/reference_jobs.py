@@ -361,6 +361,7 @@ async def start(
     expected_plan_revision=None,
     expected_audio_revision=None,
     expected_caption_revision=None,
+    expected_framing_revision=None,
     transcription_request=None,
 ):
     global active
@@ -392,6 +393,7 @@ async def start(
                     expected_plan_revision,
                     expected_audio_revision,
                     expected_caption_revision,
+                    expected_framing_revision,
                 )
         elif analysis == "transcription":
             async with projects.operation_lock:
@@ -418,6 +420,7 @@ async def start(
                         expected_plan_revision,
                         expected_audio_revision,
                         expected_caption_revision,
+                        expected_framing_revision,
                     )
                     if analysis == "render"
                     else (project_id, transcription_request)
@@ -508,7 +511,7 @@ def check_quarantine():
             "UNION ALL SELECT 1 FROM render_operations WHERE cleanup_safe = 0 "
             "UNION ALL SELECT 1 FROM transcription_operations WHERE cleanup_safe = 0 LIMIT 1"
         ).fetchone()
-    if unsafe:
+    if unsafe or any((projects.DATA_DIR / "framing-inspection").glob("*")):
         raise ReferenceError(
             500,
             "cleanup_failure",
