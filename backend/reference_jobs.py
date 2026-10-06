@@ -363,6 +363,7 @@ async def start(
     expected_caption_revision=None,
     expected_framing_revision=None,
     transcription_request=None,
+    expected_sequence_revision=None,
 ):
     global active
     projects.identifier(project_id)
@@ -394,6 +395,7 @@ async def start(
                     expected_audio_revision,
                     expected_caption_revision,
                     expected_framing_revision,
+                    expected_sequence_revision,
                 )
         elif analysis == "transcription":
             async with projects.operation_lock:
@@ -421,6 +423,7 @@ async def start(
                         expected_audio_revision,
                         expected_caption_revision,
                         expected_framing_revision,
+                        expected_sequence_revision,
                     )
                     if analysis == "render"
                     else (project_id, transcription_request)

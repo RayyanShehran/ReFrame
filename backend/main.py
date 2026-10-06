@@ -30,6 +30,7 @@ import pacing_analysis
 import projects
 import reference_jobs
 import reference_motion
+import sequence
 import transcription
 import video_render
 import workflow_capabilities
@@ -507,6 +508,7 @@ async def start_render(project_id: str, request: video_render.RenderRequest):
         expected_audio_revision=request.expected_audio_revision,
         expected_caption_revision=request.expected_caption_revision,
         expected_framing_revision=request.expected_framing_revision,
+        expected_sequence_revision=request.expected_sequence_revision,
     )
 
 
@@ -551,3 +553,21 @@ async def remove_footage(project_id: str, clip_id: str):
 @app.get("/api/projects/{project_id}/clips/{clip_id}/video")
 async def play_footage(project_id: str, clip_id: str):
     return clip_library.VideoResponse(project_id, clip_id)
+
+
+@app.get("/api/projects/{project_id}/sequence", response_model=sequence.Result)
+async def read_sequence(project_id: str):
+    async with projects.operation_lock:
+        return await projects.storage_call(sequence.read, project_id)
+
+
+@app.post("/api/projects/{project_id}/sequence/generate", response_model=sequence.Result)
+async def generate_sequence(project_id: str, request: sequence.Generate):
+    async with projects.operation_lock:
+        return await projects.storage_call(sequence.generate, project_id, request)
+
+
+@app.post("/api/projects/{project_id}/sequence", response_model=sequence.Result)
+async def save_sequence(project_id: str, request: sequence.Save):
+    async with projects.operation_lock:
+        return await projects.storage_call(sequence.save, project_id, request)

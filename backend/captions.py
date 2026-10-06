@@ -97,15 +97,20 @@ class Choices(color.Schema):
 
 
 class Timeline(color.Schema):
-    mode: Literal["whole", "cuts"]
+    mode: Literal["whole", "cuts", "sequence"]
     footage: footage.Source
     duration_seconds: float = Field(gt=0, le=120, allow_inf_nan=False)
     plan_revision: int | None = Field(default=None, ge=1, strict=True)
+
+    sequence_revision: int | None = Field(default=None, ge=1, strict=True)
+    sequence_sources: dict[str, str] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def plan(self):
         if (self.mode == "cuts") != (self.plan_revision is not None):
             raise ValueError("Cut timelines require a plan revision")
+        if (self.mode == "sequence") != (self.sequence_revision is not None):
+            raise ValueError("Sequence timelines require a sequence revision")
         return self
 
 
@@ -151,8 +156,9 @@ class Result(color.Schema):
 
 class SaveRequest(Choices):
     expected_revision: int = Field(ge=0, strict=True)
-    mode: Literal["whole", "cuts"]
+    mode: Literal["whole", "cuts", "sequence"]
     expected_plan_revision: int | None = Field(default=None, ge=1, strict=True)
+    expected_sequence_revision: int | None = Field(default=None, ge=1, strict=True)
     confirm_rebind: bool = Field(default=False, strict=True)
 
 
@@ -167,10 +173,38 @@ def validate_duration(cues, duration):
             raise ValueError(f"Cue {index} ends outside the {duration:g}-second output timeline")
 
 
-def timeline(project_id, mode, expected_plan_revision=None, *, stop=None, deadline=None):
+def timeline(
+    project_id,
+    mode,
+    expected_plan_revision=None,
+    *,
+    expected_sequence_revision=None,
+    stop=None,
+    deadline=None,
+):
     source = footage.source(project_id, stop, deadline)
     duration = projects.get_project(project_id).clip.duration_seconds
     revision = None
+    if mode == "sequence":
+        import sequence
+
+        result = sequence.read(project_id)
+        if result.status != "ready":
+            raise ReferenceError(
+                409, "sequence_stale", "Save all source assignments before binding captions."
+            )
+        saved = result.sequence
+        if expected_sequence_revision is not None and saved.revision != expected_sequence_revision:
+            raise ReferenceError(
+                409, "revision_conflict", "Sequence changed. Reload before saving captions."
+            )
+        return Timeline(
+            mode=mode,
+            footage=source["identity"],
+            duration_seconds=saved.output_frames / 30,
+            sequence_revision=saved.revision,
+            sequence_sources={str(s.clip_id): s.source_hash for s in saved.slots},
+        )
     if mode == "cuts":
         result = edit_plan.read(project_id)
         if result.status != "ready":
@@ -269,7 +303,12 @@ def save(project_id, request):
     binding = (
         previous.timeline
         if disabling_automatic
-        else timeline(project_id, request.mode, request.expected_plan_revision)
+        else timeline(
+            project_id,
+            request.mode,
+            request.expected_plan_revision,
+            expected_sequence_revision=request.expected_sequence_revision,
+        )
     )
     if (
         not disabling_automatic
@@ -288,6 +327,8 @@ def save(project_id, request):
                 "caption_rebind_required",
                 "Confirm rebinding to the selected timeline; cues will not shift.",
             )
+    if request.mode == "sequence" and request.expected_sequence_revision is None:
+        raise ReferenceError(422, "invalid_timeline", "Include the saved sequence revision.")
     try:
         validate_duration(request.cues, binding.duration_seconds)
     except ValueError as exc:
@@ -318,7 +359,13 @@ def save(project_id, request):
                 raise ReferenceError(409, "proposal_stale", "Use the proposal's output timeline.")
     track = Track(
         **request.model_dump(
-            exclude={"expected_revision", "mode", "expected_plan_revision", "confirm_rebind"}
+            exclude={
+                "expected_revision",
+                "mode",
+                "expected_plan_revision",
+                "expected_sequence_revision",
+                "confirm_rebind",
+            }
         ),
         timeline=binding,
         revision=request.expected_revision + 1,

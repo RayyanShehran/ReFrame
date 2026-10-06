@@ -142,7 +142,6 @@ def retain(project_id, path, details, digest):
     destination.parent.mkdir(parents=True, exist_ok=True)
     clip_id = str(uuid.UUID(path.name[5:37]))
     try:
-        path.replace(destination)
         with projects.database() as db:
             db.execute(
                 "INSERT INTO footage_clips VALUES(?,?,?,?,?,?,?)",
@@ -157,8 +156,14 @@ def retain(project_id, path, details, digest):
                 ),
             )
             db.execute("UPDATE projects SET updated_at=? WHERE id=?", (projects.now(), project_id))
+        # Record the reserved source before moving; interrupted moves remain visible/removable.
+        path.replace(destination)
     except BaseException:
         destination.unlink(missing_ok=True)
+        with projects.database() as db:
+            db.execute(
+                "DELETE FROM footage_clips WHERE project_id=? AND id=?", (project_id, clip_id)
+            )
         raise
 
 

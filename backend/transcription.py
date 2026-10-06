@@ -82,7 +82,12 @@ def binding(project_id, timeline, stop=None, deadline=None):
         )
     return captions.AutomaticBinding(
         timeline=captions.timeline(
-            project_id, timeline.mode, timeline.plan_revision, stop=stop, deadline=deadline
+            project_id,
+            timeline.mode,
+            timeline.plan_revision,
+            expected_sequence_revision=timeline.sequence_revision,
+            stop=stop,
+            deadline=deadline,
         ),
         audio=current_audio.settings,
     )
@@ -109,9 +114,15 @@ def source(project_id, stop=None, deadline=None):
             "This output is muted or has no audio. Save an available audio mode and render first.",
         )
     timeline = captions.Timeline(
-        mode="cuts" if output.spec.edit_plan else "whole",
+        mode="sequence" if output.spec.sequence else "cuts" if output.spec.edit_plan else "whole",
         footage=output.spec.footage.source,
-        duration_seconds=output.spec.edit_plan.output_frames / 30
+        sequence_revision=output.spec.sequence.revision if output.spec.sequence else None,
+        sequence_sources={str(s.clip_id): s.source_hash for s in output.spec.sequence.slots}
+        if output.spec.sequence
+        else {},
+        duration_seconds=output.spec.sequence.output_frames / 30
+        if output.spec.sequence
+        else output.spec.edit_plan.output_frames / 30
         if output.spec.edit_plan
         else project_details.clip.duration_seconds,
         plan_revision=output.spec.edit_plan.revision if output.spec.edit_plan else None,

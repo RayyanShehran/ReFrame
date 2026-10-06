@@ -62,11 +62,13 @@ class SaveRequest(Choices):
 
 
 def availability(project_id):
-    project = projects.get_project(project_id)
+    import clip_library
+
+    library = clip_library.read(project_id)
     reference = jobs.get_operation(project_id, True)
     ready = reference.status == "ready"
     return Availability(
-        original_has_audio=bool(project.clip_status == "ready" and project.clip.has_audio),
+        original_has_audio=any(c.available and c.metadata.has_audio for c in library.clips),
         reference_has_audio=bool(ready and reference.media.has_audio),
         reference_duration_seconds=reference.media.duration_seconds if ready else None,
     )

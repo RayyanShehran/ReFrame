@@ -22,6 +22,7 @@ import footage_analysis as footage
 import framing as framing_choices
 import projects
 import reference_engine as engine
+import sequence as sequences
 from references import ReferenceError
 
 VERSION = "sdr-eq-mp4-v2"
@@ -64,6 +65,7 @@ class Spec(color.Schema):
     effective: recipe.Values
     settings: Settings = Field(default_factory=Settings)
     edit_plan: cuts.Plan | None = None
+    sequence: sequences.Sequence | None = None
     audio: audio_choices.Settings = Field(default_factory=audio_choices.Settings)
     captions: caption_tracks.Track = Field(default_factory=caption_tracks.Track)
     framing: framing_choices.Settings = Field(default_factory=framing_choices.Settings)
@@ -103,6 +105,7 @@ class RenderRequest(color.Schema):
     expected_audio_revision: int | None = Field(default=None, ge=0, strict=True)
     expected_caption_revision: int | None = Field(default=None, ge=0, strict=True)
     expected_framing_revision: int | None = Field(default=None, ge=0, strict=True)
+    expected_sequence_revision: int | None = Field(default=None, ge=1, strict=True)
 
 
 def destination(project_id, output_id):
@@ -121,12 +124,29 @@ def specification(
     expected_audio_revision=None,
     expected_caption_revision=None,
     expected_framing_revision=None,
+    expected_sequence_revision=None,
 ):
     result = recipe.read(project_id)
     if result.status != "ready":
         raise ReferenceError(409, "recipe_stale", "Save a valid color recipe before rendering.")
     if result.recipe.revision != expected_revision:
         raise ReferenceError(409, "revision_conflict", "Recipe changed. Reload before rendering.")
+    sequence = None
+    if expected_sequence_revision is not None:
+        if expected_plan_revision is not None:
+            raise ReferenceError(422, "invalid_mode", "Choose cuts or sequence, not both.")
+        saved_sequence = sequences.read(project_id)
+        if saved_sequence.status != "ready":
+            raise ReferenceError(
+                409,
+                "sequence_not_ready",
+                saved_sequence.message or "Save all slot assignments first.",
+            )
+        sequence = saved_sequence.sequence
+        if sequence.revision != expected_sequence_revision:
+            raise ReferenceError(
+                409, "revision_conflict", "Sequence changed. Reload before rendering."
+            )
     plan = None
     if expected_plan_revision is not None:
         result_plan = cuts.read(project_id)
@@ -156,7 +176,10 @@ def specification(
         raise ReferenceError(409, "revision_conflict", "Captions changed. Reload before rendering.")
     if caption.track.enabled:
         selected = caption_tracks.timeline(
-            project_id, "cuts" if plan else "whole", expected_plan_revision
+            project_id,
+            "sequence" if sequence else "cuts" if plan else "whole",
+            expected_plan_revision,
+            expected_sequence_revision=expected_sequence_revision,
         )
         if caption.status != "ready" or caption.track.timeline != selected:
             raise ReferenceError(
@@ -172,7 +195,10 @@ def specification(
         raise ReferenceError(409, "revision_conflict", "Framing changed. Reload before rendering.")
     return Spec(
         framing=saved_framing,
-        renderer_version=ANIMATION_VERSION
+        sequence=sequence,
+        renderer_version="sdr-eq-mp4-v9"
+        if sequence
+        else ANIMATION_VERSION
         if caption.track.animation.mode != "none"
         else STYLE_VERSION
         if caption.track.style.font != "default"
@@ -257,6 +283,7 @@ def get_operation(project_id, require_active=False):
                     current_audio.settings.revision,
                     current_captions.track.revision,
                     framing_choices.read(project_id).settings.revision,
+                    sequences.read(project_id).sequence.revision if bound.sequence else None,
                 )
                 != bound
             )
@@ -282,6 +309,7 @@ def reusable(
     expected_audio_revision=None,
     expected_caption_revision=None,
     expected_framing_revision=None,
+    expected_sequence_revision=None,
 ):
     spec = specification(
         project_id,
@@ -290,6 +318,7 @@ def reusable(
         expected_audio_revision,
         expected_caption_revision,
         expected_framing_revision,
+        expected_sequence_revision,
     )
     current = get_operation(project_id, True)
     return current if current.status in {"running", "ready"} and current.spec == spec else None
@@ -343,6 +372,7 @@ def begin_operation(
     expected_audio_revision=None,
     expected_caption_revision=None,
     expected_framing_revision=None,
+    expected_sequence_revision=None,
 ):
     current = reusable(
         project_id,
@@ -351,6 +381,7 @@ def begin_operation(
         expected_audio_revision,
         expected_caption_revision,
         expected_framing_revision,
+        expected_sequence_revision,
     )
     if current:
         return current, None
@@ -362,6 +393,7 @@ def begin_operation(
         expected_audio_revision,
         expected_caption_revision,
         expected_framing_revision,
+        expected_sequence_revision,
     )
     source = footage.source(project_id)
     operation_id = str(uuid.uuid4())
@@ -584,6 +616,148 @@ def audio_graph(spec, original, video_start, reference, reference_start, duratio
     return ";".join(graph)
 
 
+def assemble_sequence(source, directory, stop, deadline, ffmpeg):
+    """One owned decode at a time; bounded intermediates feed the existing final encode."""
+    spec = source["spec"]
+    sources = sequences.validate(source["project_id"], spec.sequence, stop=stop, deadline=deadline)
+    primary_video, _, _ = probe(source["path"], directory, deadline)
+    _, canvas, _ = framing_choices.geometry(primary_video, spec.framing)
+    original_audio = spec.audio.mode in {"original", "mix"} and any(
+        clip.metadata.has_audio for _, clip in sources.values()
+    )
+    if spec.audio.mode == "mix" and not original_audio:
+        raise engine.RetrievalFailure(
+            "audio_unavailable", "Mix requires audio in an assigned footage clip."
+        )
+    segments = []
+    for index, slot in enumerate(spec.sequence.slots):
+        color.guard(stop, deadline)
+        path, clip = sources[slot.clip_id]
+        video, audio, duration = probe(path, directory, deadline)
+        if slot.source_end_frame > cuts.frames(duration, cuts.ROUND_FLOOR):
+            raise ValueError("Selected range exceeds decoded source duration")
+        video_start = float(video.get("start_time", 0))
+        if not math.isfinite(video_start):
+            raise ValueError("Invalid source timestamp")
+        metadata = color.inspect_colors(video)
+        if spec.framing.format == "original":
+            display_w, display_h = framing_choices.display_dimensions(video)
+            factor = min(canvas[0] / display_w, canvas[1] / display_h)
+            scale = (
+                max(2, int(display_w * factor) // 2 * 2),
+                max(2, int(display_h * factor) // 2 * 2),
+            )
+            final = f"pad={canvas[0]}:{canvas[1]}:(ow-iw)/2:(oh-ih)/2:color=black"
+        else:
+            scale, _, final = framing_choices.geometry(video, spec.framing)
+        graph = (
+            f"[0:{video['index']}]setpts=PTS-STARTPTS,fps=30:round=near,"
+            f"trim=start_frame={slot.source_start_frame}:end_frame={slot.source_end_frame},"
+            f"setpts=N/(30*TB),{resize_filter(*scale, metadata)},{color_filter(spec.effective)}"
+            + (f",{final}" if final else "")
+            + "[v]"
+        )
+        args = [
+            ffmpeg,
+            "-v",
+            "error",
+            "-nostdin",
+            "-xerror",
+            "-protocol_whitelist",
+            "file",
+            "-copyts",
+            "-i",
+            str(path),
+        ]
+        if original_audio:
+            if audio:
+                prefix = (
+                    f"[0:{audio['index']}]asetpts=PTS-{video_start}/TB,"
+                    "aresample=48000:async=1:first_pts=0,"
+                    "aformat=sample_fmts=s16:sample_rates=48000:channel_layouts=stereo,apad,"
+                )
+                graph += (
+                    f";{prefix}atrim=start_sample={slot.source_start_frame * 1600}:"
+                    f"end_sample={slot.source_end_frame * 1600},asetpts=PTS-STARTPTS[a]"
+                )
+            else:
+                graph += (
+                    ";anullsrc=r=48000:cl=stereo,"
+                    f"atrim=end_sample={slot.duration_frames * 1600},asetpts=PTS-STARTPTS[a]"
+                )
+        segment = directory / f"segment-{index}.mkv"
+        args += [
+            "-filter_complex",
+            graph,
+            "-map",
+            "[v]",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "veryfast",
+            "-crf",
+            "20",
+            "-pix_fmt",
+            "yuv420p",
+        ]
+        args += ["-map", "[a]", "-c:a", "pcm_s16le"] if original_audio else ["-an"]
+        args += [
+            "-map_metadata",
+            "-1",
+            "-metadata:s:v:0",
+            "rotate=0",
+            "-frames:v",
+            str(slot.duration_frames),
+            "-t",
+            str(slot.duration_frames / 30),
+            "-fs",
+            str(MAX_BYTES + 1),
+            str(segment),
+        ]
+        tool(args, directory, "sequence-segment", deadline)
+        segments.append(segment)
+    manifest = directory / "sequence.ffconcat"
+    manifest.write_text(
+        "ffconcat version 1.0\n"
+        + "".join(
+            f"file '{segment.name}'\nduration {slot.duration_frames / 30:.12f}\n"
+            for segment, slot in zip(segments, spec.sequence.slots)
+        ),
+        encoding="utf-8",
+    )
+    assembled = directory / "assembled.mkv"
+    tool(
+        [
+            ffmpeg,
+            "-v",
+            "error",
+            "-nostdin",
+            "-xerror",
+            "-protocol_whitelist",
+            "file",
+            "-f",
+            "concat",
+            "-safe",
+            "1",
+            "-i",
+            str(manifest),
+            "-c",
+            "copy",
+            "-fs",
+            str(MAX_BYTES + 1),
+            str(assembled),
+        ],
+        directory,
+        "sequence-concat",
+        deadline,
+    )
+    for segment in segments:
+        segment.unlink()
+    manifest.unlink()
+    sequences.validate(source["project_id"], spec.sequence, stop=stop, deadline=deadline)
+    return assembled
+
+
 def pipeline(source, directory, stop, deadline):
     directory.mkdir(parents=True, exist_ok=False)
     engine._control.stop = stop
@@ -597,6 +771,8 @@ def pipeline(source, directory, stop, deadline):
             .decode("utf-8")
             .splitlines()[0]
         )
+        if spec.sequence:
+            path = assemble_sequence(source, directory, stop, deadline, ffmpeg)
         video, audio, duration = probe(path, directory, deadline)
         video_start = float(video.get("start_time", 0))
         if not math.isfinite(video_start):
@@ -605,12 +781,20 @@ def pipeline(source, directory, stop, deadline):
         (scale_width, scale_height), (width, height), canvas_filter = framing_choices.geometry(
             video, spec.framing
         )
+        if spec.sequence:
+            scale_width, scale_height = video["width"], video["height"]
+            width, height = scale_width, scale_height
+            canvas_filter = ""
         subtitle_filter, font_warnings = subtitle(
             spec.captions, source["project_id"], directory, width, height, deadline
         )
         # Padding follows color processing so the bars stay black; captions follow framing.
         final_filter = ",".join(part for part in (canvas_filter, subtitle_filter) if part)
-        values = spec.effective
+        values = (
+            recipe.Values(brightness=0, contrast=1, saturation=1)
+            if spec.sequence
+            else spec.effective
+        )
         # Normalize range before eq; output is tagged limited BT.709. Autorotation is enabled.
         resize = resize_filter(scale_width, scale_height, metadata)
         filters = whole_video_filter(resize, values)
@@ -785,6 +969,8 @@ def pipeline(source, directory, stop, deadline):
             limit=2 * 1024 * 1024,
         )
         frames, samples = decode_counts(raw, has_audio)
+        if spec.sequence and frames != spec.sequence.output_frames:
+            raise ValueError("Incomplete sequence frames")
         if spec.edit_plan and frames != spec.edit_plan.output_frames:
             raise ValueError("Incomplete cut frames")
         if abs(frames / 30 - rendered_duration) > 1 / 30:
@@ -849,6 +1035,14 @@ def commit(project_id, operation_id, path, output, stop, deadline):
         raise engine.RetrievalFailure(
             "source_changed", "Render sources changed before publication."
         )
+    if output.spec.sequence:
+        sequences.validate(project_id, output.spec.sequence, stop=stop, deadline=deadline)
+        current = sequences.read(project_id)
+        if current.status != "ready" or current.sequence != output.spec.sequence:
+            raise engine.RetrievalFailure(
+                "sequence_changed",
+                "Sequence changed before publication. Render the saved revision again.",
+            )
     if output.spec.edit_plan:
         _, binding, source, _ = cuts.bindings(project_id, stop=stop, deadline=deadline)
         if binding != output.spec.edit_plan.pacing or source != output.spec.edit_plan.footage:
@@ -871,7 +1065,10 @@ def commit(project_id, operation_id, path, output, stop, deadline):
             deadline=deadline,
         )
         binding = caption_tracks.timeline(
-            project_id, "cuts" if output.spec.edit_plan else "whole", stop=stop, deadline=deadline
+            project_id,
+            "sequence" if output.spec.sequence else "cuts" if output.spec.edit_plan else "whole",
+            stop=stop,
+            deadline=deadline,
         )
         if binding != output.spec.captions.timeline:
             raise engine.RetrievalFailure(
@@ -890,6 +1087,17 @@ def commit(project_id, operation_id, path, output, stop, deadline):
             or Spec.model_validate_json(row["spec"]) != output.spec
         ):
             raise engine.RetrievalFailure("interrupted", "Render operation is no longer current.")
+        if output.spec.sequence:
+            saved = connection.execute(
+                "SELECT sequence FROM sequences WHERE project_id=?", (project_id,)
+            ).fetchone()
+            if (
+                not saved
+                or sequences.Sequence.model_validate_json(saved[0]) != output.spec.sequence
+            ):
+                raise engine.RetrievalFailure(
+                    "sequence_changed", "Sequence changed before publication."
+                )
         old = connection.execute(
             "SELECT * FROM render_outputs WHERE project_id=?", (project_id,)
         ).fetchone()

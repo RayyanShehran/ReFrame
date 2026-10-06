@@ -183,6 +183,12 @@ def snapshot(project_id, request, deadline):
         raise ReferenceError(
             409, "captions_stale", "Save captions for the current output timeline."
         )
+    if track.timeline.mode == "sequence":
+        raise ReferenceError(
+            409,
+            "sequence_preview_unavailable",
+            "Render the saved sequence to inspect captions on its final timeline.",
+        )
     plan = None
     if track.timeline.mode == "cuts":
         current = edit_plan.read(project_id)
