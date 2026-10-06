@@ -132,3 +132,14 @@ it("applies selected suggested properties without changing automatic words, timi
  expect(screen.getByLabelText("Cue 1 text")).toHaveValue("My reviewed words");
  fireEvent.click(screen.getByRole("button",{name:"Save captions"}));await screen.findByText(/Captions saved.*revision 3/);
 });
+it("refreshes an uploaded timeline without replacing manual cue/style drafts", async()=>{
+ let result: Omit<typeof initial,"whole_duration_seconds"> & {whole_duration_seconds:number|null}={...initial,whole_duration_seconds:null};const fetcher=vi.fn(async()=>ok(result));vi.stubGlobal("fetch",fetcher);const onState=vi.fn();
+ const view=render(<CaptionEditor projectId="one" planState={plan} onState={onState} sourceKey="empty"/>);
+ fireEvent.click(await screen.findByRole("button",{name:"Add cue"}));fireEvent.change(screen.getByLabelText("Cue 1 text"),{target:{value:"Keep my draft"}});
+ fireEvent.change(screen.getByLabelText("Text size (% of output height)"),{target:{value:"8"}});
+ result={...initial,whole_duration_seconds:6};
+ view.rerender(<CaptionEditor projectId="one" planState={plan} onState={onState} sourceKey="ready"/>);
+ await waitFor(()=>expect(screen.getByText(/Selected output: 6.000 seconds/)).toBeInTheDocument());
+ expect(fetcher).toHaveBeenCalledTimes(2);expect(screen.getByLabelText("Cue 1 text")).toHaveValue("Keep my draft");
+ expect(screen.getByLabelText("Text size (% of output height)")).toHaveValue("8");expect(screen.getByRole("button",{name:"Save captions"})).toBeEnabled();
+});

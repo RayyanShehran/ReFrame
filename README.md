@@ -247,3 +247,8 @@ Inspect a retained reference frame, select one caption region, choose English/Ar
 ## Assisted reference-caption motion
 
 With saved confirmed reference text and a reviewed font, select **0.4–4 seconds** and an expanded motion region, then explicitly preview and **Analyze caption motion**. Static, Fade, Pop and Slide up can produce conservative suggestions; combined effects, missing settled evidence and tracking contamination remain unsupported/inconclusive. Missing entrance/exit evidence stays unestimated. Compare the real reference interval and labeled neutral subtitle reconstruction, review, **Apply animation to draft**, then Save captions and use **Preview caption motion** on your own footage. Words, timing, appearance and provenance stay unchanged. Suggestions restore after refresh; comparison videos are transient. Manual controls remain available. [Method, precision, bounds and evidence](docs/REFERENCE_CAPTION_MOTION.md).
+
+
+## Prepare a complete video workflow
+
+After saving a project and uploading footage, **Prepare reference and footage** sequentially retrieves/analyzes the required sources and optionally pacing, reusing valid results. Failure stops the sequence; Retry/Continue are explicit. Stop after current step prevents later steps, while the backend job continues. Leaving/reloading ends automatic continuation. Generate/review/save creative settings and Render separately; optional recognition/matching/cuts do not block a basic export. **Check optional features** reports local caption/transcription/OCR setup on request without recognition or downloads. [Workflow, fixture evidence and limits](docs/VIDEO_WORKFLOW.md).

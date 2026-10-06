@@ -243,3 +243,8 @@ Saved track-wide schema-1 animation defaults to None for old tracks/specs; exist
 ## Assisted reference-caption motion (Milestone 25)
 
 Additive database version 16 stores schema-1 `temporal-glyph-fit-v1` suggestions bound to retained source, reviewed text/font, selected interval, independent motion region and fitting appearance. The existing shared preview lifecycle performs bounded temporal glyph fitting and real phase-preserving libass comparisons. Explicit reviewed Apply changes only estimated animation draft fields; caption persistence/export rendering remain unchanged. [Method, API, bounds, schema and evidence](REFERENCE_CAPTION_MOTION.md).
+
+
+## Milestone 26: explicit coordinated preparation
+
+The project-keyed mounted workspace registers existing retrieval/color/pacing hook controls with a session-only coordinator. It launches sequentially, reuses validated ready states, stops on failures or stop-after-current, and requires explicit continuation after reload. Existing bounded polling and backend ownership/cleanup remain the sole job infrastructure. Hook request revisions reject obsolete pre-start reads. Source availability refreshes dependent metadata while preserving dirty drafts. Guidance derives blockers from existing render state; optional proposals remain independent. The explicit project-scoped optional readiness endpoint reuses preview containment/libass/font validation and existing transcription/OCR setup checks; no inference or schema migration. [Method and complete verification](VIDEO_WORKFLOW.md).

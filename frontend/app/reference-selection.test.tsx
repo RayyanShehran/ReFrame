@@ -28,7 +28,7 @@ it("loads details, selects, changes and clears the reference", async () => {
   expect(screen.getByText("A reference")).toBeInTheDocument();
   expect(screen.getByText("Creator: Scout")).toBeInTheDocument();
   expect(screen.getByRole("link", { name: "View on TikTok" })).toHaveAttribute("href", url);
-  expect(screen.getByText("Reference details loaded. Style analysis is not available yet.")).toBeInTheDocument();
+  expect(screen.getByText("Reference details loaded. Save a project and upload footage, then prepare its analyses.")).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Use this reference" }));
   expect(screen.getByLabelText("Selected reference")).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Change reference" }));

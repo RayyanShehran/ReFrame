@@ -25,7 +25,7 @@ function readReference(data: unknown): Reference {
   if (!r || !["idle", "running", "ready", "failed"].includes(r.status) || (r.status === "ready" && (!r.media || !number(r.media.duration_seconds) || !/^[0-9a-f]{64}$/.test(r.media.sha256) || !/^[0-9a-f-]{36}$/.test(r.operation_id)))) throw new Error("Invalid reference status.");
   return r;
 }
-export function CaptionAppearancePreview({ projectId, track, ready, dirty, disabled, context, plan, onFontChoice, onMatchBusy, draftStyle, onAppearance, onMotionBusy, onAnimation }: { projectId: string; track: PreviewTrack; ready: boolean; dirty: boolean; disabled: boolean; context: AppearanceContext; plan: PlanState; onFontChoice?: (font: FontChoice) => void; onMatchBusy?: (busy: boolean) => void; onMotionBusy?: (busy: boolean) => void; draftStyle?: CaptionStyle; onAppearance?: (patch: AppearancePatch) => void; onAnimation?: (patch: Partial<Animation>) => void }) {
+export function CaptionAppearancePreview({ sourceKey = "", projectId, track, ready, dirty, disabled, context, plan, onFontChoice, onMatchBusy, draftStyle, onAppearance, onMotionBusy, onAnimation }: { sourceKey?: string; projectId: string; track: PreviewTrack; ready: boolean; dirty: boolean; disabled: boolean; context: AppearanceContext; plan: PlanState; onFontChoice?: (font: FontChoice) => void; onMatchBusy?: (busy: boolean) => void; onMotionBusy?: (busy: boolean) => void; draftStyle?: CaptionStyle; onAppearance?: (patch: AppearancePatch) => void; onAnimation?: (patch: Partial<Animation>) => void }) {
   const [reference, setReference] = useState<Reference | null>(null), [referenceFrame, setReferenceFrame] = useState<ReferenceFrame | null>(null), [captionFrame, setCaptionFrame] = useState<CaptionFrame | null>(null);
   const [rectangle, setRectangle] = useState<Rectangle>(initialRectangle);
   const [time, setTime] = useState("0"), [cue, setCue] = useState(0), [busy, setBusy] = useState(false), [error, setError] = useState("");
@@ -46,7 +46,7 @@ export function CaptionAppearancePreview({ projectId, track, ready, dirty, disab
       const result = readReference(data); if (!controller.signal.aborted) setReference(result);
     }).catch(cause => { if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : "Reference status could not be loaded."); }).finally(() => clearTimeout(timer));
     return () => { clearTimeout(timer); controller.abort(); };
-  }, [projectId]);
+  }, [projectId, sourceKey]);
   async function run(kind: "status" | "reference" | "caption", requestedTime = Number(time)) {
     if (action.current || (kind === "reference" && (!validTime || reference?.status !== "ready")) || (kind === "caption" && !canPreview)) return;
     const controller = new AbortController(); action.current = controller; const current = ++generation.current;

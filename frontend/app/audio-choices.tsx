@@ -41,7 +41,7 @@ function choices(s: Choices): Choices {
   return { mode: s.mode, original_volume: s.original_volume, reference_volume: s.reference_volume, reference_offset_seconds: s.reference_offset_seconds };
 }
 
-export function AudioChoices({ projectId, onState }: { projectId: string; onState: (state: AudioState) => void }) {
+export function AudioChoices({ projectId, onState, sourceKey = "" }: { projectId: string; onState: (state: AudioState) => void; sourceKey?: string }) {
   const [result, setResult] = useState<Result | null>(null);
   const [draft, setDraft] = useState<Choices>(defaults);
   const [offset, setOffset] = useState("0");
@@ -55,6 +55,8 @@ export function AudioChoices({ projectId, onState }: { projectId: string; onStat
     const key = k as keyof Choices;
     return draft[key] !== result.settings[key];
   }) || !offset.trim() || Number(offset) !== result.settings.reference_offset_seconds);
+  const draftDirty = useRef(false), savedRevision = useRef(-1);
+  useEffect(() => { draftDirty.current = dirty; savedRevision.current = revision ?? -1; }, [dirty, revision]);
   const reference = draft.mode === "reference" || draft.mode === "mix";
   const available = !!result && (!reference || result.availability.reference_has_audio) &&
     (draft.mode !== "mix" || result.availability.original_has_audio);
@@ -67,10 +69,11 @@ export function AudioChoices({ projectId, onState }: { projectId: string; onStat
   }
   useEffect(() => {
     const controller = new AbortController();
-    void request(projectId, controller.signal).then(value => { if (!controller.signal.aborted) restore(value); })
+    void request(projectId, controller.signal).then(value => { if (!controller.signal.aborted && !action.current && value.settings.revision >= savedRevision.current) { if (draftDirty.current) setResult(value); else restore(value); } })
       .catch(cause => { if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : "Audio could not be loaded."); });
-    return () => { controller.abort(); action.current?.abort(); };
-  }, [projectId]);
+    return () => { controller.abort(); };
+  }, [projectId, sourceKey]);
+  useEffect(() => () => action.current?.abort(), [projectId]);
   async function run(save: boolean) {
     if (action.current) return;
     const controller = new AbortController(); action.current = controller; setBusy(true); setError("");

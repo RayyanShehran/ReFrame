@@ -330,3 +330,25 @@ Users explicitly select up to four seconds and a separate expanded region, inspe
 Focused generated fixtures distinguish all four clean families, reject combined Fade + Pop, preserve unseen exit as null, and verify stale source/font/interval guards and caption preservation. The production-build browser completed analysis/comparison/apply/save/actual-footage-preview/refresh, including phone/tablet sizing. No new full export was needed because export rendering is unchanged. Full final-commit CI and fresh Git equality are reported at handoff.
 
 **Milestone 25: 100% implemented and verified, subject to architect acceptance. Video baseline: 94%, pending architect reassessment. Image mode: 0%. Stop after Milestone 25.**
+
+
+## Milestone 26: coordinated analysis and complete video workflow
+
+Explicit sequential preparation reuses required retrieval/color results and optional pacing through existing hooks/worker. Failure/retry/stop-after-current/project changes are guarded; reload requires Continue. Guidance follows real prerequisites and keeps optional failures from blocking basic/manual export. Explicit local capability checks expose caption/transcription/OCR setup, with technical details collapsed. Browser-discovered source-readiness refresh gaps now preserve dirty audio/caption drafts. [Complete fixture boundaries, steps, counts and limits](VIDEO_WORKFLOW.md).
+
+| Capability | Acceptance evidence | Remaining limits |
+| --- | --- | --- |
+| Basic color export | M26 real 6-second 640 × 360 MP4, original audio, optional features disabled; playback/download | Heuristic SDR color recipe, no exact-grade guarantee |
+| Cut-plan export | M26 real 4-second trim, plan revision 2; existing multi-cut render fixtures retained | This session uses one segment; no transitions |
+| Audio modes | M26 real 70/30 Mix/offset export; original/reference/mix/mute tone tests and M13 evidence retained | Reference includes speech/effects; reuse rights unresolved |
+| Manual / automatic captions | M26 saved manual Anton/Fade cue on final square canvas; M14/M15 and delayed-audio timing evidence retained | Automatic transcription not rerun; review required |
+| Assisted font matching | M20/M22 reviewed ranking/selection evidence and existing tests retained | Similarity does not establish exact font identity |
+| Static appearance / motion | M21/M25 reviewed fitting evidence retained; M26 manual style/Fade preview/export | Unsupported/combined effects may be inconclusive; no new matching benchmark |
+| Refresh restoration | M26 refresh/reopen restored saved revisions and same playable/downloadable output | Unsaved drafts/transient previews/session continuation do not persist |
+| Responsive layout | M26 390 × 740 and 1440 × 900, no page-level horizontal overflow; M22 touch-pointer regressions retained | Viewport/pointer/keyboard simulation only |
+| Physical phones | Not verified | Native keyboard/file/playback dialogs and hardware touch remain open |
+| Experimental TikTok | M2/M6 historical live retrieval evidence retained; M26 labeled local upstream fixture | No new live retrieval; arbitrary-link reliability/rights/deployment unverified |
+
+Focused local verification: coordinator, optional-feature/guidance and draft-preserving integration tests; two backend capability tests/Ruff; affected frontend ESLint/typecheck and production build. Final CI runs full frontend/backend/spike gates; exact-final-commit result is reported at handoff. No new queue, model, schema migration, TikTok request, inference or asset download.
+
+**Milestone 26: 100% implemented and verified within the available environment, subject to architect acceptance. Video baseline: 96%, pending architect reassessment. Image mode: 0%. Stop after Milestone 26.**

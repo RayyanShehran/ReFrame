@@ -52,7 +52,7 @@ async function request(projectId: string, signal: AbortSignal, body?: unknown, g
   } finally { clearTimeout(timer); signal.removeEventListener("abort", abort); }
 }
 
-export function ColorRecipe({ projectId, analysesReady, footageDuration = null }: { projectId: string; analysesReady: boolean; footageDuration?: number | null }) {
+export function ColorRecipe({ projectId, analysesReady, footageDuration = null, sourceKey = "" }: { projectId: string; analysesReady: boolean; footageDuration?: number | null; sourceKey?: string }) {
   const navigation = useWorkspaceNavigation();
   const [result, setResult] = useState<Result | null>(null);
   const [draft, setDraft] = useState({ selected: neutral, strength: .5 });
@@ -138,8 +138,8 @@ export function ColorRecipe({ projectId, analysesReady, footageDuration = null }
     <FramePreview key={`preview-${projectId}`} projectId={projectId} duration={footageDuration} revision={recipe?.revision ?? null} recipeReady={result?.status === "ready"} recipeDirty={dirty} recipeBusy={busy} framing={framingState} />
     <EditPlan key={`plan-${projectId}`} projectId={projectId} recipeReady={result?.status === "ready" && !dirty && !busy} onState={setPlanState} /></WorkspaceSection>
     <WorkspaceSection section="audio">
-    <AudioChoices key={`audio-${projectId}`} projectId={projectId} onState={setAudioState} />
-    <CaptionEditor key={`captions-${projectId}`} projectId={projectId} planState={planState} onState={setCaptionState} appearance={{ recipeRevision: recipe?.revision ?? null, recipeReady: result?.status === "ready", recipeDirty: dirty, recipeBusy: busy, framing: framingState }} />
+    <AudioChoices sourceKey={sourceKey} key={`audio-${projectId}`} projectId={projectId} onState={setAudioState} />
+    <CaptionEditor sourceKey={sourceKey} key={`captions-${projectId}`} projectId={projectId} planState={planState} onState={setCaptionState} appearance={{ recipeRevision: recipe?.revision ?? null, recipeReady: result?.status === "ready", recipeDirty: dirty, recipeBusy: busy, framing: framingState }} />
     </WorkspaceSection><WorkspaceSection section="export">
     <RenderVideo savedStrength={recipe?.strength} savedValues={recipe?.selected} framingState={framingState} projectId={projectId} revision={recipe?.revision ?? null} recipeReady={result?.status === "ready"} dirty={dirty} busy={busy} planState={planState} audioState={audioState} captionState={captionState} />
     <FramingControls key={`framing-${projectId}`} projectId={projectId} onState={setFramingState} />

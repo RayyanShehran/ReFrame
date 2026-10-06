@@ -72,3 +72,13 @@ it("retains edits on conflict and requires explicit rebinding of stale settings"
   fireEvent.click(screen.getByRole("button", { name: "Save with current sources" }));
   await waitFor(() => expect(screen.getByText(/Audio saved.*Audio revision 2/)).toBeInTheDocument());
 });
+it("refreshes source availability without discarding an unsaved audio draft", async () => {
+ let result = {...initial,availability:{...initial.availability,reference_has_audio:false}};
+ const fetcher=vi.fn(async()=>ok(result));vi.stubGlobal("fetch",fetcher);const onState=vi.fn();
+ const view=render(<AudioChoices projectId="one" onState={onState} sourceKey="no-reference"/>);
+ fireEvent.change(await screen.findByLabelText("Original volume"),{target:{value:"60"}});
+ result=initial;view.rerender(<AudioChoices projectId="one" onState={onState} sourceKey="reference-ready"/>);
+ await waitFor(()=>expect(screen.getByRole("option",{name:"Reference audio"})).toBeEnabled());
+ expect(screen.getByLabelText("Original volume")).toHaveValue("60");expect(screen.getByRole("button",{name:"Save audio"})).toBeEnabled();
+ expect(fetcher).toHaveBeenCalledTimes(2);
+});

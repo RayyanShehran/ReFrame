@@ -27,7 +27,7 @@ export function ProjectColors({ projectId, hasFootage, footageDuration = null }:
   return <Preparation key={projectId} hasFootage={hasFootage}>
     <WorkspaceSection section="reference"><ReferenceMedia projectId={projectId} onReady={setMediaReady} showAnalysis={false} onColorChange={setReference} /></WorkspaceSection>
     <WorkspaceSection section="audio"><OptionalFeatures key={projectId} projectId={projectId} /></WorkspaceSection>
-    <ColorRecipe key={projectId} projectId={projectId} analysesReady={!!ready} footageDuration={footageDuration} />
+    <ColorRecipe key={projectId} projectId={projectId} analysesReady={!!ready} sourceKey={`${hasFootage}-${mediaReady}`} footageDuration={footageDuration} />
     <WorkspaceSection section="style">
     {mediaReady && <StyleBlueprint projectId={projectId} onChange={setReference} />}
     {hasFootage && <StyleBlueprint projectId={projectId} footage onChange={setFootage} />}

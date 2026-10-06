@@ -50,7 +50,7 @@ async function request(projectId: string, signal: AbortSignal, body?: unknown, f
   } finally { clearTimeout(timer); signal.removeEventListener("abort", abort); }
 }
 const drafts = (cues: Cue[]): DraftCue[] => cues.map(c => ({ ...c, start: String(c.start), end: String(c.end) }));
-export function CaptionEditor({ projectId, planState, onState, appearance }: { projectId: string; planState: PlanState; onState: (state: CaptionState) => void; appearance?: AppearanceContext }) {
+export function CaptionEditor({ projectId, planState, onState, appearance, sourceKey = "" }: { projectId: string; planState: PlanState; onState: (state: CaptionState) => void; appearance?: AppearanceContext; sourceKey?: string }) {
   const [result, setResult] = useState<Result | null>(null);
   const [cues, setCues] = useState<DraftCue[]>([]);
   const [enabled, setEnabled] = useState(false);
@@ -75,6 +75,8 @@ export function CaptionEditor({ projectId, planState, onState, appearance }: { p
   const dirty = !!track && (enabled !== track.enabled || mode !== (track.timeline?.mode ?? "whole") || provenance !== track.provenance ||
     JSON.stringify(animation) !== JSON.stringify(track.animation) || JSON.stringify(style) !== JSON.stringify(track.style) || JSON.stringify(numeric) !== JSON.stringify(track.cues) || cues.some(c => !c.start.trim() || !c.end.trim()));
   const revision = track?.revision ?? null;
+  const draftDirty = useRef(false), savedRevision = useRef(-1);
+  useEffect(() => { draftDirty.current = dirty; savedRevision.current = revision ?? -1; }, [dirty, revision]);
   const boundMode = track?.timeline?.mode ?? null, boundPlan = track?.timeline?.plan_revision ?? null;
   const ready = !!track && (!track.enabled || (result?.status !== "stale" && (boundMode !== "cuts" || (planState.ready && planState.revision === boundPlan))));
   const savedEnabled = track?.enabled ?? false;
@@ -92,10 +94,11 @@ export function CaptionEditor({ projectId, planState, onState, appearance }: { p
   }
   useEffect(() => {
     const controller = new AbortController();
-    void request(projectId, controller.signal).then(data => { if (!controller.signal.aborted) restore(parse(data)); })
+    void request(projectId, controller.signal).then(data => { if (!controller.signal.aborted && !action.current) { const value = parse(data); if (value.track.revision >= savedRevision.current) { if (draftDirty.current) setResult(value); else restore(value); } } })
       .catch(cause => { if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : "Captions could not be loaded."); });
-    return () => { controller.abort(); action.current?.abort(); };
-  }, [projectId]);
+    return () => { controller.abort(); };
+  }, [projectId, sourceKey]);
+  useEffect(() => () => action.current?.abort(), [projectId]);
   async function run(kind: "save" | "reload" | "import", file?: File) {
     if (action.current) return;
     if (file && file.size > 128 * 1024) { setError("SRT import is limited to 128 KiB UTF-8."); return; }
@@ -153,7 +156,7 @@ export function CaptionEditor({ projectId, planState, onState, appearance }: { p
         <button disabled={!canSave || (!dirty && !needsRebind)} onClick={() => { if (needsRebind) setConfirm(true); else void run("save"); }}>Save captions</button>
         {confirm && <div role="group" aria-label="Confirm caption timeline rebind"><p>Rebind to {mode === "cuts" ? `cut plan revision ${planState.revision}` : "the whole clip"}? Text and entered times are preserved and every cue is revalidated. No cue shifts or truncation.</p><button disabled={!canSave} onClick={() => void run("save")}>Confirm rebind and save</button><button onClick={() => setConfirm(false)}>Cancel rebind</button></div>}
       </fieldset>
-      {appearance && track && <CaptionAppearancePreview key={`appearance-${projectId}`} projectId={projectId} track={track} ready={ready} dirty={dirty} disabled={busy || proposalBusy || fontBusy || matchBusy || motionBusy} onMotionBusy={setMotionBusy} context={appearance} plan={planState} onFontChoice={font => setStyle(v => ({ ...v, font, font_origin: "assisted" }))} onMatchBusy={setMatchBusy} draftStyle={style} onAppearance={patch => setStyle(v => ({ ...v, ...patch }))} onAnimation={patch => setAnimation(v => readAnimation({ ...v, ...patch }))} />}
+      {appearance && track && <CaptionAppearancePreview sourceKey={sourceKey} key={`appearance-${projectId}`} projectId={projectId} track={track} ready={ready} dirty={dirty} disabled={busy || proposalBusy || fontBusy || matchBusy || motionBusy} onMotionBusy={setMotionBusy} context={appearance} plan={planState} onFontChoice={font => setStyle(v => ({ ...v, font, font_origin: "assisted" }))} onMatchBusy={setMatchBusy} draftStyle={style} onAppearance={patch => setStyle(v => ({ ...v, ...patch }))} onAnimation={patch => setAnimation(v => readAnimation({ ...v, ...patch }))} />}
     </>}
     <button disabled={busy || proposalBusy || fontBusy || matchBusy || motionBusy} onClick={() => void run("reload")}>{dirty ? "Discard caption changes and reload" : "Reload saved captions"}</button>
     {busy && <p role="status">Saving, importing or loading captions…</p>}

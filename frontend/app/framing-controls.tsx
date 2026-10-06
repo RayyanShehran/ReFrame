@@ -99,7 +99,7 @@ export function FramingControls({ projectId, onState }: { projectId: string; onS
       </fieldset>
       <p className="hint">Reset changes the draft to Original. Save to persist it. Captions stay on the final canvas; audio and cut timing stay unchanged.</p>
     </>}
-    {geometryError && <p role="alert">{geometryError}</p>}
+    {geometryError && <><p role="note">Framing dimensions need an explicit inspection after upload or a busy operation. Saved Original/Fit settings can still render; inspect before positioning a Fill crop.</p><details><summary>Framing inspection details</summary><p>{geometryError}</p></details></>}
     <button disabled={busy || inspecting} onClick={() => void inspect()}>Inspect footage framing</button>
     <button disabled={busy} onClick={() => void run(false)}>{dirty ? "Discard framing changes and reload" : "Reload saved framing"}</button>
   </section>;

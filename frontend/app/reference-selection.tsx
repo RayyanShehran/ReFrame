@@ -114,7 +114,7 @@ export function ReferenceSelection({ onSelectedChange = () => {} }: { onSelected
       <h3>{reference.title || "Untitled TikTok video"}</h3>
       <p>Creator: {reference.author_name || "Unknown"}</p>
       <a href={reference.canonical_url} target="_blank" rel="noopener noreferrer">View on TikTok</a>
-      <p className="analysis-note">Reference details loaded. Style analysis is not available yet.</p>
+      <p className="analysis-note">Reference details loaded. Save a project and upload footage, then prepare its analyses.</p>
       <div className="reference-actions">
         {phase === "ready" && <button type="button" onClick={() => { setPhase("selected"); onSelectedChange(reference.video_id, reference.canonical_url); }}>Use this reference</button>}
         {phase === "selected" && <button type="button" onClick={changeReference}>Change reference</button>}
