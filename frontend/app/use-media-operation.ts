@@ -17,6 +17,7 @@ export function useMediaOperation<T extends MediaOperation>(projectId: string, r
   useWorkspaceReport(route, section, starting || operation?.status === "running" ? "Working" : error || operation?.status === "failed" ? "Needs attention" : operation?.status === "ready" ? "Ready" : "Needs input", labels[route] || "Processing…");
   const action = useRef<AbortController | null>(null);
   const generation = useRef(0);
+  const pollEpoch = useRef(0);
   const request = useCallback(async (method: string, controller: AbortController, body?: unknown): Promise<T> => {
     const timer = setTimeout(() => controller.abort(), 10000);
     try {
@@ -34,17 +35,18 @@ export function useMediaOperation<T extends MediaOperation>(projectId: string, r
     let controller: AbortController;
     const deadline = Date.now() + pollingSeconds * 1000;
     async function poll() {
+      const epoch = pollEpoch.current;
       controller = new AbortController();
       try {
         const result = await request("GET", controller);
-        if (!live) return;
+        if (!live || epoch !== pollEpoch.current) return;
         setOperation(result); setError("");
         if (result.status === "running") {
           if (Date.now() < deadline) timer = setTimeout(poll, 2000);
           else setError("Status polling stopped. Reopen this project to check; server processing continues.");
         }
       } catch (cause) {
-        if (live) setError(cause instanceof Error && cause.name !== "AbortError" ? cause.message : "Status request timed out. Reopen the project to check.");
+        if (live && epoch === pollEpoch.current) setError(cause instanceof Error && cause.name !== "AbortError" ? cause.message : "Status request timed out. Reopen the project to check.");
       }
     }
     void poll();
@@ -60,6 +62,7 @@ export function useMediaOperation<T extends MediaOperation>(projectId: string, r
     if (action.current) return;
     const controller = new AbortController();
     action.current = controller;
+    pollEpoch.current++;
     const version = generation.current;
     setStarting(true); setError("");
     try {

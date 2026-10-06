@@ -30,7 +30,7 @@ export function Preparation({ hasFootage, children }: { hasFootage: boolean; chi
   const [stopRequested, setStopRequested] = useState(false);
   const [failed, setFailed] = useState(false), [waiting, setWaiting] = useState(false);
   const live = useRef(true), owned = useRef(false), stop = useRef(false), launched = useRef<string | null>(null);
-  const expectedRevision = useRef(0);
+  const expectedRevision = useRef(0), observedRunning = useRef<string | null>(null);
   const navigation = useWorkspaceNavigation();
   const register = useCallback((route: string, controls: Controls | null) => setOperations(previous => {
     if (!steps.some(([key]) => key === route)) return previous;
@@ -51,13 +51,14 @@ export function Preparation({ hasFootage, children }: { hasFootage: boolean; chi
     const [key, label] = step, control = operations[key];
     if (!control || (!control.operation && !control.error)) { setCurrent(key); return; }
     if (current !== key) setCurrent(key);
-    if (control.starting || control.operation?.status === "running") return;
+    if (control.starting) return;
     if (launched.current === key && control.revision < expectedRevision.current) return;
-    if (launched.current === key) {
+    if (launched.current === key || observedRunning.current === key) {
       if (control.error || control.operation?.status === "failed") {
         owned.current = false; setActive(false); setFailed(true); setMessage(`${label} failed: ${control.error || control.operation?.message || "Retry this step explicitly."} Successful work is retained. Retry preparation, or open the step’s section for recovery.`); return;
       }
     }
+    if (control.operation?.status === "running") { observedRunning.current = key; return; }
     if (!control.error && control.operation?.status === "ready") {
       setCompleted(previous => ({ ...previous, [key]: launched.current === key ? "Completed" : "Reused saved result" }));
       setCurrent(null); return;
@@ -74,16 +75,16 @@ export function Preparation({ hasFootage, children }: { hasFootage: boolean; chi
   }, [active, waiting, operations, completed, current, selected]);
   function begin() {
     if (owned.current || !hasFootage) return;
-    owned.current = true; stop.current = false; setStopRequested(false); launched.current = null;
+    owned.current = true; stop.current = false; setStopRequested(false); launched.current = null; observedRunning.current = null;
     // Revalidate through restored operation status; reuse ready results, never regenerate creative settings.
     setCompleted({}); setCurrent(null); setFailed(false); setMessage(""); setActive(true);
   }
   const allReady = selected.every(([key]) => !operations[key]?.error && operations[key]?.operation?.status === "ready");
   return <Context.Provider value={register}>
-    <section className="reference-section" aria-label="Coordinated preparation">
+    <section id="prepare-workflow" tabIndex={-1} className="reference-section" aria-label="Coordinated preparation">
       <h3>Prepare reference and footage</h3>
       <p>One explicit action prepares the listed analyses in order. Valid saved results are reused.</p>
-      <ol>{selected.map(([key, label]) => <li key={key}>{label} — {completed[key] || (current === key && active ? operations[key]?.operation?.status === "running" ? "Working" : "Checking / starting" : operations[key]?.operation?.status === "ready" && !operations[key]?.error ? "Ready to reuse" : operations[key]?.operation?.status === "running" ? "Already running; Continue to follow it" : "If needed")}</li>)}</ol>
+      <ol>{selected.map(([key, label]) => <li key={key}>{label} — {completed[key] || (current === key && active ? operations[key]?.operation?.status === "running" ? "Working" : "Checking / starting" : operations[key]?.operation?.status === "ready" && !operations[key]?.error ? "Ready to reuse" : operations[key]?.operation?.status === "running" ? "Already running; Continue to follow it" : operations[key]?.error || operations[key]?.operation?.status === "failed" ? "Needs explicit retry / recovery" : "If needed")}</li>)}</ol>
       <label><input type="checkbox" checked={pacing} disabled={active} onChange={e => setPacing(e.target.checked)} /> Include optional reference pacing for cuts</label>
       {!hasFootage && <p>Upload footage first. <button onClick={() => navigation?.open("footage")}>Open Footage</button></p>}
       <button disabled={active || !hasFootage} onClick={begin}>{active ? "Preparing…" : failed ? "Retry preparation" : message || selected.some(([key]) => operations[key]?.operation?.status === "running" || operations[key]?.operation?.status === "ready") ? "Continue preparation" : "Prepare reference and footage"}</button>

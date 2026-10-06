@@ -70,3 +70,16 @@ it("project switch and unmount cannot continue after a late start response", asy
   await waitFor(() => expect(posts(fetcher)).toHaveLength(2)); view.unmount(); finish(response("ready"));
   await waitFor(() => expect(posts(fetcher)).toHaveLength(2));
 });
+
+
+it("follows an existing running step only after Continue and stops if it fails", async () => {
+  let reads = 0;
+  const fetcher = vi.fn(async (url: string, options?: RequestInit) => {
+    if (url.endsWith("reference-media")) return response(++reads === 1 ? "running" : "failed", "Retrieval interrupted. Retry explicitly.");
+    return response(options?.method === "POST" ? "ready" : "idle");
+  }); vi.stubGlobal("fetch", fetcher);
+  render(<Preparation hasFootage><Operations /></Preparation>);
+  await screen.findByText(/Already running/); expect(posts(fetcher)).toEqual([]);
+  fireEvent.click(screen.getByRole("button", { name: "Continue preparation" }));
+  await screen.findByRole("alert", {}, { timeout: 3500 }); expect(posts(fetcher)).toEqual([]);
+});

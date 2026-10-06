@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { WorkspaceSection, useWorkspaceReport } from "./guided-workspace";
+import { WorkspaceSection, useWorkspaceReport, useWorkspaceNavigation } from "./guided-workspace";
 import { FramePreview } from "./frame-preview";
 import { RenderVideo } from "./render-video";
 import { EditPlan, PlanState } from "./edit-plan";
@@ -53,6 +53,7 @@ async function request(projectId: string, signal: AbortSignal, body?: unknown, g
 }
 
 export function ColorRecipe({ projectId, analysesReady, footageDuration = null }: { projectId: string; analysesReady: boolean; footageDuration?: number | null }) {
+  const navigation = useWorkspaceNavigation();
   const [result, setResult] = useState<Result | null>(null);
   const [draft, setDraft] = useState({ selected: neutral, strength: .5 });
   const [busy, setBusy] = useState(false);
@@ -105,7 +106,7 @@ export function ColorRecipe({ projectId, analysesReady, footageDuration = null }
     <h3>Color recipe</h3>
     <p className="hint">Experimental creative settings, not exposure stops, recovered LUTs or a guarantee of matching appearance. White balance is not inferred. Changing these controls does not produce a live video preview. Save, then render to see the result.</p>
     {!result && !error && <p role="status">Loading recipe…</p>}
-    {!analysesReady && <p>Analyze valid reference and footage colors before generating or regenerating a suggestion.</p>}
+    {!analysesReady && <p>Prepare valid reference and footage colors before generating or regenerating a suggestion. <button onClick={() => navigation?.open("reference", "prepare-workflow")}>Open preparation</button></p>}
     {error && <p role="alert">{error}</p>}
     {result?.status === "empty" && <button disabled={busy || !analysesReady} onClick={() => void run("generate")}>Generate suggestion</button>}
     {result?.status === "stale" && <p role="alert">{result.message || "Recipe is stale."} Saved settings remain available for inspection; explicit regeneration is required before future rendering.</p>}

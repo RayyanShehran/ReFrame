@@ -1,5 +1,6 @@
 "use client";
 
+import { OptionalFeatures } from "./optional-features";
 import { Preparation } from "./preparation";
 import { WorkspaceSection } from "./guided-workspace";
 import { PacingBlueprint } from "./pacing-blueprint";
@@ -25,6 +26,7 @@ export function ProjectColors({ projectId, hasFootage, footageDuration = null }:
   const differences = ready ? colorDifferences(reference.color, footage.color) : [];
   return <Preparation key={projectId} hasFootage={hasFootage}>
     <WorkspaceSection section="reference"><ReferenceMedia projectId={projectId} onReady={setMediaReady} showAnalysis={false} onColorChange={setReference} /></WorkspaceSection>
+    <WorkspaceSection section="audio"><OptionalFeatures key={projectId} projectId={projectId} /></WorkspaceSection>
     <ColorRecipe key={projectId} projectId={projectId} analysesReady={!!ready} footageDuration={footageDuration} />
     <WorkspaceSection section="style">
     {mediaReady && <StyleBlueprint projectId={projectId} onChange={setReference} />}

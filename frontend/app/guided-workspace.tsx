@@ -5,7 +5,7 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState, ty
 export const sections = { reference: "Reference", footage: "Footage", style: "Style & cuts", audio: "Audio & captions", export: "Export" };
 export type Section = keyof typeof sections;
 type Report = { section: Section; state: "Needs input" | "Ready" | "Working" | "Needs attention"; message?: string };
-type Action = { section: Section; label: string };
+type Action = { section: Section; label: string; focusId?: string };
 const Context = createContext<null | { active: Section; open: (section: Section, focusId?: string) => void; report: (key: string, value: Report | null) => void; next: (value: Action | null) => void }>(null);
 export function useWorkspaceNavigation() { return useContext(Context); }
 export function useWorkspaceReport(key: string, section: Section, state: Report["state"], message?: string) {
@@ -32,21 +32,20 @@ export function GuidedWorkspace({ hasFootage, footageUnavailable = false, childr
   const referenceColor = reports["style-blueprint"], footageColor = reports["footage-color"];
   const next = footageUnavailable ? { section: "footage" as const, label: "Review unavailable footage" }
     : !hasFootage ? { section: "footage" as const, label: "Upload your footage" }
-    : retrieval?.state !== "Ready" ? { section: "reference" as const, label: retrieval?.state === "Working" ? "View reference retrieval" : "Retrieve your reference" }
-    : referenceColor?.state !== "Ready" || footageColor?.state !== "Ready" ? { section: "style" as const, label: "Analyze reference and footage colors" }
+    : retrieval?.state !== "Ready" || referenceColor?.state !== "Ready" || footageColor?.state !== "Ready" ? { section: "reference" as const, label: "Prepare reference and footage", focusId: "prepare-workflow" }
     : action ?? { section: "style" as const, label: "Review your color recipe" };
   function state(section: Section) {
     const values = Object.values(reports).filter(value => value.section === section);
     if (values.some(value => value.state === "Working")) return "Working";
-    if (values.some(value => value.state === "Needs attention")) return "Needs attention";
+    const required = section === "audio" ? [reports["audio-settings"], reports["caption-settings"]].filter(Boolean) : section === "style" ? [reports.recipe].filter(Boolean) : values;
+    if (required.some(value => value.state === "Needs attention")) return "Needs attention";
     if (section === "footage") return footageUnavailable ? "Needs attention" : hasFootage ? "Ready" : "Needs input";
     if (section === "style") return reports.recipe?.state ?? "Needs input";
-    const required = section === "audio" ? values.filter(value => value !== reports.transcription) : values;
     return required.length && required.every(value => value.state === "Ready") ? "Ready" : "Needs input";
   }
   return <Context.Provider value={{ active, open, report, next: setAction }}>
     <div className="guided-workspace">
-      <div className="workspace-guidance"><p>Next step</p><button onClick={() => open(next.section)}>{next.label}</button><p className="hint">Open a section to continue. Switching sections keeps unsaved edits; refresh restores saved settings only. Cuts and captions are optional.</p></div>
+      <div className="workspace-guidance"><p>Next step</p><button onClick={() => open(next.section, next.focusId)}>{next.label}</button><p className="hint">Open a section to continue. Switching sections keeps unsaved edits; refresh restores saved settings only. Cuts and captions are optional.</p></div>
       {Object.entries(reports).filter(([, value]) => value.state === "Working").map(([key, value]) => <p className="workspace-job" role="status" key={key}>{value.message || "Processing…"} <button onClick={() => open(value.section)}>View {sections[value.section]}</button></p>)}
       <nav className="workspace-nav" aria-label="Editing sections"><label className="workspace-section-picker">Editing section<select value={active} onChange={e => open(e.target.value as Section)}>{Object.entries(sections).map(([key, label]) => <option key={key} value={key}>{label} · {state(key as Section)}</option>)}</select></label><div className="workspace-section-buttons">{Object.entries(sections).map(([key, label]) => <button key={key} aria-label={label} aria-describedby={`section-state-${key}`} aria-current={active === key ? "step" : undefined} onClick={() => open(key as Section)}>{label}<small id={`section-state-${key}`}>{state(key as Section)}</small></button>)}</div></nav>
       <h2 ref={heading} tabIndex={-1}>{sections[active]}</h2>

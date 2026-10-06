@@ -31,6 +31,7 @@ import reference_jobs
 import reference_motion
 import transcription
 import video_render
+import workflow_capabilities
 from clips import ClipDetails, cleanup_stale_files, inspect_clip
 from references import ReferenceDetails, ReferenceError, ReferenceRequest, inspect_reference
 
@@ -331,6 +332,13 @@ async def preview_caption(project_id: str, request: caption_preview.CaptionReque
 @app.post("/api/projects/{project_id}/caption-motion-preview", response_model=caption_motion.Motion)
 async def preview_caption_motion(project_id: str, request: caption_preview.CaptionRequest):
     return await saved_still(project_id, request, caption_motion.generate)
+
+
+@app.get(
+    "/api/projects/{project_id}/optional-features", response_model=workflow_capabilities.Readiness
+)
+async def optional_features(project_id: str):
+    return await saved_still(project_id, None, workflow_capabilities.inspect)
 
 
 @app.get("/api/projects/{project_id}/caption-ocr")
