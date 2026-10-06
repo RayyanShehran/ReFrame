@@ -61,13 +61,13 @@ export function FontPicker({ projectId, revision, value, dirty, disabled, onChan
     <label>Font <select value={value} onChange={e => onChange(e.target.value as CaptionStyle["font"])}><option value="default">Default font · DejaVu Sans</option>{saved?.candidates?.filter(f => f.kind === "builtin").map(f => <option key={f.sha256} value={fontChoice(f)}>{f.family} ({f.style})</option>)}<option value="custom" disabled={!saved?.available || !saved.font}>{saved?.font ? `Manually selected font · ${saved.font.family} (${saved.font.style})` : "Upload a custom font first"}</option></select></label>
     {saved?.font && <p>Saved custom font: {saved.font.family} ({saved.font.style}) · Font revision {saved.revision}{!saved.available && " · Unavailable"}</p>}
     <p className="hint">Reference appearance not automatically verified. Choose a font you have rights to use. Static TTF/OTF only, up to 2 MiB; variable, collection and color fonts are unsupported. Unsupported custom-font characters are rejected.</p>
-    <label>Upload custom font<input id={`caption-font-upload-${projectId}`} type="file" accept=".ttf,.otf" onChange={e => { const chosen = e.target.files?.[0]; e.target.value = ""; setReplace(false); if (!chosen) return; if (!chosen.size || chosen.size > 2 * 1024 * 1024) { setError("Choose a nonempty font no larger than 2 MiB."); return; } setFile(chosen); setError(""); }} /></label>
-    {file && <p>Selected file: {file.name}</p>}
+    <label>Upload custom font<input id={`caption-font-upload-${projectId}`} aria-describedby={`caption-font-feedback-${projectId}${error ? ` caption-font-error-${projectId}` : ""}`} aria-invalid={!!error} type="file" accept=".ttf,.otf" onChange={e => { const chosen = e.target.files?.[0]; e.target.value = ""; setReplace(false); if (!chosen) return; if (!chosen.size || chosen.size > 2 * 1024 * 1024) { setError("Choose a nonempty font no larger than 2 MiB."); return; } setFile(chosen); setError(""); }} /></label>
+    <p id={`caption-font-feedback-${projectId}`}>{file ? `Selected file: ${file.name}` : "Choose a static TTF/OTF font, up to 2 MiB."}</p>
     {file && saved?.font && <label><input type="checkbox" checked={replace} onChange={e => setReplace(e.target.checked)} /> Replace the saved custom font; captions using it keep their text and timing and get a new revision.</label>}
     {dirty && <p>Save or discard caption edits before uploading a font.</p>}
     <button disabled={!file || !saved || dirty || (!!saved.font && !replace)} onClick={() => void run(true)}>{saved?.font ? "Replace custom font" : "Upload font"}</button>
     <button onClick={() => void run()}>Reload font status</button>
-    {busy && <p role="status">Validating or loading font…</p>}{error && <p role="alert">{error}</p>}{saved?.message && <p role="alert">{saved.message}</p>}
+    {busy && <p role="status">Validating or loading font…</p>}{error && <p role="alert" id={`caption-font-error-${projectId}`}>{error}</p>}{saved?.message && <p role="alert">{saved.message}</p>}
   </fieldset>;
 }
 export function StyleControls({ value, onChange }: { value: CaptionStyle; onChange: (value: CaptionStyle) => void }) {

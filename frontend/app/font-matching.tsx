@@ -32,15 +32,58 @@ function readRanked(value: unknown, projectId: string): Ranked {
 }
 
 export function RegionSelection({ frame, rectangle, onChange, disabled }: { frame: MatchFrame; rectangle: Rectangle; onChange: (r: Rectangle) => void; disabled: boolean }) {
-  const drag = useRef<{ x: number; y: number } | null>(null);
-  const point = (e: React.PointerEvent<HTMLDivElement>) => { const b = e.currentTarget.getBoundingClientRect(); return { x: Math.max(0, Math.min(1, (e.clientX - b.left) / b.width)), y: Math.max(0, Math.min(1, (e.clientY - b.top) / b.height)) }; };
-  return <div className="font-region" role="group" aria-label="Caption region selection" tabIndex={disabled ? -1 : 0} aria-disabled={disabled}
-    onPointerDown={e => { if (disabled) return; e.preventDefault(); drag.current = point(e); e.currentTarget.setPointerCapture(e.pointerId); }}
-    onPointerMove={e => { if (!drag.current || disabled) return; const p = point(e), a = drag.current; onChange({ x: Math.min(a.x, p.x), y: Math.min(a.y, p.y), width: Math.max(.001, Math.abs(p.x - a.x)), height: Math.max(.001, Math.abs(p.y - a.y)) }); }}
-    onPointerUp={e => { drag.current = null; if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId); }} onPointerCancel={() => { drag.current = null; }}
-    onKeyDown={e => { if (disabled || !["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(e.key)) return; e.preventDefault(); const horizontal = ["ArrowLeft", "ArrowRight"].includes(e.key), direction = ["ArrowRight", "ArrowDown"].includes(e.key) ? 1 : -1, key = e.shiftKey ? horizontal ? "width" : "height" : horizontal ? "x" : "y", max = key === "x" ? 1 - rectangle.width : key === "y" ? 1 - rectangle.height : key === "width" ? 1 - rectangle.x : 1 - rectangle.y; onChange({ ...rectangle, [key]: Math.max(e.shiftKey ? .001 : 0, Math.min(max, Math.round((rectangle[key] + direction * .01) * 1000) / 1000)) }); }}>
+  const surface = useRef<HTMLDivElement>(null);
+  const change = useRef(onChange);
+  useEffect(() => { change.current = onChange; }, [onChange]);
+  const drag = useRef<{ pointer: number; mode: "draw" | "move" | "resize"; x: number; y: number; bounds: DOMRect; original: Rectangle } | null>(null);
+  function finish(cancel = false) {
+    const current = drag.current; drag.current = null;
+    if (!current) return;
+    if (cancel) change.current(current.original);
+    if (surface.current?.hasPointerCapture(current.pointer)) surface.current.releasePointerCapture(current.pointer);
+  }
+  useEffect(() => {
+    const element = surface.current;
+    if (!element || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => {
+      const current = drag.current, bounds = element.getBoundingClientRect();
+      if (current && (bounds.width !== current.bounds.width || bounds.height !== current.bounds.height)) {
+        drag.current = null; change.current(current.original);
+        if (element.hasPointerCapture(current.pointer)) element.releasePointerCapture(current.pointer);
+      }
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+  useEffect(() => {
+    const current = drag.current; drag.current = null;
+    if (current && surface.current?.hasPointerCapture(current.pointer)) surface.current.releasePointerCapture(current.pointer);
+  }, [disabled, frame.source.media_sha256, frame.requested_timestamp_seconds]);
+  const point = (e: React.PointerEvent<HTMLDivElement>, bounds: DOMRect) => ({ x: Math.max(0, Math.min(1, (e.clientX - bounds.left) / bounds.width)), y: Math.max(0, Math.min(1, (e.clientY - bounds.top) / bounds.height)) });
+  return <div ref={surface} className="font-region" role="group" aria-label="Caption region selection" aria-describedby="caption-region-help" tabIndex={disabled ? -1 : 0} aria-disabled={disabled}
+    onPointerDown={e => {
+      if (disabled || drag.current || e.button !== 0) return;
+      const bounds = e.currentTarget.getBoundingClientRect(); if (!bounds.width || !bounds.height) return;
+      e.preventDefault(); const p = point(e, bounds);
+      const handle = (e.target as Element).closest<HTMLElement>("[data-region-handle]")?.dataset.regionHandle;
+      drag.current = { pointer: e.pointerId, mode: handle === "move" || handle === "resize" ? handle : "draw", ...p, bounds, original: rectangle };
+      e.currentTarget.setPointerCapture(e.pointerId); e.currentTarget.focus();
+    }}
+    onPointerMove={e => {
+      const a = drag.current; if (!a || a.pointer !== e.pointerId || disabled) return;
+      const bounds = e.currentTarget.getBoundingClientRect();
+      if (bounds.width !== a.bounds.width || bounds.height !== a.bounds.height || bounds.left !== a.bounds.left || bounds.top !== a.bounds.top) { finish(true); return; }
+      const p = point(e, bounds), r = a.original;
+      if (a.mode === "move") onChange({ ...r, x: Math.max(0, Math.min(1 - r.width, r.x + p.x - a.x)), y: Math.max(0, Math.min(1 - r.height, r.y + p.y - a.y)) });
+      else if (a.mode === "resize") onChange({ ...r, width: Math.max(.001, Math.min(1 - r.x, r.width + p.x - a.x)), height: Math.max(.001, Math.min(1 - r.y, r.height + p.y - a.y)) });
+      else onChange({ x: Math.min(a.x, p.x), y: Math.min(a.y, p.y), width: Math.max(.001, Math.min(1 - Math.min(a.x, p.x), Math.abs(p.x - a.x))), height: Math.max(.001, Math.min(1 - Math.min(a.y, p.y), Math.abs(p.y - a.y))) });
+    }}
+    onPointerUp={e => { if (drag.current?.pointer === e.pointerId) finish(); }} onPointerCancel={e => { if (drag.current?.pointer === e.pointerId) finish(true); }} onLostPointerCapture={() => finish(true)}
+    onKeyDown={e => { if (disabled || !["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(e.key)) return; e.preventDefault(); const horizontal = ["ArrowLeft", "ArrowRight"].includes(e.key), direction = ["ArrowRight", "ArrowDown"].includes(e.key) ? 1 : -1, resize = e.shiftKey || (e.target as HTMLElement).dataset.regionHandle === "resize", key = resize ? horizontal ? "width" : "height" : horizontal ? "x" : "y", max = key === "x" ? 1 - rectangle.width : key === "y" ? 1 - rectangle.height : key === "width" ? 1 - rectangle.x : 1 - rectangle.y; onChange({ ...rectangle, [key]: Math.max(resize ? .001 : 0, Math.min(max, Math.round((rectangle[key] + direction * .01) * 1000) / 1000)) }); }}>
     <Image unoptimized draggable={false} src={`data:image/png;base64,${frame.image.png_base64}`} width={frame.image.width} height={frame.image.height} alt={`Retained reference frame at ${frame.timestamp_seconds.toFixed(3)} seconds`} />
     <div className="font-region-box" style={{ left: `${rectangle.x * 100}%`, top: `${rectangle.y * 100}%`, width: `${rectangle.width * 100}%`, height: `${rectangle.height * 100}%` }} />
+    <button type="button" disabled={disabled} className="font-region-handle" data-region-handle="move" aria-label="Move selected caption region" style={{ left: `clamp(22px, ${(rectangle.x + rectangle.width / 2) * 100}%, calc(100% - 22px))`, top: `clamp(22px, ${(rectangle.y + rectangle.height / 2) * 100}%, calc(100% - 22px))` }}>↔</button>
+    <button type="button" disabled={disabled} className="font-region-handle" data-region-handle="resize" aria-label="Resize selected caption region" style={{ left: `clamp(22px, ${(rectangle.x + rectangle.width) * 100}%, calc(100% - 22px))`, top: `clamp(22px, ${(rectangle.y + rectangle.height) * 100}%, calc(100% - 22px))` }}>↘</button>
   </div>;
 }
 
@@ -78,12 +121,12 @@ export function FontMatching({ projectId, frame, rectangle, onRectangle, onInspe
     finally { clearTimeout(timer); if (action.current === controller) action.current = null; setBusy(false); }
   }
   return <section className="caption-cue" aria-label="Assisted font matching"><h4>Find similar caption fonts</h4>
-    <p className="hint">Drag a tight rectangle around one caption in the reference frame above. Arrow keys move it; Shift + arrows resize it. Numeric coordinates are percentages of the decoded frame, independent of display size. Confirm the exact visible text; no OCR is used.</p>
+    <p className="hint" id="caption-region-help">Draw a tight rectangle around one caption with touch or a pointer; use the move and resize handles to adjust it. Select one caption in the reference frame above. Arrow keys move it; Shift + arrows resize it. Numeric coordinates are percentages of the decoded frame, independent of display size. Confirm the exact visible text; no OCR is used.</p>
     {saved?.selection && <p>Saved selection · Source {saved.selection.timestamp_seconds.toFixed(3)}s · Revision {saved.revision}{saved.status === "stale" && " · Outdated source or font assets"} <button disabled={busy || disabled} onClick={() => onInspectTime(saved.selection!.requested_timestamp_seconds)}>Inspect saved selection frame</button></p>}
     {!frame && <p>Inspect a current retained reference frame before comparing.</p>}
     <fieldset disabled={busy || disabled}><legend>Caption region and confirmed text</legend>
-      <div className="font-region-numbers">{(["x", "y", "width", "height"] as const).map(k => <label key={k}>Region {k} (%)<input type="number" aria-label={`Region ${k} (%)`} min={k === "width" || k === "height" ? .1 : 0} max="100" step=".1" value={Number((rectangle[k] * 100).toFixed(3))} onChange={e => { const value = e.target.valueAsNumber / 100; if (finite(value)) onRectangle({ ...rectangle, [k]: value }); }} /></label>)}</div>
-      {!validRectangle(rectangle) && <p role="alert">Keep a nonempty rectangle inside the frame.</p>}
+      <div className="font-region-numbers">{(["x", "y", "width", "height"] as const).map(k => <label key={k}>Region {k} (%)<input type="number" inputMode="decimal" aria-invalid={!validRectangle(rectangle)} aria-describedby={!validRectangle(rectangle) ? "caption-region-error" : "caption-region-help"} aria-label={`Region ${k} (%)`} min={k === "width" || k === "height" ? .1 : 0} max="100" step=".1" value={Number((rectangle[k] * 100).toFixed(3))} onChange={e => { const value = e.target.valueAsNumber / 100; if (finite(value)) onRectangle({ ...rectangle, [k]: value }); }} /></label>)}</div>
+      {!validRectangle(rectangle) && <p role="alert" id="caption-region-error">Keep a nonempty rectangle inside the frame.</p>}
       <label>Exact visible caption text<textarea aria-label="Exact visible caption text" dir="auto" rows={2} value={text} onChange={e => setText(e.target.value)} /></label>
       <p>{Array.from(text).length}/80 characters · At least four letters/numbers, at most two lines. Case, punctuation and line breaks are preserved.</p>
       <label>Reference text polarity<select value={polarity} onChange={e => setPolarity(e.target.value as "light" | "dark")}><option value="light">Light text on darker background</option><option value="dark">Dark text on lighter background</option></select></label>

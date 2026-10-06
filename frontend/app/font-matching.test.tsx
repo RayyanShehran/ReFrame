@@ -56,3 +56,41 @@ it("supports numeric-independent keyboard movement and resizing of decoded-frame
  expect(validFont(font)).toBe(true); expect(readStyle({font: "anton-regular", font_origin: "assisted"}).font).toBe("anton-regular");
  expect(() => readStyle({font: "invented"})).toThrow();
 });
+
+function pointerSurface() {
+ class TouchPointer extends MouseEvent {
+  pointerId: number; pointerType: string;
+  constructor(type: string, options: PointerEventInit) { super(type, options); this.pointerId = options.pointerId ?? 1; this.pointerType = options.pointerType ?? "touch"; }
+ }
+ vi.stubGlobal("PointerEvent", TouchPointer);
+ const change = vi.fn(); render(<RegionSelection frame={frame} rectangle={initialRectangle} onChange={change} disabled={false} />);
+ const element = screen.getByRole("group", {name: "Caption region selection"});
+ const bounds = {left: 10, top: 20, width: 320, height: 180};
+ vi.spyOn(element, "getBoundingClientRect").mockImplementation(() => ({...bounds}) as DOMRect);
+ element.setPointerCapture = vi.fn(); element.hasPointerCapture = vi.fn(() => true); element.releasePointerCapture = vi.fn();
+ return {element, bounds, change};
+}
+it("draws touch coordinates against displayed dimensions, ignores other fingers and rolls cancellation back", () => {
+ const {element, change} = pointerSurface();
+ fireEvent.pointerDown(element, {pointerId: 3, clientX: 42, clientY: 56, button: 0});
+ fireEvent.pointerMove(element, {pointerId: 4, clientX: 170, clientY: 110}); expect(change).not.toHaveBeenCalled();
+ fireEvent.pointerMove(element, {pointerId: 3, clientX: 170, clientY: 110});
+ expect(change.mock.lastCall![0]).toEqual({x: .1, y: .2, width: .4, height: .3});
+ fireEvent.pointerCancel(element, {pointerId: 3}); expect(change).toHaveBeenLastCalledWith(initialRectangle);
+ fireEvent.pointerMove(element, {pointerId: 3, clientX: 250, clientY: 140}); expect(change).toHaveBeenCalledTimes(2);
+ expect(element.releasePointerCapture).toHaveBeenCalledWith(3);
+});
+it("moves and resizes through touch handles with bounds, cancelling an in-progress gesture after resizing", () => {
+ const {element, bounds, change} = pointerSurface();
+ fireEvent.pointerDown(screen.getByRole("button", {name: "Move selected caption region"}), {pointerId: 1, clientX: 170, clientY: 110, button: 0});
+ fireEvent.pointerMove(element, {pointerId: 1, clientX: 330, clientY: 200});
+ expect(change.mock.lastCall![0]).toMatchObject({x: .19999999999999996, y: .6, width: .8, height: .4});
+ fireEvent.pointerUp(element, {pointerId: 1});
+ fireEvent.pointerDown(screen.getByRole("button", {name: "Resize selected caption region"}), {pointerId: 2, clientX: 170, clientY: 110, button: 0});
+ fireEvent.pointerMove(element, {pointerId: 2, clientX: 330, clientY: 200});
+ expect(change.mock.lastCall![0]).toMatchObject({width: .9, height: .7});
+ bounds.width = 640;
+ fireEvent.pointerMove(element, {pointerId: 2, clientX: 330, clientY: 200});
+ expect(change).toHaveBeenLastCalledWith(initialRectangle);
+ fireEvent.pointerMove(element, {pointerId: 2, clientX: 400, clientY: 200}); expect(change).toHaveBeenCalledTimes(3);
+});
