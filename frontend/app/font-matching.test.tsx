@@ -79,6 +79,12 @@ it("draws touch coordinates against displayed dimensions, ignores other fingers 
  fireEvent.pointerCancel(element, {pointerId: 3}); expect(change).toHaveBeenLastCalledWith(initialRectangle);
  fireEvent.pointerMove(element, {pointerId: 3, clientX: 250, clientY: 140}); expect(change).toHaveBeenCalledTimes(2);
  expect(element.releasePointerCapture).toHaveBeenCalledWith(3);
+ fireEvent.pointerDown(element, {pointerId: 5, clientX: 330, clientY: 200, button: 0});
+ fireEvent.pointerMove(element, {pointerId: 5, clientX: 330, clientY: 200});
+ const corner = change.mock.lastCall![0];
+ expect(corner.x + corner.width).toBeLessThanOrEqual(1); expect(corner.y + corner.height).toBeLessThanOrEqual(1);
+ expect(corner.width).toBeGreaterThan(0); expect(corner.height).toBeGreaterThan(0);
+ fireEvent.pointerUp(element, {pointerId: 5});
 });
 it("moves and resizes through touch handles with bounds, cancelling an in-progress gesture after resizing", () => {
  const {element, bounds, change} = pointerSurface();

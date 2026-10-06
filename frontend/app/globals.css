@@ -140,3 +140,5 @@ input:focus-visible, select:focus-visible, textarea:focus-visible, a:focus-visib
 .font-region-handle { position: absolute; transform: translate(-50%, -50%); width: 44px; height: 44px; min-width: 44px; padding: 0; border-radius: 8px; background: #101413e8; border: 2px solid #fbbf24; color: #fbbf24; touch-action: none; z-index: 1; }
 .font-region-handle[data-region-handle="move"] { cursor: move; }
 .font-region-handle[data-region-handle="resize"] { cursor: nwse-resize; }
+
+.font-region[aria-disabled="true"] { touch-action: auto; cursor: default; }

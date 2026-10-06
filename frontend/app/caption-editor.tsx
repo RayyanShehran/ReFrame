@@ -119,14 +119,14 @@ export function CaptionEditor({ projectId, planState, onState, appearance }: { p
     <h3>Captions</h3>
     <p className="hint">Manual text, imported SRT, or reviewed automatic transcription. No reference-caption extraction. Times use the final output timeline after cuts: start inclusive, end exclusive. Saving does not create a video preview.</p>
     {!result && !error && <p role="status">Loading captions…</p>}
-    {error && <p role="alert">{error}</p>}
+    {error && <p role="alert" id={`caption-save-error-${projectId}`}>{error}</p>}
     {result && <>
       <p role="status">{!ready ? result.font_available === false ? "Selected font unavailable" : "Stale caption timeline" : dirty ? "Unsaved caption changes" : track?.revision ? "Captions saved" : "Captions disabled by default"} · Caption revision {revision} · {provenance === "srt_import" ? "Imported SRT (editable)" : provenance === "automatic_transcription" ? "Automatic transcription (reviewed/editable)" : "Manual text"}</p>
       {result.message && <p role="alert">{result.message}</p>}
       {result.font_warnings?.map(w => <p role="note" key={w}>{w}</p>)}
       <TranscriptionReview key={projectId} projectId={projectId} revision={revision ?? 0} hasText={!!(cues.length || track?.cues.length || dirty)} draftToken={JSON.stringify(cues)} busy={busy}
         onBusy={setProposalBusy} onApply={(value: Application) => { setCues(drafts(value.cues)); setMode(value.timeline.mode); setProvenance(value.provenance); setAutomaticId(value.automatic_proposal_id); setEnabled(true); setPreview(null); setConfirmation(null); setError(""); }} />
-      <fieldset className="recipe-controls" disabled={busy || proposalBusy || fontBusy || matchBusy}>
+      <fieldset className="recipe-controls" aria-describedby={error ? `caption-save-error-${projectId}` : undefined} disabled={busy || proposalBusy || fontBusy || matchBusy}>
         <legend>Caption track</legend>
         <label><input type="checkbox" checked={enabled} onChange={e => { setEnabled(e.target.checked); setConfirm(false); }} /> Enable captions</label>
         <label>Caption timeline <select value={mode} onChange={e => { setMode(e.target.value as Mode); setConfirm(false); }}><option value="whole">Whole clip</option><option value="cuts" disabled={!planState.ready}>Saved cut plan</option></select></label>

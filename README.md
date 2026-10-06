@@ -227,3 +227,10 @@ Previous images remain visible while updating or after failure, and become outda
 In **Audio & captions**, use the saved reference region, confirmed text and reviewed font, then select **Suggest appearance**. Supported estimates cover size, full-canvas position, fill and separable outline. Compare the real subtitle reconstruction on its labeled neutral background with the reference. Choose properties, **Apply appearance to draft**, then **Save captions**. Your words, timing, font and provenance stay intact. Review the existing caption preview with your own words before exporting; wrapping can differ.
 
 No outline detected differs from outline not estimated; unsupported bold/italic/alignment/shadow/animation remain manual. Complex backgrounds, clipped text or effects can fail or yield partial results. Suggestions are not an exact visual match or a confidence probability. Values restore after refresh; images require an explicit update. Source/region/text/font changes stale the old suggestion. Fitting is local, bounded and makes no TikTok request. [Method and limits](docs/ARCHITECTURE.md#reference-caption-appearance-suggestions-milestone-21).
+
+
+## Phone and tablet layouts
+
+The same editor adapts to small screens: use **Editing section** on phones, with the current section/status visible. Drafts remain mounted when switching sections or resizing. Comparison images stack on phones; controls and links have generous touch targets. Caption-region selection supports drawing, move/resize handles, arrow keys (Shift to resize) and numeric percentages. Cancellation or a size change during a gesture rolls it back. Arabic caption text uses automatic text direction; choose a font supporting its glyphs.
+
+This is responsive local editing, not phone-network access. Servers retain loopback-only settings; no public deployment or broader CORS is introduced. Browser viewport checks and synthetic touch-pointer regressions have passed; physical iPhone/Android, native keyboards and mobile file/playback dialogs still need real-device verification. Accepted media/font formats and limits are unchanged.
