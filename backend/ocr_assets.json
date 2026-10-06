@@ -1,0 +1,20 @@
+{
+  "engine_version": "5.5.3",
+  "assets_repository": "tesseract-ocr/tessdata_fast",
+  "assets_commit": "87416418657359cb625c412a48b6e1d6d41c29bd",
+  "files": {
+    "eng.traineddata": {
+      "sha256": "7d4322bd2a7749724879683fc3912cb542f19906c83bcc1a52132556427170b2",
+      "size_bytes": 4113088
+    },
+    "ara.traineddata": {
+      "sha256": "e3206d3dc87fd50c24a0fb9f01838615911d25168f4e64415244b67d2bb3e729",
+      "size_bytes": 1432056
+    }
+  },
+  "windows_installer": {
+    "url": "https://github.com/tesseract-ocr/tesseract/releases/download/5.5.3/tesseract-ocr-w64-setup-5.5.3.20260724.exe",
+    "sha256": "bee9e3434bd94fd65387d9be28cd467a41f61b1275383b55b0f59a1331270ae4",
+    "size_bytes": 26573224
+  }
+}

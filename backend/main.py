@@ -13,6 +13,7 @@ from pydantic import BaseModel
 
 import audio_settings
 import caption_appearance
+import caption_ocr
 import caption_preview
 import captions
 import color_analysis
@@ -323,6 +324,21 @@ async def inspect_reference_frame(project_id: str, request: caption_preview.Refe
 @app.post("/api/projects/{project_id}/caption-preview", response_model=caption_preview.CaptionFrame)
 async def preview_caption(project_id: str, request: caption_preview.CaptionRequest):
     return await saved_still(project_id, request, caption_preview.caption_frame)
+
+
+@app.get("/api/projects/{project_id}/caption-ocr")
+async def caption_ocr_capability(project_id: str):
+    return await saved_still(project_id, None, caption_ocr.capability)
+
+
+@app.post("/api/projects/{project_id}/caption-ocr", response_model=caption_ocr.Proposal)
+async def extract_caption_text(project_id: str, request: caption_ocr.Request):
+    return await saved_still(project_id, request, caption_ocr.generate)
+
+
+@app.post("/api/projects/{project_id}/caption-ocr/apply")
+async def apply_caption_text(project_id: str, request: caption_ocr.Apply):
+    return await saved_still(project_id, request, caption_ocr.apply)
 
 
 @app.get("/api/projects/{project_id}/caption-appearance")
