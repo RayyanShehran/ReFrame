@@ -1,6 +1,8 @@
 "use client";
 
 import Image from "next/image";
+import { ReferenceMotion } from "./reference-motion";
+import type { Animation } from "./caption-animation";
 import { ReferenceOcr } from "./reference-ocr";
 import { AppearanceSuggestions, selectionKey, type AppearancePatch } from "./caption-appearance-suggestions";
 import { useEffect, useRef, useState } from "react";
@@ -88,12 +90,13 @@ export function RegionSelection({ frame, rectangle, onChange, disabled }: { fram
   </div>;
 }
 
-export function FontMatching({ projectId, frame, rectangle, onRectangle, onInspectTime, onChoose, onBusy, disabled, draftStyle, onAppearance }: { projectId: string; frame: MatchFrame | null; rectangle: Rectangle; onRectangle: (r: Rectangle) => void; onInspectTime: (seconds: number) => void; onChoose: (choice: FontChoice) => void; onBusy?: (busy: boolean) => void; disabled: boolean; draftStyle?: CaptionStyle; onAppearance?: (patch: AppearancePatch) => void }) {
+export function FontMatching({ projectId, frame, rectangle, onRectangle, onInspectTime, onChoose, onBusy, disabled, draftStyle, onAppearance, onAnimation, referenceDuration }: { projectId: string; frame: MatchFrame | null; rectangle: Rectangle; onRectangle: (r: Rectangle) => void; onInspectTime: (seconds: number) => void; onChoose: (choice: FontChoice) => void; onBusy?: (busy: boolean) => void; disabled: boolean; draftStyle?: CaptionStyle; onAppearance?: (patch: AppearancePatch) => void; onAnimation?: (patch: Partial<Animation>) => void; referenceDuration?: number|null }) {
   const [appearanceBusy, setAppearanceBusy] = useState(false);
+  const [temporalBusy, setTemporalBusy] = useState(false);
   const [ocrBusy, setOcrBusy] = useState(false);
   const [saved, setSaved] = useState<Saved | null>(null), [result, setResult] = useState<Ranked | null>(null);
   const [text, setText] = useState(""), [polarity, setPolarity] = useState<"light" | "dark">("light"), [matchingBusy, setBusy] = useState(false), [error, setError] = useState("");
-  const busy = matchingBusy || appearanceBusy || ocrBusy;
+  const busy = matchingBusy || appearanceBusy || ocrBusy || temporalBusy;
   const action = useRef<AbortController | null>(null), generation = useRef(0);
   const rectangleCallback = useRef(onRectangle);
   useEffect(() => { rectangleCallback.current = onRectangle; }, [onRectangle]);
@@ -142,6 +145,7 @@ export function FontMatching({ projectId, frame, rectangle, onRectangle, onInspe
     {saved?.selection?.reviewed_font && <p role="status">{fontLabel(saved.selection.reviewed_font, "assisted")}. This review is saved separately; Save captions persists your styled draft.</p>}
     <button disabled={busy || disabled} onClick={() => document.getElementById(`caption-font-upload-${projectId}`)?.focus()}>None match—upload another font</button>
     {draftStyle && onAppearance && <AppearanceSuggestions projectId={projectId} currentKey={saved?.status === "ready" && saved.selection && saved.selection.text === text && saved.selection.polarity === polarity && JSON.stringify(saved.selection.rectangle) === JSON.stringify(rectangle) && (!frame || (frame.source.media_sha256 === saved.selection.source.media_sha256 && frame.requested_timestamp_seconds === saved.selection.requested_timestamp_seconds)) ? selectionKey(saved.selection, saved.revision) : null} baseStyle={draftStyle} disabled={disabled || matchingBusy} onBusy={setAppearanceBusy} onApply={onAppearance} />}
+    {draftStyle && onAnimation && <ReferenceMotion duration={referenceDuration} projectId={projectId} currentKey={saved?.status === "ready" && saved.selection?.reviewed_font && saved.selection.text === text && saved.selection.polarity === polarity && JSON.stringify(saved.selection.rectangle) === JSON.stringify(rectangle) && (!frame || (frame.source.media_sha256 === saved.selection.source.media_sha256 && frame.requested_timestamp_seconds === saved.selection.requested_timestamp_seconds)) ? selectionKey(saved.selection, saved.revision) : null} baseStyle={draftStyle} frame={frame} disabled={disabled || matchingBusy || ocrBusy || appearanceBusy} onBusy={setTemporalBusy} onApply={onAnimation} />}
     <p className="hint">Font comparison measures glyph shape only. Use appearance suggestions for supported size, color, outline and position estimates. Shadow and animation are not estimated. Refine the existing controls, Save captions, then review the real preview/export. Complex backgrounds, compression and outlines can mislead; exact identity remains unverified.</p>
   </section>;
 }

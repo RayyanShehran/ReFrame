@@ -95,7 +95,8 @@ def bindings(project_id, request, deadline, current=None):
         and saved.method == appearance.METHOD
         and saved.selection_revision == revision
         and saved.selection_token == token
-        and saved.base_style == request.base_style
+        and saved.base_style.font == request.base_style.font
+        and appearance.unsupported(saved.base_style) == appearance.unsupported(request.base_style)
     )
     style = (
         request.base_style.model_copy(update=saved.values.model_dump(exclude_none=True))
@@ -229,6 +230,8 @@ def fit(rows, contaminated=False):
         )
     if any(r.glyph_overlap < 0.55 for r in visible):
         return fail("Confirmed text/font is inconsistent, changing, rotated or tracking is lost.")
+    if max(r.glyph_overlap for r in visible) - min(r.glyph_overlap for r in visible) > 0.22:
+        return fail("Glyph shape changes across the interval; review words and tracking.")
     peak = max(r.contrast for r in visible)
     maxw = max(r.width for r in visible)
     maxh = max(r.height for r in visible)
@@ -361,6 +364,7 @@ def analyze(project_id, request):
             )
         selection, style, appearance_token = bindings(project_id, request, deadline)
         source = color.source(project_id, deadline=deadline)
+        # ponytail: high-contrast glyph masks only; complex motion needs segmentation.
         video, _, duration = render.probe(
             source["path"], directory, deadline, temp_budget=preview.TEMP_BUDGET
         )

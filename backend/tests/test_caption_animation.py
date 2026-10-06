@@ -134,7 +134,8 @@ def test_real_none_fade_pop_slide_short_cues_and_export_lifetime(local, source):
     assert results["fade"][0.3][0] < results["fade"][0.4][0] < static[0.8][0] * 0.7
     assert results["fade"][1.7][0] < static[1.7][0] * 0.7
     for mode in ("fade", "pop", "slide-up"):
-        assert results[mode][0.8][1] == static[0.8][1]
+        # Thresholded pixels at antialiased/H.264 edges can differ by one pixel.
+        assert all(abs(a - b) <= 1 for a, b in zip(results[mode][0.8][1], static[0.8][1]))
     pop = results["pop"][0.3][1]
     full = static[0.3][1]
     assert pop[2] - pop[0] < (full[2] - full[0]) * 0.7

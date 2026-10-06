@@ -18,7 +18,7 @@ export function AnimationControls({value,onChange}:{value:Animation;onChange:(a:
  }
  return <fieldset className="caption-cue"><legend>Caption animation</legend>
  <label>Animation<select value={value.mode} onChange={e=>onChange({...value,mode:e.target.value as Animation["mode"]})}><option value="none">None</option><option value="fade">Fade</option><option value="pop">Pop</option><option value="slide-up">Slide up</option></select></label>
- <p className="hint">Manually selected, not detected from the reference. Save captions, then preview actual motion.</p>
+ <p className="hint">Editable animation. Choose manually or review an assisted reference suggestion. Save captions, then preview actual motion.</p>
  {value.mode!=="none"&&control("Entrance duration (seconds)","entrance_seconds",0,1,.05)}
  {value.mode==="fade"&&control("Exit duration (seconds)","exit_seconds",0,1,.05)}
  {value.mode==="pop"&&control("Starting size (% of saved size)","initial_scale",.5,1,.05,100,"%")}

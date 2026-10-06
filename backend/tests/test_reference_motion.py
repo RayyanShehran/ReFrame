@@ -230,3 +230,43 @@ def test_real_comparison_phase_and_limits(local, sources, tmp_path, monkeypatch)
     monkeypatch.setattr(motion, "VIDEO_BYTES", 1)
     assert client.post(url + "/compare", json=compare).status_code == 413
     assert not list((directory / "preview-staging").iterdir())
+
+
+def test_valid_appearance_reuse_and_source_invalidation(local, sources):
+    import color_analysis as color
+
+    client, directory, _ = local
+    pid = selected(client, directory, sources["fade"])
+    url = f"/api/projects/{pid}/reference-motion"
+    body = request(client, pid)
+    body["base_style"]["vertical"] = 0.3
+    fitted = client.post(
+        f"/api/projects/{pid}/caption-appearance",
+        json={
+            k: body[k]
+            for k in (
+                "expected_revision",
+                "expected_selection_revision",
+                "expected_selection_token",
+                "base_style",
+            )
+        },
+    )
+    assert fitted.status_code == 200, fitted.text
+    analyzed = client.post(url, json=body)
+    assert analyzed.status_code == 200, analyzed.text
+    saved = analyzed.json()
+    s = saved["suggestion"]
+    assert s["appearance_token"] == fitted.json()["token"]
+    assert abs(s["fitting_style"]["vertical"] - 0.64) < 0.02
+    before = client.get(f"/api/projects/{pid}/captions").json()
+    path = color.source(pid)["path"]
+    path.write_bytes(path.read_bytes() + b"changed")
+    assert client.get(url).json()["status"] == "stale"
+    assert (
+        client.post(
+            url + "/apply", json=body | {"expected_revision": 1, "token": saved["token"]}
+        ).status_code
+        == 409
+    )
+    assert client.get(f"/api/projects/{pid}/captions").json() == before
