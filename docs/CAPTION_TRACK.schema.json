@@ -1,5 +1,57 @@
 {
   "$defs": {
+    "Animation": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": 1,
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "mode": {
+          "default": "none",
+          "enum": [
+            "none",
+            "fade",
+            "pop",
+            "slide-up"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "entrance_seconds": {
+          "default": 0.25,
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Entrance Seconds",
+          "type": "number"
+        },
+        "exit_seconds": {
+          "default": 0.25,
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Exit Seconds",
+          "type": "number"
+        },
+        "initial_scale": {
+          "default": 0.7,
+          "maximum": 1,
+          "minimum": 0.5,
+          "title": "Initial Scale",
+          "type": "number"
+        },
+        "displacement": {
+          "default": 0.08,
+          "maximum": 0.25,
+          "minimum": 0,
+          "title": "Displacement",
+          "type": "number"
+        }
+      },
+      "title": "Animation",
+      "type": "object"
+    },
     "AutomaticBinding": {
       "additionalProperties": false,
       "properties": {
@@ -483,6 +535,9 @@
     },
     "style": {
       "$ref": "#/$defs/Style"
+    },
+    "animation": {
+      "$ref": "#/$defs/Animation"
     },
     "provenance": {
       "default": "manual",

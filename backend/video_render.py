@@ -30,6 +30,7 @@ AUDIO_VERSION = "sdr-eq-mp4-v4"
 CAPTION_VERSION = "sdr-eq-mp4-v5"
 FRAMING_VERSION = "sdr-eq-mp4-v6"
 STYLE_VERSION = "sdr-eq-mp4-v7"
+ANIMATION_VERSION = "sdr-eq-mp4-v8"
 TOTAL_SECONDS = 300
 MAX_BYTES = 100 * 1024 * 1024
 TEMP_BUDGET = 120 * 1024 * 1024
@@ -171,7 +172,9 @@ def specification(
         raise ReferenceError(409, "revision_conflict", "Framing changed. Reload before rendering.")
     return Spec(
         framing=saved_framing,
-        renderer_version=STYLE_VERSION
+        renderer_version=ANIMATION_VERSION
+        if caption.track.animation.mode != "none"
+        else STYLE_VERSION
         if caption.track.style.font != "default"
         or caption.track.style.model_dump(exclude={"color", "size", "placement"})
         != caption_tracks.Style().model_dump(exclude={"color", "size", "placement"})

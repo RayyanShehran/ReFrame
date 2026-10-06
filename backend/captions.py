@@ -63,10 +63,20 @@ class Style(color.Schema):
     italic: bool = Field(default=False, strict=True)
 
 
+class Animation(color.Schema):
+    schema_version: Literal[1] = 1
+    mode: Literal["none", "fade", "pop", "slide-up"] = "none"
+    entrance_seconds: float = Field(default=0.25, ge=0, le=1, strict=True, allow_inf_nan=False)
+    exit_seconds: float = Field(default=0.25, ge=0, le=1, strict=True, allow_inf_nan=False)
+    initial_scale: float = Field(default=0.7, ge=0.5, le=1, strict=True, allow_inf_nan=False)
+    displacement: float = Field(default=0.08, ge=0, le=0.25, strict=True, allow_inf_nan=False)
+
+
 class Choices(color.Schema):
     enabled: bool = Field(default=False, strict=True)
     cues: list[Cue] = Field(default_factory=list, max_length=200)
     style: Style = Field(default_factory=Style)
+    animation: Animation = Field(default_factory=Animation)
     provenance: Literal["manual", "srt_import", "automatic_transcription"] = "manual"
     automatic_proposal_id: UUID | None = None
 
@@ -410,6 +420,43 @@ def filter_path(path):
     return "".join("\\" + c if c in "\\'[],;" else c for c in value)
 
 
+def animation_tags(track, cue, width, height, position):
+    """Only validated server numbers become ASS commands; text stays separately escaped."""
+    a = track.animation
+    first = int((Decimal(str(cue.start)) * 30).to_integral_value(rounding=ROUND_CEILING))
+    last = int((Decimal(str(cue.end)) * 30).to_integral_value(rounding=ROUND_CEILING))
+    if a.mode == "none" or last - first < 3:
+        return position  # Sub-3-frame cues remain static, including their first visible frame.
+    duration = (last * 100 // 30 - first * 100 // 30) * 10
+    entrance = min(round(a.entrance_seconds * 1000), duration // 2)
+    exit_ms = min(round(a.exit_seconds * 1000), duration // 2)
+    if a.mode == "fade":
+        return position + f"{{\\fad({entrance},{exit_ms})}}"
+    if not entrance:
+        return position
+    if a.mode == "pop":
+        scale = a.initial_scale * 100
+        return position + (
+            f"{{\\fscx{scale:.3f}\\fscy{scale:.3f}\\t(0,{entrance},\\fscx100\\fscy100)}}"
+        )
+    style = track.style
+    explicit = style.horizontal is not None or style.vertical is not None
+    x = (style.horizontal if style.horizontal is not None else 0.5) * width
+    y = (
+        style.vertical
+        if style.vertical is not None
+        else (0.94 if style.placement == "bottom-center" else 0.5)
+    ) * height
+    if not explicit:
+        x = {
+            "left": round(width * 0.04),
+            "center": width / 2,
+            "right": width - round(width * 0.04),
+        }[style.alignment]
+        y = height - round(height * 0.06) if style.placement == "bottom-center" else height / 2
+    return f"{{\\move({x:.3f},{y + a.displacement * height:.3f},{x:.3f},{y:.3f},0,{entrance})}}"
+
+
 def subtitle_filter(track, directory, width, height, prepared_font=None):
     style = track.style
     size = height * (
@@ -460,7 +507,7 @@ def subtitle_filter(track, directory, width, height, prepared_font=None):
     )
     content = header + "".join(
         f"Dialogue: 0,{ass_time(c.start)},{ass_time(c.end)},Default,,0,0,0,,"
-        f"{position}{literal_ass(c.text)}\n"
+        f"{animation_tags(track, c, width, height, position)}{literal_ass(c.text)}\n"
         for c in track.cues
         if ass_time(c.start) != ass_time(c.end)
     )
