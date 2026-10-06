@@ -313,3 +313,11 @@ Explicit English/Arabic/combined local OCR is available beside the existing sele
 Focused Windows checks: four backend OCR tests, fourteen affected frontend OCR/matching/editor tests, affected ESLint, typecheck and production build passed. Clear generated English `REFRAME Caption` and Arabic `مرحبا بالعالم` recognized exactly; compressed outlined English and an empty region returned explicit unreadable errors. One browser review/application/ranking/selection/appearance workflow and refresh succeeded. Phone/tablet/desktop viewport bounds passed. Full suites run in final-commit CI; its result and fresh local/remote SHA equality are reported at handoff.
 
 **Milestone 23: 100% implemented and verified, subject to architect acceptance. Video baseline: 90%, pending architect reassessment. Image mode: 0%. Stop after Milestone 23.**
+
+## Milestone 24: saved caption animation and real motion previews
+
+Users can save None/Fade/Pop/Slide up with bounded relevant controls, explicitly preview a saved cue using real footage/color/framing/font rendering, and export animated captions. Old tracks remain static by default. Short cues stay static; effects are capped inside the visible cue. Previous successful previews/exports remain available and clearly outdated after edits; late responses are rejected. Saved settings and full exports restore after refresh. Static appearance suggestions preserve animation.
+
+Focused real exports and a crossing-cut preview verify opacity, scale/displacement, final geometry, cue absence, timing/audio, bundled/custom fonts and Square framing. One browser workflow covers save, preview/play, change/outdated/update, full export/play and refresh; phone/tablet viewport checks show no overflow. Affected local tests/lint/types/build passed; exact-final-commit CI is reported at handoff. [Evidence and limitations](CAPTION_ANIMATION.md). No TikTok, OCR/transcription inference or downloads were used.
+
+**Milestone 24: 100% implemented and verified, subject to architect acceptance. Video baseline: 92%, pending architect reassessment. Image mode: 0%. Stop after Milestone 24.**

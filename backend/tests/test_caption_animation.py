@@ -220,9 +220,14 @@ def test_real_motion_preview_crosses_cut_preserves_phase_and_supports_fonts(loca
     saved = client.post(base + "/captions", json=body | {"expected_revision": 1})
     assert saved.status_code == 200, saved.text
     assert client.post(url, json=req).status_code == 409
-    custom = client.post(url, json=req | {"expected_caption_revision": 2})
+    framing = client.post(base + "/framing", json={"expected_revision": 0, "format": "square"})
+    assert framing.status_code == 200
+    custom = client.post(
+        url, json=req | {"expected_caption_revision": 2, "expected_framing_revision": 1}
+    )
     assert custom.status_code == 200, custom.text
     assert custom.json()["spec"]["captions"]["font_binding"]["kind"] == "custom"
+    assert (custom.json()["width"], custom.json()["height"]) == (640, 640)
     assert not list((directory / "preview-staging").iterdir())
 
 
