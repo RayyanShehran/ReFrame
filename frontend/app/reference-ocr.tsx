@@ -26,9 +26,9 @@ export function ReferenceOcr({projectId, frame, rectangle, polarity, disabled, o
  useEffect(() => {onBusy(busy); return () => onBusy(false);},[busy,onBusy]);
  useEffect(() => {function cancel(){generation.current++; action.current?.abort();} cancel(); return cancel;},[context]);
  useEffect(() => {
-  const c = new AbortController(), timer = setTimeout(() => c.abort(),10000);
-  void fetch(`${apiBase}/api/projects/${encodeURIComponent(projectId)}/caption-ocr`,{signal:c.signal}).then(async response => {const data = await response.json(); if(!response.ok)throw new Error(data?.error?.message || "OCR status could not be loaded. Manual entry remains available.");if(!c.signal.aborted)setCapability(readCapability(data));}).catch(e => {if(!c.signal.aborted)setError(e instanceof Error?e.message:"OCR status failed.");}).finally(()=>clearTimeout(timer));
-  return () => {clearTimeout(timer);c.abort();};
+  let active = true; const c = new AbortController(), timer = setTimeout(() => c.abort(),10000);
+  void fetch(`${apiBase}/api/projects/${encodeURIComponent(projectId)}/caption-ocr`,{signal:c.signal}).then(async response => {const data = await response.json(); if(!response.ok)throw new Error(data?.error?.message || "OCR status could not be loaded. Manual entry remains available.");if(!c.signal.aborted)setCapability(readCapability(data));}).catch(e => {if(active)setError(e instanceof Error && e.name!=="AbortError" ? `${e.message} Reload OCR status after the current job; manual entry remains available.` : "OCR status timed out. Reload OCR status explicitly; manual entry remains available.");}).finally(()=>clearTimeout(timer));
+  return () => {active=false;clearTimeout(timer);c.abort();};
  },[projectId]);
  async function run(kind: "extract" | "apply" | "status") {
   if(action.current || disabled || (kind!=="status" && (!frame || !capability?.available || !validRegion)) || (kind==="apply" && (!current || !plain(edited))))return;

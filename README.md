@@ -234,3 +234,9 @@ No outline detected differs from outline not estimated; unsupported bold/italic/
 The same editor adapts to small screens: use **Editing section** on phones, with the current section/status visible. Drafts remain mounted when switching sections or resizing. Comparison images stack on phones; controls and links have generous touch targets. Caption-region selection supports drawing, move/resize handles, arrow keys (Shift to resize) and numeric percentages. Cancellation or a size change during a gesture rolls it back. Arabic caption text uses automatic text direction; choose a font supporting its glyphs.
 
 This is responsive local editing, not phone-network access. Servers retain loopback-only settings; no public deployment or broader CORS is introduced. Browser viewport checks and synthetic touch-pointer regressions have passed; physical iPhone/Android, native keyboards and mobile file/playback dialogs still need real-device verification. Accepted media/font formats and limits are unchanged.
+
+## Optional local reference OCR
+
+Inspect a retained reference frame, select one caption region, choose English/Arabic/combined and explicitly **Extract text from this region**. Review/correct the proposal, then Apply to the reference matching field. Font ranking and selection remain explicit; your own caption words, times and style are unchanged. Applied text restores once used in a saved font comparison. Missing assets, busy workers or unreadable regions retain manual entry.
+
+[One-time Tesseract 5.5.3 setup, pinned assets and limits](docs/REFERENCE_CAPTION_OCR.md). Ordinary recognition is offline; no TikTok request, scanning, download or transcription inference.

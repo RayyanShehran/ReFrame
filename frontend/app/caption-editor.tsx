@@ -117,7 +117,7 @@ export function CaptionEditor({ projectId, planState, onState, appearance }: { p
   useWorkspaceReport("caption-settings", "audio", busy || proposalBusy ? "Working" : error || (!!result && !ready) ? "Needs attention" : ready ? dirty ? "Needs input" : "Ready" : "Needs input", "Saving or loading caption…");
   return <section className="reference-section" aria-label="Captions">
     <h3>Captions</h3>
-    <p className="hint">Manual text, imported SRT, or reviewed automatic transcription. No reference-caption extraction. Times use the final output timeline after cuts: start inclusive, end exclusive. Saving does not create a video preview.</p>
+    <p className="hint">Manual text, imported SRT, or reviewed automatic transcription. Optional reference OCR updates only matching text, never your cues. Times use the final output timeline after cuts: start inclusive, end exclusive. Saving does not create a video preview.</p>
     {!result && !error && <p role="status">Loading captions…</p>}
     {error && <p role="alert" id={`caption-save-error-${projectId}`}>{error}</p>}
     {result && <>
