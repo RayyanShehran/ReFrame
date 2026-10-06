@@ -12,13 +12,14 @@ afterEach(() => vi.unstubAllGlobals());
 it("restores the crop/text and explicitly reviews a rendered candidate, rejecting outdated text results", async () => {
  const choose = vi.fn(), rectangle = vi.fn(), inspect = vi.fn();
  const fetcher = vi.fn(async (url: string, options: RequestInit) => {
+   if (url.endsWith("/caption-ocr")) return ok({available: false, method: "tesseract-fast-block-v1", token: null, engine_version: null, assets_commit: "f".repeat(40), message: "OCR unavailable; manual entry remains available."});
    if (url.endsWith("/review")) { expect(JSON.parse(options.body as string)).toEqual({expected_revision: 1, token: result.token, choice: "anton-regular", expected_font_hash: font.sha256}); return ok({choice: "anton-regular", font}); }
    if (options.method === "POST") { expect(JSON.parse(options.body as string).text).toBe(selection.text); return ok(result); }
    return ok({revision: 0, status: "empty", selection: null});
  });
  vi.stubGlobal("fetch", fetcher);
  render(<FontMatching projectId="one" frame={frame} rectangle={initialRectangle} onRectangle={rectangle} onInspectTime={inspect} onChoose={choose} disabled={false} />);
- await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(1));
+ await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(2));
  fireEvent.change(screen.getByLabelText("Exact visible caption text"), {target: {value: selection.text}});
  await waitFor(() => expect(screen.getByRole("button", {name: "Find similar fonts"})).toBeEnabled());
  fireEvent.click(screen.getByRole("button", {name: "Find similar fonts"}));

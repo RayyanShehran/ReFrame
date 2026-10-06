@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import { ReferenceOcr } from "./reference-ocr";
 import { AppearanceSuggestions, selectionKey, type AppearancePatch } from "./caption-appearance-suggestions";
 import { useEffect, useRef, useState } from "react";
 import { fontChoice, fontLabel, validFont, type CaptionStyle, type FontBinding, type FontChoice } from "./caption-style-controls";
@@ -89,9 +90,10 @@ export function RegionSelection({ frame, rectangle, onChange, disabled }: { fram
 
 export function FontMatching({ projectId, frame, rectangle, onRectangle, onInspectTime, onChoose, onBusy, disabled, draftStyle, onAppearance }: { projectId: string; frame: MatchFrame | null; rectangle: Rectangle; onRectangle: (r: Rectangle) => void; onInspectTime: (seconds: number) => void; onChoose: (choice: FontChoice) => void; onBusy?: (busy: boolean) => void; disabled: boolean; draftStyle?: CaptionStyle; onAppearance?: (patch: AppearancePatch) => void }) {
   const [appearanceBusy, setAppearanceBusy] = useState(false);
+  const [ocrBusy, setOcrBusy] = useState(false);
   const [saved, setSaved] = useState<Saved | null>(null), [result, setResult] = useState<Ranked | null>(null);
   const [text, setText] = useState(""), [polarity, setPolarity] = useState<"light" | "dark">("light"), [matchingBusy, setBusy] = useState(false), [error, setError] = useState("");
-  const busy = matchingBusy || appearanceBusy;
+  const busy = matchingBusy || appearanceBusy || ocrBusy;
   const action = useRef<AbortController | null>(null), generation = useRef(0);
   const rectangleCallback = useRef(onRectangle);
   useEffect(() => { rectangleCallback.current = onRectangle; }, [onRectangle]);
@@ -121,12 +123,13 @@ export function FontMatching({ projectId, frame, rectangle, onRectangle, onInspe
     finally { clearTimeout(timer); if (action.current === controller) action.current = null; setBusy(false); }
   }
   return <section className="caption-cue" aria-label="Assisted font matching"><h4>Find similar caption fonts</h4>
-    <p className="hint" id="caption-region-help">Draw a tight rectangle around one caption with touch or a pointer; use the move and resize handles to adjust it. Select one caption in the reference frame above. Arrow keys move it; Shift + arrows resize it. Numeric coordinates are percentages of the decoded frame, independent of display size. Confirm the exact visible text; no OCR is used.</p>
+    <p className="hint" id="caption-region-help">Draw a tight rectangle around one caption with touch or a pointer; use the move and resize handles to adjust it. Select one caption in the reference frame above. Arrow keys move it; Shift + arrows resize it. Numeric coordinates are percentages of the decoded frame, independent of display size. Confirm the exact visible text manually or review an explicit local OCR proposal.</p>
     {saved?.selection && <p>Saved selection · Source {saved.selection.timestamp_seconds.toFixed(3)}s · Revision {saved.revision}{saved.status === "stale" && " · Outdated source or font assets"} <button disabled={busy || disabled} onClick={() => onInspectTime(saved.selection!.requested_timestamp_seconds)}>Inspect saved selection frame</button></p>}
     {!frame && <p>Inspect a current retained reference frame before comparing.</p>}
     <fieldset disabled={busy || disabled}><legend>Caption region and confirmed text</legend>
       <div className="font-region-numbers">{(["x", "y", "width", "height"] as const).map(k => <label key={k}>Region {k} (%)<input type="number" inputMode="decimal" aria-invalid={!validRectangle(rectangle)} aria-describedby={!validRectangle(rectangle) ? "caption-region-error" : "caption-region-help"} aria-label={`Region ${k} (%)`} min={k === "width" || k === "height" ? .1 : 0} max="100" step=".1" value={Number((rectangle[k] * 100).toFixed(3))} onChange={e => { const value = e.target.valueAsNumber / 100; if (finite(value)) onRectangle({ ...rectangle, [k]: value }); }} /></label>)}</div>
       {!validRectangle(rectangle) && <p role="alert" id="caption-region-error">Keep a nonempty rectangle inside the frame.</p>}
+      <ReferenceOcr key={projectId} projectId={projectId} frame={frame} rectangle={rectangle} polarity={polarity} disabled={disabled || matchingBusy || appearanceBusy} onApply={setText} onBusy={setOcrBusy} />
       <label>Exact visible caption text<textarea aria-label="Exact visible caption text" dir="auto" rows={2} value={text} onChange={e => setText(e.target.value)} /></label>
       <p>{Array.from(text).length}/80 characters · At least four letters/numbers, at most two lines. Case, punctuation and line breaks are preserved.</p>
       <label>Reference text polarity<select value={polarity} onChange={e => setPolarity(e.target.value as "light" | "dark")}><option value="light">Light text on darker background</option><option value="dark">Dark text on lighter background</option></select></label>
