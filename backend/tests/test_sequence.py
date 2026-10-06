@@ -172,10 +172,25 @@ def test_real_multisource_order_reuse_silence_and_outdated(local):
         for s, c, start in zip(saved_sequence["slots"], (first, second, first), (60, 30, 0))
     ]
     assert client.post(url, json={"expected_revision": 1, "slots": slots}).status_code == 200
+    caption = client.post(
+        f"/api/projects/{pid}/captions",
+        json={
+            "expected_revision": 0,
+            "mode": "sequence",
+            "expected_sequence_revision": 2,
+            "enabled": True,
+            "cues": [{"start": 1.1, "end": 1.9, "text": "Assembled caption"}],
+        },
+    )
+    assert caption.status_code == 200, caption.text
     revision = selected(client, recipe_url, {"brightness": 0, "contrast": 1, "saturation": 1})
     response = client.post(
         f"/api/projects/{pid}/render",
-        json={"expected_revision": revision, "expected_sequence_revision": 2},
+        json={
+            "expected_revision": revision,
+            "expected_sequence_revision": 2,
+            "expected_caption_revision": 1,
+        },
     )
     assert response.status_code == 202, response.text
     operation = finish(client, f"/api/projects/{pid}/render")
@@ -189,6 +204,31 @@ def test_real_multisource_order_reuse_silence_and_outdated(local):
     channels = [tuple(sum(frame[c::3]) / 256 for c in range(3)) for frame in frames]
     assert channels[0][1] > 200 and channels[2][0] > 200
     assert channels[1][2] > max(channels[1][:2]) + 70
+    full = subprocess.run(
+        [
+            shutil.which("ffmpeg"),
+            "-v",
+            "error",
+            "-i",
+            str(path),
+            "-vf",
+            "fps=1",
+            "-pix_fmt",
+            "rgb24",
+            "-f",
+            "rawvideo",
+            "-",
+        ],
+        check=True,
+        capture_output=True,
+        timeout=15,
+    ).stdout
+    frame_size = output.width * output.height * 3
+    white = []
+    for frame in (full[i : i + frame_size] for i in range(0, len(full), frame_size)):
+        white.append(sum(min(frame[i : i + 3]) > 160 for i in range(0, len(frame), 3)))
+    assert white[0] == 0 and white[1] > 20 and white[2] == 0
+
     pcm = subprocess.run(
         [
             shutil.which("ffmpeg"),

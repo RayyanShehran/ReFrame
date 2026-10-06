@@ -2,9 +2,11 @@
 
 **Local video MVP.** Single-user, loopback-only Windows editing/export; image mode is not implemented. [Release checklist, smoke evidence and remaining limits](docs/LOCAL_VIDEO_RELEASE.md).
 
-ReFrame takes a TikTok link as the reference edit and a separately uploaded user-owned clip as footage. Saved projects retain one validated user clip, a fixed reference metadata snapshot and, on request, experimental reference media. Offline color comparisons, estimated pacing, editable color recipes, cut plans and saved audio choices and reviewed captions with manual entrance/exit animations drive local video rendering, playback and download. See [TikTok reference feasibility](docs/TIKTOK_REFERENCE_FEASIBILITY.md) for live evidence and limitations.
+ReFrame takes a TikTok link as the reference edit and separately uploaded user-owned footage. Saved projects retain up to 10 validated clips, a fixed reference metadata snapshot and, on request, experimental reference media. Offline color comparisons, estimated pacing, editable color recipes, legacy cut plans, editable multi-clip sequences and saved audio choices and reviewed captions with manual entrance/exit animations drive local video rendering, playback and download. See [TikTok reference feasibility](docs/TIKTOK_REFERENCE_FEASIBILITY.md) for live evidence and limitations.
 
 Saved captions support None, Fade, Pop and Slide up. Save changes, explicitly **Preview caption motion**, then render the full video. The real silent preview uses saved footage/color/framing/font settings; use the separate assisted comparison below to estimate supported reference motion. See [caption animation and preview limits](docs/CAPTION_ANIMATION.md).
+
+Manual assembly: upload/rename clips in **Footage**, create reference-paced slots in **Style & cuts**, assign clips and trim ranges, Save sequence, then choose **Multi-clip sequence** in Export. The project recipe applies uniformly. [Limits, API and verification](docs/MULTI_CLIP_SEQUENCE.md).
 
 ## Prerequisites
 

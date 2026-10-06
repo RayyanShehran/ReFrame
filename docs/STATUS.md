@@ -1,5 +1,7 @@
 # Implementation status
 
+Current scope includes Milestone 28 manual multi-clip assembly; earlier sections record historical milestone boundaries. [Current method and limits](MULTI_CLIP_SEQUENCE.md).
+
 ## Milestone 1: development foundation
 
 The responsive Next.js shell and FastAPI health endpoint remain in place. Frontend and backend foundation checks run in CI.
@@ -363,3 +365,14 @@ One disposable release smoke session verified launcher startup → create/upload
 Affected Windows launcher tests/Ruff passed; full exact-final-commit CI and fresh local/origin equality are reported at handoff. Physical phones/public deployment and universal TikTok/font/effect recreation remain unverified or outside scope. Experimental retrieval and approximate matching/color/pacing retain their documented limits.
 
 **Milestone 27: 100% implemented and verified, subject to final CI and architect acceptance. Defined single-user local video MVP: 100% when the recorded release criteria and final CI pass. Image mode: 0%. Stop after Milestone 27.**
+
+
+## Milestone 28: multiple footage clips and editable reference-shot slots
+
+The clip library retains stable IDs, hashes and validated metadata with explicit rename/removal, 10-clip / 500 MiB project bounds and the existing 100 MiB per-file limit. Additive schema 17 preserves original-clip projects and whole/legacy-cut output. Manual reference-paced slots support assignment/reuse, range/duration edits, add/remove/reorder, revisioned Save/refresh restoration, native source playback/range previews and numeric/touch trimming. Saved assignments protect their sources from deletion.
+
+Multi-clip export uses the existing shared owned worker, normalization/framing, uniform project color recipe, continuous reference audio or ranged original audio with silence for silent clips, final-canvas captions/animation, bounded staging and atomic replacement. Saved timing/source revisions invalidate caption/transcription bindings without deleting text. Previous output stays playable on failure/outdating. No automatic clip selection, models or TikTok requests were added.
+
+Windows focused checks verified migration, streamed/count/concurrent upload bounds, ranges/revisions/hash invalidation, assigned removal, stale publication and a real 320 × 180 / 3.000-second / 90-frame green → blue → red assembly with source reuse. Captions appeared only in their selected interval; audio RMS was approximately 2046 / 0 / 2044 across tone/silent/tone sections. One isolated browser session uploaded two additional fixtures (different dimensions; one silent), created/assigned/trimmed/saved slots, rendered, played, downloaded and refreshed. Phone 390 × 844 stacked the editor without horizontal overflow and retained drafts between slots; desktop 1280 × 900 restored the same sequence/output. No physical-phone claim. [Evidence and remaining limitations](MULTI_CLIP_SEQUENCE.md).
+
+**Milestone 28: 100% implemented and locally verified, subject to exact-final-commit CI and architect acceptance. Expanded video baseline: 80%, pending architect reassessment. AI assembly: 0%; image mode: 0%. Stop after Milestone 28.**
