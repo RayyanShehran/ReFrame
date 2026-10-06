@@ -28,6 +28,7 @@ import framing
 import pacing_analysis
 import projects
 import reference_jobs
+import reference_motion
 import transcription
 import video_render
 from clips import ClipDetails, cleanup_stale_files, inspect_clip
@@ -362,6 +363,23 @@ async def suggest_caption_appearance(project_id: str, request: caption_appearanc
 async def apply_caption_appearance(project_id: str, request: caption_appearance.Apply):
     async with projects.operation_lock:
         return await projects.storage_call(caption_appearance.apply, project_id, request)
+
+
+@app.get("/api/projects/{project_id}/reference-motion")
+async def read_reference_motion(project_id: str):
+    async with projects.operation_lock:
+        return await projects.storage_call(reference_motion.read, project_id)
+
+
+@app.post("/api/projects/{project_id}/reference-motion")
+async def analyze_reference_motion(project_id: str, request: reference_motion.Request):
+    return await saved_still(project_id, request, reference_motion.analyze)
+
+
+@app.post("/api/projects/{project_id}/reference-motion/apply")
+async def apply_reference_motion(project_id: str, request: reference_motion.Apply):
+    async with projects.operation_lock:
+        return await projects.storage_call(reference_motion.apply, project_id, request)
 
 
 @app.get("/api/projects/{project_id}/font-match")
