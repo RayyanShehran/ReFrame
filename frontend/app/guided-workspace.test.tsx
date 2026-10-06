@@ -77,3 +77,19 @@ it("resets section, draft and running status when switching project identity", a
   expect(await screen.findByRole("slider", { name: /Brightness offset/ })).toHaveValue("0.1");
   expect(screen.getByRole("button", { name: "Save recipe" })).toBeDisabled();
 });
+
+it("uses the compact section picker without remounting drafts and focuses the selected heading", async () => {
+ vi.stubGlobal("fetch", vi.fn(async (url: string) => ({ok: true, json: async () => url.endsWith("/color-recipe") ? saved : idle} as Response)));
+ render(<GuidedWorkspace hasFootage><SourceStatus /><ColorRecipe projectId="one" analysesReady /></GuidedWorkspace>);
+ const picker = screen.getByLabelText("Editing section");
+ fireEvent.change(picker, {target: {value: "style"}});
+ const slider = await screen.findByRole("slider", {name: /Brightness offset/});
+ fireEvent.change(slider, {target: {value: "-.15"}});
+ fireEvent.change(picker, {target: {value: "audio"}});
+ await waitFor(() => expect(screen.getByRole("heading", {name: "Audio & captions"})).toHaveFocus());
+ fireEvent.change(picker, {target: {value: "style"}});
+ expect(slider).toHaveValue("-0.15");
+ expect(screen.getByRole("button", {name: "Save recipe"})).toBeEnabled();
+ expect(picker).toHaveValue("style");
+ expect(screen.getByRole("option", {name: "Audio & captions · Ready"})).toBeInTheDocument();
+});

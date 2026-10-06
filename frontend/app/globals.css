@@ -71,7 +71,7 @@ footer { color: #8ea095; margin-top: auto; padding-top: 80px; font-size: .78rem;
 .guided-workspace { max-width: 960px; min-width: 0; }
 .workspace-guidance { padding: 18px; border: 1px solid #475569; border-radius: 12px; }
 .workspace-guidance > p:first-child { margin-top: 0; font-weight: 700; }
-.workspace-nav { position: sticky; top: 0; z-index: 10; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; background: #10151c; padding: 12px 0; }
+.workspace-nav { position: sticky; top: 0; z-index: 10; background: #10151c; padding: 12px 0; }
 .workspace-nav button { border-radius: 8px; min-width: 0; white-space: normal; }
 .workspace-nav button[aria-current] { border-color: #84ccbe; background: #243c39; }
 .workspace-nav small { display: block; font-size: .72rem; margin-top: 4px; font-weight: 400; }
@@ -84,7 +84,7 @@ summary { cursor: pointer; font-weight: 600; padding: 8px 0; }
 summary:focus-visible { outline: 2px solid #84ccbe; outline-offset: 4px; }
 .hero { padding-top: 38px; padding-bottom: 38px; }
 .hero h1 { font-size: clamp(2.4rem, 5vw, 4rem); }
-@media (max-width: 600px) { .workspace-nav { grid-template-columns: repeat(2, minmax(0, 1fr)); } .workspace-nav button:last-child { grid-column: 1 / -1; } .guided-workspace h2 { scroll-margin-top: 190px; } .reference-form-row { flex-wrap: wrap; } }
+
 
 .frame-preview-images { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: start; }
 .frame-preview-images figure { margin: 0; min-width: 0; }
@@ -100,3 +100,38 @@ summary:focus-visible { outline: 2px solid #84ccbe; outline-offset: 4px; }
 .font-candidates figure { margin: 0; min-width: 0; }
 .font-candidates img, .font-crop { width: 100%; height: auto; max-height: 160px; object-fit: contain; }
 .font-candidates img { background: #000; }
+
+/* One mounted workspace at every size; mobile navigation uses native selection. */
+.workspace-section-buttons { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
+.workspace-section-picker { display: none; }
+.shell, .reference-section, .reference-form-row > *, .recipe-controls > * { min-width: 0; }
+.guided-workspace { width: 100%; }
+p, li, label, legend, summary, figcaption, h2, h3, h4, button, td, th { overflow-wrap: anywhere; }
+button, input, select, textarea { font: inherit; max-width: 100%; }
+button, select, input:not([type="checkbox"]):not([type="radio"]), summary { min-height: 44px; }
+button { white-space: normal; }
+.reference-form-row button { white-space: normal; }
+input[type="number"], input[type="file"], select { min-width: 0; }
+input[type="file"] { width: 100%; }
+input[type="file"]::file-selector-button { min-height: 44px; font: inherit; max-width: 100%; }
+input[type="checkbox"], input[type="radio"] { width: 22px; height: 22px; flex: none; accent-color: #c9eb79; }
+label:has(input[type="checkbox"]), label:has(input[type="radio"]) { display: flex; align-items: center; gap: 10px; min-height: 44px; }
+input[type="range"] { min-width: 0; width: 100%; cursor: pointer; }
+input:focus-visible, select:focus-visible, textarea:focus-visible, a:focus-visible, h2:focus-visible { outline: 3px solid #c9eb79; outline-offset: 3px; }
+.guided-workspace :is(input, select, textarea, button, summary, a) { scroll-margin-block: 120px 24px; }
+.download-link { display: inline-flex; align-items: center; min-height: 44px; }
+.font-candidates figcaption, .frame-preview-images figcaption { overflow-wrap: anywhere; }
+@media (max-width: 600px) {
+  .shell { padding: 18px 12px 28px; }
+  .reference-card, .workspace-guidance { padding: 12px; }
+  .recipe-controls, .caption-cue { padding: .65rem; }
+  .workspace-nav { position: static; padding: 12px 0; }
+  .workspace-section-buttons { display: none; }
+  .workspace-section-picker { display: grid; gap: 6px; font-weight: 700; }
+  .workspace-section-picker select { width: 100%; padding: 10px; background: #1a231e; color: #f0eee7; border: 1px solid #718474; border-radius: 8px; }
+  .guided-workspace h2, .guided-workspace :is(input, select, textarea, button, summary, a) { scroll-margin-block: 16px; }
+  input, select, textarea { font-size: 16px; }
+  .color-comparison :is(th, td), .cut-table :is(th, td) { padding: .4rem; }
+  .palette { gap: .4rem; }
+  .palette-swatch { width: 3rem; height: 2rem; }
+}
