@@ -15,34 +15,58 @@ Dependency versions are pinned in `frontend/package-lock.json` and `backend/uv.l
 
 ## Setup in PowerShell
 
+Install the prerequisites above once. In PowerShell:
+
 ```powershell
 cd C:\Projects\Reframe
-Copy-Item frontend\.env.example frontend\.env.local
+# Keep an existing configuration file; create the default only if missing.
+if (-not (Test-Path frontend\.env.local)) {
+    Copy-Item frontend\.env.example frontend\.env.local
+}
 cd frontend
 npm ci
 cd ..\backend
 uv sync --locked
+cd ..
 ```
 
-`frontend/.env.local` sets `NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000` by default. This address is public browser configuration; never put a secret in a `NEXT_PUBLIC_` variable. `backend/.env.example` documents `REFRAME_ALLOWED_ORIGINS`; set it in the backend PowerShell window if changing origins. The defaults permit `http://localhost:3000` and `http://127.0.0.1:3000`.
+No optional recognition dependencies/assets are needed for basic editing. The launcher uses installed dependencies directly; it does not run installation, model setup or downloads. FFmpeg/FFprobe must be on `PATH` in this window. If Node/uv were just installed, reopen PowerShell. `frontend/.env.local` is public browser configuration; never put secrets in `NEXT_PUBLIC_` variables.
 
-## Run
-
-In one PowerShell window:
+## Start and stop (Windows)
 
 ```powershell
+cd C:\Projects\Reframe
+.\Start-ReFrame.ps1 -Check   # Dependencies and ports only; no servers started
+.\Start-ReFrame.ps1         # Start both local servers
+```
+
+Open <http://127.0.0.1:3000> after Next.js reports ready. Keep this PowerShell window open. **Ctrl+C** stops the launcher's owned servers; it does not stop another app occupying a port or delete saved projects. Server errors remain visible in this window. Startup failures stop the other owned server too. Shutdown gives servers up to ten seconds to exit, then terminates their owned trees; an interrupted backend operation is handled by existing restart recovery. Avoid closing the window while an export is running.
+
+The launcher fixes frontend/API ports to **3000/8000**, binds to **127.0.0.1**, and sets matching child-process API/CORS values. Port conflicts fail with guidance; stop the conflicting app yourself. It runs no backend reload process and requires no global uv at launch time. For an existing production frontend build:
+
+```powershell
+cd frontend
+npm run build
+cd ..
+.\Start-ReFrame.ps1 -Production
+```
+
+If your PowerShell policy blocks the script, use the equivalent Python command (no policy change needed): `backend\.venv\Scripts\python.exe backend\start_local.py`; append `--check` or `--production` as needed.
+
+For custom ports, use two PowerShell windows instead:
+
+```powershell
+# Window 1
 cd C:\Projects\Reframe\backend
-uv run --locked uvicorn main:app --host 127.0.0.1 --port 8000 --reload
-```
-
-In another:
-
-```powershell
+$env:REFRAME_ALLOWED_ORIGINS='http://127.0.0.1:3001'
+uv run --locked uvicorn main:app --host 127.0.0.1 --port 8001
+# Window 2
 cd C:\Projects\Reframe\frontend
-npm run dev
+$env:NEXT_PUBLIC_API_BASE_URL='http://127.0.0.1:8001'
+npm run dev -- --port 3001
 ```
 
-Open <http://127.0.0.1:3000>. To change ports, pass another `--port` to uvicorn or `npm run dev -- --port 3001`, update `NEXT_PUBLIC_API_BASE_URL`, and set `REFRAME_ALLOWED_ORIGINS` in the backend shell to include the frontend origin (for example `$env:REFRAME_ALLOWED_ORIGINS='http://127.0.0.1:3001'`). Restart both applications after changing environment values.
+Use Ctrl+C in each window to stop. If using a production build with custom API settings, set `NEXT_PUBLIC_API_BASE_URL` before building; Next.js embeds public values at build time. Default allowed origins are localhost/127.0.0.1:3000. This is a local single-user app, not a public deployment; responsive phone layouts do not expose it to your phone over the network.
 
 Paste a full HTTPS TikTok video URL such as `https://www.tiktok.com/@scout2015/video/6718335390845095173`, select **Check reference**, then **Use this reference**. The app shows public title and creator metadata from TikTok's [oEmbed API](https://developers.tiktok.com/docs/en/embed-videos). Bare `tiktok.com` and `m.tiktok.com` video links are normalized to `www.tiktok.com`; tracking parameters are removed. Short links are not supported. An unsaved reference selection lives in browser memory. Create a named project to save its metadata snapshot; the project ID in the browser URL restores it after refresh. Metadata availability depends on TikTok and does not imply permission to reuse media.
 
