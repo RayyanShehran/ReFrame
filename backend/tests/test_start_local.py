@@ -23,6 +23,8 @@ def prerequisites(tmp_path, monkeypatch):
 
 def test_missing_dependencies_and_occupied_port_are_actionable(tmp_path, monkeypatch):
     prerequisites(tmp_path, monkeypatch)
+    with pytest.raises(RuntimeError, match="Production build is missing"):
+        launcher.check(tmp_path, production=True)
     monkeypatch.setattr(launcher.shutil, "which", lambda name: None)
     with pytest.raises(RuntimeError, match="Node.js 22"):
         launcher.check(tmp_path)
@@ -55,9 +57,10 @@ def test_owned_launch_uses_directory_and_stop_does_not_touch_other_process(tmp_p
             assert marker.read_text() == str(tmp_path)
             assert os.getcwd() == previous
             launcher.stop([owned])
+            owned = None
             assert not launcher.engine.parent_exited(unrelated)
         finally:
             # Stop every owned helper even after an assertion failure.
-            if os.name != "nt" or owned.handle is not None:
+            if owned is not None:
                 launcher.stop([owned])
             launcher.stop([unrelated])

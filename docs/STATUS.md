@@ -352,3 +352,14 @@ Explicit sequential preparation reuses required retrieval/color results and opti
 Focused local verification: coordinator, optional-feature/guidance and draft-preserving integration tests; two backend capability tests/Ruff; affected frontend ESLint/typecheck and production build. Final CI runs full frontend/backend/spike gates; exact-final-commit result is reported at handoff. No new queue, model, schema migration, TikTok request, inference or asset download.
 
 **Milestone 26: 100% implemented and verified within the available environment, subject to architect acceptance. Video baseline: 96%, pending architect reassessment. Image mode: 0%. Stop after Milestone 26.**
+
+
+## Milestone 27: local video MVP release readiness
+
+Milestone 26 is accepted; incoming video estimate **98%**, image mode **0%**. A simple Windows launcher now checks prerequisites/build/port conflicts, starts the existing loopback servers in their correct directories, and stops only owned trees using existing containment. It never syncs dependencies or downloads optional recognition assets. README setup/start/stop/custom-port/storage/optional-extra instructions match the actual configuration; obsolete schema/no-serving statements were corrected. No UI redesign, matching expansion or new media feature.
+
+One disposable release smoke session verified launcher startup → create/upload → sequential preparation → recipe review/save → basic whole render → native playback/download → phone/desktop refresh/reopen. The downloaded H.264/AAC MP4 is **640 × 360, 6.000 seconds, 739,936 bytes**; saved revision/output restore. One real documented-public-sample oEmbed check returned metadata successfully; media retrieval was a separate labeled local fixture, never presented as live. Accepted M26 combined-export and earlier recognition/matching evidence are reused. No new model inference/download or repeated fixture matrix. Ctrl+C completed API shutdown/owned cleanup and freed both ports. [Short release checklist, exact boundaries and limits](LOCAL_VIDEO_RELEASE.md).
+
+Affected Windows launcher tests/Ruff passed; full exact-final-commit CI and fresh local/origin equality are reported at handoff. Physical phones/public deployment and universal TikTok/font/effect recreation remain unverified or outside scope. Experimental retrieval and approximate matching/color/pacing retain their documented limits.
+
+**Milestone 27: 100% implemented and verified, subject to final CI and architect acceptance. Defined single-user local video MVP: 100% when the recorded release criteria and final CI pass. Image mode: 0%. Stop after Milestone 27.**

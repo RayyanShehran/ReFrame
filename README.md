@@ -1,5 +1,7 @@
 # ReFrame
 
+**Local video MVP.** Single-user, loopback-only Windows editing/export; image mode is not implemented. [Release checklist, smoke evidence and remaining limits](docs/LOCAL_VIDEO_RELEASE.md).
+
 ReFrame takes a TikTok link as the reference edit and a separately uploaded user-owned clip as footage. Saved projects retain one validated user clip, a fixed reference metadata snapshot and, on request, experimental reference media. Offline color comparisons, estimated pacing, editable color recipes, cut plans and saved audio choices and reviewed captions with manual entrance/exit animations drive local video rendering, playback and download. See [TikTok reference feasibility](docs/TIKTOK_REFERENCE_FEASIBILITY.md) for live evidence and limitations.
 
 Saved captions support None, Fade, Pop and Slide up. Save changes, explicitly **Preview caption motion**, then render the full video. The real silent preview uses saved footage/color/framing/font settings; use the separate assisted comparison below to estimate supported reference motion. See [caption animation and preview limits](docs/CAPTION_ANIMATION.md).
@@ -46,6 +48,7 @@ The launcher fixes frontend/API ports to **3000/8000**, binds to **127.0.0.1**, 
 
 ```powershell
 cd frontend
+$env:NEXT_PUBLIC_API_BASE_URL='http://127.0.0.1:8000'
 npm run build
 cd ..
 .\Start-ReFrame.ps1 -Production
@@ -80,9 +83,9 @@ Export summarizes saved revisions, recipe strength, audio, captions and framing.
 
 ## Local storage and recovery
 
-Run one backend process bound to `127.0.0.1`. This is a single-user development app with no authentication, suitable only for the local machine. Do not expose it to the network or run multiple workers.
+Run one backend process bound to `127.0.0.1`. This is a single-user local app with no authentication, suitable only for the local machine. Do not expose it to the network or run multiple workers.
 
-- `data/reframe.sqlite3`: project snapshots, clips, reference media, independent analyses, recipes, plans, audio settings, captions and render records. Python's [sqlite3 module](https://docs.python.org/3.12/library/sqlite3.html) uses separate worker-owned connections, parameterized SQL, explicit transactions, foreign keys and schema version 11; startup migrates earlier supported versions while preserving saved projects and results.
+- `data/reframe.sqlite3`: project snapshots, clips, reference media, independent analyses, recipes, plans, audio settings, captions and render records. Python's [sqlite3 module](https://docs.python.org/3.12/library/sqlite3.html) uses separate worker-owned connections, parameterized SQL, explicit transactions, foreign keys and schema version 16; startup migrates earlier supported versions while preserving saved projects and results.
 - `data/project-staging/`: generated names for unfinished project uploads and scoped multipart spools.
 - `data/projects/<UUID>/`: separate generated names for retained user clips and reference media. Original clip filenames are display data. API responses never include filesystem paths.
 - `data/reference-staging/<operation UUID>/`: downloader fragments, media and bounded tool output for the current reference operation.
@@ -220,7 +223,7 @@ uv sync --locked --extra transcription
 uv run --locked --extra transcription python transcribe_local.py setup
 ```
 
-The multilingual base model is pinned to `Systran/faster-whisper-base` revision `ebe41f70d5b6dfa9166e2c581c45c9c0cfc57b66` in ignored `data/transcription-models/`. Ordinary jobs load local files only. Start the API with the optional extra to keep these dependencies installed:
+The multilingual base model is pinned to `Systran/faster-whisper-base` revision `ebe41f70d5b6dfa9166e2c581c45c9c0cfc57b66` in ignored `data/transcription-models/`. Ordinary jobs load local files only. After optional setup, the launcher uses this installed environment directly and keeps the extra dependencies. If using a manual uv launch, include the optional extra to keep them installed:
 
 ```powershell
 uv run --locked --extra transcription uvicorn main:app --host 127.0.0.1 --port 8000 --reload
