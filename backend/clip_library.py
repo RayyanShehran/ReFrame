@@ -212,6 +212,7 @@ def rename(project_id, clip_id, request):
                 "UPDATE footage_clips SET name=? WHERE project_id=? AND id=?",
                 (request.name, project_id, clip_id),
             )
+        db.execute("UPDATE projects SET updated_at=? WHERE id=?", (projects.now(), project_id))
     return read(project_id)
 
 
@@ -229,15 +230,6 @@ def remove(project_id, clip_id):
             raise ReferenceError(
                 409, "clip_assigned", "Remove or replace this clip's saved slot assignments first."
             )
-        if (
-            row["primary"]
-            and db.execute("SELECT 1 FROM edit_plans WHERE project_id=?", (project_id,)).fetchone()
-        ):
-            raise ReferenceError(
-                409,
-                "clip_assigned",
-                "The original clip is used by the legacy cut plan. Keep it or delete the project.",
-            )
         path = projects.media_path(project_id, row["filename"])
         path.unlink(missing_ok=True)
         if row["primary"]:
@@ -247,6 +239,7 @@ def remove(project_id, clip_id):
             db.execute(
                 "DELETE FROM footage_clips WHERE project_id=? AND id=?", (project_id, clip_id)
             )
+        db.execute("UPDATE projects SET updated_at=? WHERE id=?", (projects.now(), project_id))
     return read(project_id)
 
 

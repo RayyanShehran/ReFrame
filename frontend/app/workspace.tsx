@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
+import { ClipLibrary } from "./clip-library";
 import { ClipUpload, parseClipDetails, type ClipDetails } from "./clip-upload";
 import { ReferenceSelection } from "./reference-selection";
 import { GuidedWorkspace, WorkspaceSection } from "./guided-workspace";
@@ -129,7 +130,7 @@ export function Workspace() {
   return <>
     <section className="reference-section" aria-labelledby="projects-title">
       <h2 id="projects-title">Saved projects</h2>
-      <p className="hint">Single-user local storage · Up to 10 projects · One reference and one clip each</p>
+      <p className="hint">Single-user local storage · Up to 10 projects · One reference and up to 10 footage clips each</p>
       <button className="clear-clip" onClick={() => open(null)}>New project</button>
       <ul className="project-list">{projects.map((saved) => <li key={saved.id}>
         <span>{saved.name}{saved.status === "deleting" ? " — deletion incomplete" : ""}</span>
@@ -164,11 +165,11 @@ export function Workspace() {
         <a href={current.reference.canonical_url} target="_blank" rel="noreferrer">Open reference on TikTok</a>
         <p className="hint">Saved metadata snapshot from {current.reference_inspected_at}. The reference is fixed for this project.</p>
       </div></WorkspaceSection>
-      {current.status === "active" && <ProjectColors key={current.id} projectId={current.id} hasFootage={current.clip_status === "ready"} footageDuration={current.clip?.duration_seconds ?? null} />}
+      {current.status === "active" && <ProjectColors key={current.id} projectId={current.id} hasFootage={current.clip_status === "ready"} footageDuration={current.clip?.duration_seconds ?? null} libraryKey={current.updated_at} />}
       <WorkspaceSection section="footage">{current.status === "deleting" ? <p role="alert">Deletion is incomplete. Retry deletion from the project list.</p> :
         current.clip_status === "empty" || current.clip_status === "ready" ?
           <ClipUpload key={`${current.id}-${current.clip_status}`} projectId={current.id} initialDetails={current.clip} onSaved={() => setRevision((value) => value + 1)} /> :
-          <p role="alert">{current.clip_status === "unavailable" ? "Saved media is unavailable or corrupt. Delete this project and create a new one." : "A clip save is incomplete. Reopen after the operation finishes; restart the backend if it was interrupted."}</p>}</WorkspaceSection>
+          <p role="alert">{current.clip_status === "unavailable" ? "Saved media is unavailable or corrupt. Delete this project and create a new one." : "A clip save is incomplete. Reopen after the operation finishes; restart the backend if it was interrupted."}</p>}<ClipLibrary projectId={current.id} sourceKey={current.updated_at} onSaved={() => setRevision(v => v + 1)} /></WorkspaceSection>
       </GuidedWorkspace>
     </section>}
   </>;

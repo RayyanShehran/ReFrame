@@ -3,20 +3,21 @@
 import { useWorkspaceReport } from "./guided-workspace";
 import { useEffect, useRef, useState } from "react";
 import { Application, TranscriptionReview } from "./transcription-review";
+import { emptySequence, type SequenceState } from "./sequence-editor";
 import { PlanState } from "./edit-plan";
 import { defaultStyle, readStyle, validFont, FontPicker, StyleControls, type CaptionStyle, type FontBinding } from "./caption-style-controls";
 import { CaptionAppearancePreview, type AppearanceContext } from "./caption-appearance-preview";
 
 import { AnimationControls, defaultAnimation, readAnimation, type Animation } from "./caption-animation";
 
-type Mode = "whole" | "cuts";
+type Mode = "whole" | "cuts" | "sequence";
 type Cue = { start: number; end: number; text: string };
 type DraftCue = { start: string; end: string; text: string };
 type Style = CaptionStyle;
 type Track = { schema_version: 1; revision: number; enabled: boolean; cues: Cue[]; style: Style; animation: Animation; provenance: "manual" | "srt_import" | "automatic_transcription";
-  font_binding?: FontBinding; automatic_proposal_id?: string | null; timeline: { mode: Mode; plan_revision: number | null; duration_seconds: number } | null };
+  font_binding?: FontBinding; automatic_proposal_id?: string | null; timeline: { mode: Mode; plan_revision: number | null; sequence_revision?: number | null; duration_seconds: number } | null };
 type Result = { status: "default" | "ready" | "stale"; track: Track; message: string | null; whole_duration_seconds: number | null; font_available?: boolean; font_warnings?: string[] };
-export type CaptionState = { revision: number | null; ready: boolean; dirty: boolean; busy: boolean; enabled: boolean; mode: Mode | null; planRevision: number | null };
+export type CaptionState = { revision: number | null; ready: boolean; dirty: boolean; busy: boolean; enabled: boolean; mode: Mode | null; planRevision: number | null; sequenceRevision?: number | null };
 const apiBase = (process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000").replace(/\/$/, "");
 const defaults: Style = defaultStyle;
 const finite = (v: unknown) => typeof v === "number" && Number.isFinite(v) && v >= 0 && v <= 120;
@@ -30,7 +31,7 @@ function parse(data: unknown): Result {
   if (!r || !["default", "ready", "stale"].includes(r.status) || !t || t.schema_version !== 1 ||
     !Number.isSafeInteger(t.revision) || t.revision < 0 || typeof t.enabled !== "boolean" || !validCues(t.cues) ||
     !["manual", "srt_import", "automatic_transcription"].includes(t.provenance) || (t.provenance === "automatic_transcription" && typeof t.automatic_proposal_id !== "string") || !t.style || (t.font_binding && !validFont(t.font_binding)) ||
-    (t.revision > 0 && (!t.timeline || !["whole", "cuts"].includes(t.timeline.mode) || !finite(t.timeline.duration_seconds))) ||
+    (t.revision > 0 && (!t.timeline || !["whole", "cuts", "sequence"].includes(t.timeline.mode) || !finite(t.timeline.duration_seconds))) ||
     (r.whole_duration_seconds !== null && !finite(r.whole_duration_seconds))) throw new Error("Invalid caption response.");
   return { ...r, track: { ...t, style: readStyle(t.style), animation: readAnimation(t.animation) } };
 }
@@ -50,7 +51,7 @@ async function request(projectId: string, signal: AbortSignal, body?: unknown, f
   } finally { clearTimeout(timer); signal.removeEventListener("abort", abort); }
 }
 const drafts = (cues: Cue[]): DraftCue[] => cues.map(c => ({ ...c, start: String(c.start), end: String(c.end) }));
-export function CaptionEditor({ projectId, planState, onState, appearance, sourceKey = "" }: { projectId: string; planState: PlanState; onState: (state: CaptionState) => void; appearance?: AppearanceContext; sourceKey?: string }) {
+export function CaptionEditor({ projectId, planState, sequenceState = emptySequence, onState, appearance, sourceKey = "" }: { projectId: string; planState: PlanState; sequenceState?: SequenceState; onState: (state: CaptionState) => void; appearance?: AppearanceContext; sourceKey?: string }) {
   const [result, setResult] = useState<Result | null>(null);
   const [cues, setCues] = useState<DraftCue[]>([]);
   const [enabled, setEnabled] = useState(false);
@@ -65,7 +66,7 @@ export function CaptionEditor({ projectId, planState, onState, appearance, sourc
   const [matchBusy, setMatchBusy] = useState(false);
   const [preview, setPreview] = useState<Cue[] | null>(null);
   const [confirmation, setConfirmation] = useState<string | null>(null);
-  const confirmationTarget = `${mode}:${mode === "cuts" ? planState.revision : 0}`;
+  const confirmationTarget = `${mode}:${mode === "sequence" ? sequenceState.revision : mode === "cuts" ? planState.revision : 0}`;
   const confirm = confirmation === confirmationTarget;
   function setConfirm(value: boolean) { setConfirmation(value ? confirmationTarget : null); }
   const [busy, setBusy] = useState(false), [error, setError] = useState("");
@@ -78,16 +79,17 @@ export function CaptionEditor({ projectId, planState, onState, appearance, sourc
   const draftDirty = useRef(false), savedRevision = useRef(-1);
   useEffect(() => { draftDirty.current = dirty; savedRevision.current = revision ?? -1; }, [dirty, revision]);
   const boundMode = track?.timeline?.mode ?? null, boundPlan = track?.timeline?.plan_revision ?? null;
-  const ready = !!track && (!track.enabled || (result?.status !== "stale" && (boundMode !== "cuts" || (planState.ready && planState.revision === boundPlan))));
+  const boundSequence = track?.timeline?.sequence_revision ?? null;
+  const ready = !!track && (!track.enabled || (result?.status !== "stale" && (boundMode !== "cuts" || (planState.ready && planState.revision === boundPlan)) && (boundMode !== "sequence" || (sequenceState.ready && sequenceState.revision === boundSequence))));
   const savedEnabled = track?.enabled ?? false;
-  useEffect(() => { onState({ revision, ready, dirty, busy: busy || proposalBusy || fontBusy || matchBusy || motionBusy, enabled: savedEnabled, mode: boundMode, planRevision: boundPlan }); }, [onState, revision, ready, dirty, busy, proposalBusy, fontBusy, matchBusy, motionBusy, savedEnabled, boundMode, boundPlan]);
+  useEffect(() => { onState({ revision, ready, dirty, busy: busy || proposalBusy || fontBusy || matchBusy || motionBusy, enabled: savedEnabled, mode: boundMode, planRevision: boundPlan, sequenceRevision: boundSequence }); }, [onState, revision, ready, dirty, busy, proposalBusy, fontBusy, matchBusy, motionBusy, savedEnabled, boundMode, boundPlan, boundSequence]);
   const disablingAutomatic = provenance === "automatic_transcription" && !enabled && !!track?.revision;
-  const duration = disablingAutomatic ? track?.timeline?.duration_seconds ?? null : mode === "cuts" ? planState.duration ?? null : result?.whole_duration_seconds ?? null;
-  const needsRebind = !disablingAutomatic && !!track?.revision && ((result?.status === "stale" && result.font_available !== false) || mode !== boundMode || (mode === "cuts" && boundPlan !== planState.revision));
+  const duration = disablingAutomatic ? track?.timeline?.duration_seconds ?? null : mode === "sequence" ? sequenceState.duration ?? null : mode === "cuts" ? planState.duration ?? null : result?.whole_duration_seconds ?? null;
+  const needsRebind = !disablingAutomatic && !!track?.revision && ((result?.status === "stale" && result.font_available !== false) || mode !== boundMode || (mode === "cuts" && boundPlan !== planState.revision) || (mode === "sequence" && boundSequence !== sequenceState.revision));
   const invalidIndex = numeric.findIndex((c, i) => !cues[i].start.trim() || !cues[i].end.trim() || !validCues([c]) ||
     (i > 0 && c.start < numeric[i - 1].end) || (duration !== null && c.end > duration));
   const canSave = !!result && invalidIndex < 0 && (!enabled || cues.length > 0) && duration !== null &&
-    (disablingAutomatic || mode !== "cuts" || (planState.ready && !planState.dirty && !planState.busy));
+    (disablingAutomatic || (mode === "sequence" ? sequenceState.ready && !sequenceState.dirty && !sequenceState.busy : mode !== "cuts" || (planState.ready && !planState.dirty && !planState.busy)));
   function restore(value: Result) {
     setResult(value); setCues(drafts(value.track.cues)); setEnabled(value.track.enabled); setStyle(value.track.style); setAnimation(value.track.animation);
     setMode(value.track.timeline?.mode ?? "whole"); setProvenance(value.track.provenance); setAutomaticId(value.track.automatic_proposal_id ?? null); setPreview(null); setConfirmation(null); setError("");
@@ -105,7 +107,7 @@ export function CaptionEditor({ projectId, planState, onState, appearance, sourc
     const controller = new AbortController(); action.current = controller; setBusy(true); setError("");
     try {
       const data = await request(projectId, controller.signal, kind === "save" ? {
-        expected_revision: revision, mode, expected_plan_revision: mode === "cuts" ? planState.revision : null,
+        expected_revision: revision, mode, expected_plan_revision: mode === "cuts" ? planState.revision : null, expected_sequence_revision: mode === "sequence" ? sequenceState.revision : null,
         confirm_rebind: confirm, enabled, style, animation, provenance, cues: numeric,
         ...(provenance === "automatic_transcription" ? { automatic_proposal_id: automaticId } : {}),
       } : undefined, file);
@@ -136,8 +138,8 @@ export function CaptionEditor({ projectId, planState, onState, appearance, sourc
       <fieldset className="recipe-controls" aria-describedby={error ? `caption-save-error-${projectId}` : undefined} disabled={busy || proposalBusy || fontBusy || matchBusy || motionBusy}>
         <legend>Caption track</legend>
         <label><input type="checkbox" checked={enabled} onChange={e => { setEnabled(e.target.checked); setConfirm(false); }} /> Enable captions</label>
-        <label>Caption timeline <select value={mode} onChange={e => { setMode(e.target.value as Mode); setConfirm(false); }}><option value="whole">Whole clip</option><option value="cuts" disabled={!planState.ready}>Saved cut plan</option></select></label>
-        <p>{duration !== null ? `Selected output: ${duration.toFixed(3)} seconds${mode === "cuts" ? ` · Cut plan revision ${planState.revision}` : ""}.` : "Save footage and, for cuts, a valid cut plan first."} Select the matching render mode when captions are enabled.</p>
+        <label>Caption timeline <select value={mode} onChange={e => { setMode(e.target.value as Mode); setConfirm(false); }}><option value="whole">Whole clip</option><option value="cuts" disabled={!planState.ready}>Saved cut plan</option><option value="sequence" disabled={!sequenceState.ready}>Multi-clip sequence</option></select></label>
+        <p>{duration !== null ? `Selected output: ${duration.toFixed(3)} seconds${mode === "sequence" ? ` · Sequence revision ${sequenceState.revision}` : mode === "cuts" ? ` · Cut plan revision ${planState.revision}` : ""}.` : "Save footage and, for cuts, a valid cut plan first."} Select the matching render mode when captions are enabled.</p>
         <FontPicker key={projectId} projectId={projectId} revision={revision ?? 0} value={style.font} dirty={dirty} disabled={busy || proposalBusy} onChange={font => setStyle(v => ({ ...v, font, font_origin: "manual" }))} onUploaded={() => run("reload")} onBusy={setFontBusy} />
         <StyleControls value={style} onChange={setStyle} />
         <AnimationControls value={animation} onChange={setAnimation} />
@@ -154,9 +156,10 @@ export function CaptionEditor({ projectId, planState, onState, appearance, sourc
         {enabled && !cues.length && <p>Add at least one cue before enabling captions.</p>}
         <button disabled={cues.length >= 200} onClick={() => { const start = cues.length ? Number(cues[cues.length - 1].end) : 0; setCues(all => [...all, { start: String(Number.isFinite(start) ? start : 0), end: String(Math.min(duration ?? 120, (Number.isFinite(start) ? start : 0) + 1)), text: "" }]); setConfirm(false); }}>Add cue</button>
         <button disabled={!canSave || (!dirty && !needsRebind)} onClick={() => { if (needsRebind) setConfirm(true); else void run("save"); }}>Save captions</button>
-        {confirm && <div role="group" aria-label="Confirm caption timeline rebind"><p>Rebind to {mode === "cuts" ? `cut plan revision ${planState.revision}` : "the whole clip"}? Text and entered times are preserved and every cue is revalidated. No cue shifts or truncation.</p><button disabled={!canSave} onClick={() => void run("save")}>Confirm rebind and save</button><button onClick={() => setConfirm(false)}>Cancel rebind</button></div>}
+        {confirm && <div role="group" aria-label="Confirm caption timeline rebind"><p>Rebind to {mode === "sequence" ? `sequence revision ${sequenceState.revision}` : mode === "cuts" ? `cut plan revision ${planState.revision}` : "the whole clip"}? Text and entered times are preserved and every cue is revalidated. No cue shifts or truncation.</p><button disabled={!canSave} onClick={() => void run("save")}>Confirm rebind and save</button><button onClick={() => setConfirm(false)}>Cancel rebind</button></div>}
       </fieldset>
-      {appearance && track && <CaptionAppearancePreview sourceKey={sourceKey} key={`appearance-${projectId}`} projectId={projectId} track={track} ready={ready} dirty={dirty} disabled={busy || proposalBusy || fontBusy || matchBusy || motionBusy} onMotionBusy={setMotionBusy} context={appearance} plan={planState} onFontChoice={font => setStyle(v => ({ ...v, font, font_origin: "assisted" }))} onMatchBusy={setMatchBusy} draftStyle={style} onAppearance={patch => setStyle(v => ({ ...v, ...patch }))} onAnimation={patch => setAnimation(v => readAnimation({ ...v, ...patch }))} />}
+      {track?.timeline?.mode === "sequence" && <p className="hint">Render the sequence to inspect captions and animation on its final canvas. Individual caption previews currently use whole-clip or legacy-cut timelines.</p>}
+      {appearance && track && track.timeline?.mode !== "sequence" && <CaptionAppearancePreview sourceKey={sourceKey} key={`appearance-${projectId}`} projectId={projectId} track={track} ready={ready} dirty={dirty} disabled={busy || proposalBusy || fontBusy || matchBusy || motionBusy} onMotionBusy={setMotionBusy} context={appearance} plan={planState} onFontChoice={font => setStyle(v => ({ ...v, font, font_origin: "assisted" }))} onMatchBusy={setMatchBusy} draftStyle={style} onAppearance={patch => setStyle(v => ({ ...v, ...patch }))} onAnimation={patch => setAnimation(v => readAnimation({ ...v, ...patch }))} />}
     </>}
     <button disabled={busy || proposalBusy || fontBusy || matchBusy || motionBusy} onClick={() => void run("reload")}>{dirty ? "Discard caption changes and reload" : "Reload saved captions"}</button>
     {busy && <p role="status">Saving, importing or loading captions…</p>}

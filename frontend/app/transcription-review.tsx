@@ -5,7 +5,7 @@ import { MediaOperation, useMediaOperation } from "./use-media-operation";
 
 type Cue = { start: number; end: number; text: string };
 type Draft = { start: string; end: string; text: string };
-type Timeline = { mode: "whole" | "cuts"; plan_revision: number | null; duration_seconds: number };
+type Timeline = { mode: "whole" | "cuts" | "sequence"; plan_revision: number | null; sequence_revision?: number | null; duration_seconds: number };
 export type Application = { cues: Cue[]; timeline: Timeline; automatic_proposal_id: string; provenance: "automatic_transcription" };
 type Operation = MediaOperation & { operation_id: string | null; stale: boolean; proposal: null | {
   cues: Cue[]; requested_language: "auto" | "en" | "ar"; detected_language: string;
@@ -22,7 +22,7 @@ function parse(data: unknown): Operation {
   if (!r || !["idle", "running", "ready", "failed"].includes(r.status) || typeof r.stale !== "boolean" ||
     (r.operation_id !== null && typeof r.operation_id !== "string") ||
     (p && (!p.binding?.timeline || !finite(p.binding.timeline.duration_seconds) || p.binding.timeline.duration_seconds <= 0 ||
-      !["whole", "cuts"].includes(p.binding.timeline.mode) || !valid(p.cues, p.binding.timeline.duration_seconds) ||
+      !["whole", "cuts", "sequence"].includes(p.binding.timeline.mode) || !valid(p.cues, p.binding.timeline.duration_seconds) ||
       !["auto", "en", "ar"].includes(p.requested_language) || typeof p.detected_language !== "string" || typeof p.model_revision !== "string"))) {
     throw new Error("Invalid transcription response.");
   }

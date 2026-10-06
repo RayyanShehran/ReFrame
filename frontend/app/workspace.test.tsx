@@ -2,6 +2,9 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, expect, it, vi } from "vitest";
 import { Workspace } from "./workspace";
 
+vi.mock("./sequence-editor", () => ({ SequenceEditor: () => null, emptySequence: { revision: null, ready: false, dirty: false, busy: false } }));
+vi.mock("./clip-library", () => ({ ClipLibrary: () => null }));
+
 const reference = { provider: "tiktok", video_id: "123", canonical_url: "https://www.tiktok.com/@a/video/123", title: "Reference", author_name: "A", metadata_status: "available", analysis_status: "not_started" };
 const clip = { filename: "saved.mp4", size_bytes: 10, duration_seconds: 1, width: 32, height: 24, video_codec: "mpeg4", has_audio: false, audio_codec: null, frame_rate: 10, validation_status: "accepted", storage_status: "retained" };
 const first = { id: "11111111-1111-4111-8111-111111111111", name: "First", created_at: "2026-09-30T00:00:00+00:00", updated_at: "2026-09-30T00:00:00+00:00", reference, reference_inspected_at: "2026-09-30T00:00:00+00:00", status: "active", clip_status: "empty", clip: null };

@@ -142,3 +142,16 @@ input:focus-visible, select:focus-visible, textarea:focus-visible, a:focus-visib
 .font-region-handle[data-region-handle="resize"] { cursor: nwse-resize; }
 
 .font-region[aria-disabled="true"] { touch-action: auto; cursor: default; }
+
+/* Focused native trim controls: no timeline framework. */
+.sequence-editor { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: 1rem; }
+.sequence-editor > *, .sequence-trim { min-width: 0; }
+.sequence-slots { padding-left: 1.5rem; }
+.sequence-slots li { margin-bottom: .8rem; }
+.sequence-slots button, .sequence-trim button, .clip-library-row button { min-height: 44px; margin: .25rem; }
+.sequence-trim label, .clip-library-row label { display: block; margin: .75rem 0; }
+.sequence-trim input, .sequence-trim select, .clip-library-row input { max-width: 100%; min-height: 44px; }
+.sequence-trim input[type=range] { width: 100%; touch-action: pan-y; }
+.source-range { height: 12px; border-radius: 4px; margin: .75rem 0; }
+.clip-library-row { padding: .75rem 0; border-top: 1px solid #334155; }
+@media (max-width: 700px) { .sequence-editor { grid-template-columns: minmax(0, 1fr); } }

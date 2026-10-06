@@ -16,7 +16,7 @@ export function colorDifferences(reference: Blueprint["color"], footage: Bluepri
     ...reference.rgb_mean.map((value, index) => value - footage.rgb_mean[index])].map(value => value * 100);
 }
 
-export function ProjectColors({ projectId, hasFootage, footageDuration = null }: { projectId: string; hasFootage: boolean; footageDuration?: number | null }) {
+export function ProjectColors({ projectId, hasFootage, footageDuration = null, libraryKey = "" }: { projectId: string; hasFootage: boolean; footageDuration?: number | null; libraryKey?: string }) {
   const [mediaReady, setMediaReady] = useState(false);
   const [reference, setReference] = useState<Blueprint | null>(null);
   const [footage, setFootage] = useState<Blueprint | null>(null);
@@ -27,7 +27,7 @@ export function ProjectColors({ projectId, hasFootage, footageDuration = null }:
   return <Preparation key={projectId} hasFootage={hasFootage}>
     <WorkspaceSection section="reference"><ReferenceMedia projectId={projectId} onReady={setMediaReady} showAnalysis={false} onColorChange={setReference} /></WorkspaceSection>
     <WorkspaceSection section="audio"><OptionalFeatures key={projectId} projectId={projectId} /></WorkspaceSection>
-    <ColorRecipe key={projectId} projectId={projectId} analysesReady={!!ready} sourceKey={`${hasFootage}-${mediaReady}`} footageDuration={footageDuration} />
+    <ColorRecipe key={projectId} projectId={projectId} analysesReady={!!ready} sourceKey={`${hasFootage}-${mediaReady}-${libraryKey}`} footageDuration={footageDuration} />
     <WorkspaceSection section="style">
     {mediaReady && <StyleBlueprint projectId={projectId} onChange={setReference} />}
     {hasFootage && <StyleBlueprint projectId={projectId} footage onChange={setFootage} />}

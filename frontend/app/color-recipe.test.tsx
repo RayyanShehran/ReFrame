@@ -3,6 +3,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { ColorRecipe } from "./color-recipe";
 
 vi.mock("./render-video", () => ({ RenderVideo: () => null }));
+vi.mock("./sequence-editor", () => ({ SequenceEditor: () => null, emptySequence: { revision: null, ready: false, dirty: false, busy: false } }));
 vi.mock("./edit-plan", () => ({ EditPlan: () => null }));
 vi.mock("./audio-choices", () => ({ AudioChoices: () => null }));
 vi.mock("./caption-editor", () => ({ CaptionEditor: () => null }));

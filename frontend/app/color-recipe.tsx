@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { WorkspaceSection, useWorkspaceReport, useWorkspaceNavigation } from "./guided-workspace";
 import { FramePreview } from "./frame-preview";
 import { RenderVideo } from "./render-video";
+import { SequenceEditor, emptySequence, type SequenceState } from "./sequence-editor";
 import { EditPlan, PlanState } from "./edit-plan";
 import { AudioChoices, AudioState } from "./audio-choices";
 import { CaptionEditor, CaptionState } from "./caption-editor";
@@ -59,6 +60,7 @@ export function ColorRecipe({ projectId, analysesReady, footageDuration = null, 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [confirmRegenerate, setConfirmRegenerate] = useState(false);
+  const [sequenceState, setSequenceState] = useState<SequenceState>(emptySequence);
   const [planState, setPlanState] = useState<PlanState>({ revision: null, ready: false, dirty: false, busy: false });
   const [audioState, setAudioState] = useState<AudioState>({ revision: null, ready: false, dirty: false, busy: false });
   const [captionState, setCaptionState] = useState<CaptionState>({ revision: null, ready: false, dirty: false, busy: false, enabled: false, mode: null, planRevision: null });
@@ -136,12 +138,12 @@ export function ColorRecipe({ projectId, analysesReady, footageDuration = null, 
     {busy && <p role="status">Saving or loading recipe…</p>}
     </section>
     <FramePreview key={`preview-${projectId}`} projectId={projectId} duration={footageDuration} revision={recipe?.revision ?? null} recipeReady={result?.status === "ready"} recipeDirty={dirty} recipeBusy={busy} framing={framingState} />
-    <EditPlan key={`plan-${projectId}`} projectId={projectId} recipeReady={result?.status === "ready" && !dirty && !busy} onState={setPlanState} /></WorkspaceSection>
+    <EditPlan key={`plan-${projectId}`} projectId={projectId} recipeReady={result?.status === "ready" && !dirty && !busy} onState={setPlanState} /><SequenceEditor projectId={projectId} onState={setSequenceState} /></WorkspaceSection>
     <WorkspaceSection section="audio">
     <AudioChoices sourceKey={sourceKey} key={`audio-${projectId}`} projectId={projectId} onState={setAudioState} />
-    <CaptionEditor sourceKey={sourceKey} key={`captions-${projectId}`} projectId={projectId} planState={planState} onState={setCaptionState} appearance={{ recipeRevision: recipe?.revision ?? null, recipeReady: result?.status === "ready", recipeDirty: dirty, recipeBusy: busy, framing: framingState }} />
+    <CaptionEditor sourceKey={sourceKey} key={`captions-${projectId}`} projectId={projectId} planState={planState} sequenceState={sequenceState} onState={setCaptionState} appearance={{ recipeRevision: recipe?.revision ?? null, recipeReady: result?.status === "ready", recipeDirty: dirty, recipeBusy: busy, framing: framingState }} />
     </WorkspaceSection><WorkspaceSection section="export">
-    <RenderVideo savedStrength={recipe?.strength} savedValues={recipe?.selected} framingState={framingState} projectId={projectId} revision={recipe?.revision ?? null} recipeReady={result?.status === "ready"} dirty={dirty} busy={busy} planState={planState} audioState={audioState} captionState={captionState} />
+    <RenderVideo savedStrength={recipe?.strength} savedValues={recipe?.selected} framingState={framingState} projectId={projectId} revision={recipe?.revision ?? null} recipeReady={result?.status === "ready"} dirty={dirty} busy={busy} planState={planState} sequenceState={sequenceState} audioState={audioState} captionState={captionState} />
     <FramingControls key={`framing-${projectId}`} projectId={projectId} onState={setFramingState} />
   </WorkspaceSection></>;
 }

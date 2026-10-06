@@ -14,6 +14,12 @@ def test_library_migration_upload_rename_remove_range(local):
     url = f"/api/projects/{pid}/clips"
     first = client.get(url).json()["clips"][0]
     assert first["primary"]
+    with projects.database() as db:
+        for table in ("footage_clips", "clip_names", "sequences"):
+            db.execute(f"DROP TABLE {table}")
+        db.execute("PRAGMA user_version=16")
+    projects.initialize()
+    assert client.get(url).json()["clips"][0]["id"] == first["id"]
     response = client.post(url, files={"file": ("second.mp4", b"second", "video/mp4")})
     assert response.status_code == 200, response.text
     second = response.json()["clips"][1]
@@ -69,3 +75,40 @@ def test_assigned_clip_cannot_be_removed(local):
     assert response.status_code == 409
     assert response.json()["error"]["code"] == "clip_assigned"
     assert clip_library.source(pid, clip.id)[0].exists()
+
+
+def test_concurrent_staged_upload_reserves_project_budget(local, monkeypatch):
+    import asyncio
+    import threading
+
+    import clips
+
+    client, directory, _ = local
+    pid = create(client)["id"]
+    url = f"/api/projects/{pid}/clips"
+    original_probe = clips.probe_file
+    started, release = threading.Event(), threading.Event()
+    responses = []
+
+    async def delayed(*args):
+        started.set()
+        await asyncio.to_thread(release.wait, 5)
+        return await original_probe(*args)
+
+    monkeypatch.setattr(clips, "probe_file", delayed)
+    worker = threading.Thread(
+        target=lambda: responses.append(
+            client.post(url, files={"file": ("first.mp4", b"1234", "video/mp4")})
+        )
+    )
+    worker.start()
+    try:
+        assert started.wait(3)
+        response = client.post(url, files={"file": ("second.mp4", b"1234", "video/mp4")})
+        assert response.status_code == 503
+    finally:
+        release.set()
+        worker.join(6)
+    assert not worker.is_alive() and responses[0].status_code == 200
+    assert len(client.get(url).json()["clips"]) == 1
+    assert not list((directory / "project-staging").iterdir())

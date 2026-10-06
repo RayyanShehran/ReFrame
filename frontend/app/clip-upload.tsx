@@ -103,7 +103,7 @@ export function ClipUpload({ projectId, initialDetails = null, onSaved }: { proj
 
   return <section className="reference-section footage-section" aria-labelledby="footage-title">
     <p className="eyebrow">Your footage</p>
-    <h2 id="footage-title">{projectId ? "Save one clip" : "Inspect one clip"}</h2>
+    <h2 id="footage-title">{projectId ? "Save original clip" : "Inspect one clip"}</h2>
     <p className="reference-help">MP4 or MOV, up to 100 MiB, 120 seconds, and 4096 pixels in either dimension. Audio is optional.</p>
     {!(projectId && details) && <form onSubmit={check}>
       <label htmlFor="clip-file">Video clip</label>
@@ -124,6 +124,6 @@ export function ClipUpload({ projectId, initialDetails = null, onSaved }: { proj
       <p>Audio: {details.has_audio ? details.audio_codec || "Present" : "None"} · Frame rate: {details.frame_rate === null ? "Unknown" : `${details.frame_rate} fps`}</p>
     </div>}
     {file && !(projectId && details) && <button className="clear-clip" type="button" onClick={() => { invalidate(); setFile(null); if (input.current) input.current.value = ""; }}>Clear clip</button>}
-    <p className="hint retention-note">{projectId ? details ? "Your original clip is saved locally; rendering creates a separate output. One clip per project; replacement comes later." : "Choose a clip to validate and save locally for this project. One clip per project; replacement comes later." : "This clip is inspected, then deleted. It is not retained or edited. Upload it again after refresh or when persistent editing becomes available."}</p>
+    <p className="hint retention-note">{projectId ? details ? "Your original clip is saved locally; rendering creates a separate output. Add and manage other clips in the Footage library. This original stays the source for whole-clip output and color measurements." : "Choose a clip to validate and save locally for this project. Add and manage other clips in the Footage library. This original stays the source for whole-clip output and color measurements." : "This clip is inspected, then deleted. It is not retained or edited. Upload it again after refresh or when persistent editing becomes available."}</p>
   </section>;
 }

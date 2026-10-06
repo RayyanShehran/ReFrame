@@ -44,6 +44,13 @@ def test_sequence_ranges_revisions_sources_and_caption_binding(local):
         client.post(url, json={"expected_revision": 1, "slots": slots}).json()["status"] == "ready"
     )
     assert client.post(url, json={"expected_revision": 1, "slots": slots}).status_code == 409
+    assert (
+        client.post(
+            f"/api/projects/{pid}/render",
+            json={"expected_revision": 1, "expected_sequence_revision": 1},
+        ).status_code
+        == 409
+    )
     invalid = [slots[0] | {"source_start_frame": 61}, *slots[1:]]
     assert client.post(url, json={"expected_revision": 2, "slots": invalid}).status_code == 422
     invalid = [slots[0], slots[0], slots[2]]
@@ -215,4 +222,12 @@ def test_real_multisource_order_reuse_silence_and_outdated(local):
     )
     assert client.post(url, json={"expected_revision": 2, "slots": slots[::-1]}).status_code == 200
     assert client.get(f"/api/projects/{pid}/render").json()["outdated"]
+    import threading
+    import time
+
+    with pytest.raises(render.engine.RetrievalFailure, match="Sequence changed"):
+        render.commit(
+            pid, str(output.output_id), path, output, threading.Event(), time.monotonic() + 30
+        )
+    assert path.is_file()
     assert client.get(f"/api/projects/{pid}/outputs/{output.output_id}/video").status_code == 200
