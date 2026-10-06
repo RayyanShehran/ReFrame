@@ -36,6 +36,19 @@ class ClipMultipartParser(MultiPartParser):
     """Keep Starlette spools scoped and detect incomplete multipart bodies."""
 
     complete = False
+    file_bytes = 0
+    file_limit = MAX_FILE
+
+    def on_part_data(self, data, start, end):
+        if self._current_part.file is not None:
+            self.file_bytes += end - start
+            if self.file_bytes > self.file_limit:
+                raise clip_error(
+                    413,
+                    "file_too_large",
+                    "The clip exceeds the 100 MiB file limit or remaining 500 MiB project budget.",
+                )
+        super().on_part_data(data, start, end)
 
     def on_headers_finished(self) -> None:
         super().on_headers_finished()
@@ -231,7 +244,7 @@ async def probe_file(path: Path, extension: str, filename: str, size: int) -> Cl
 
 
 @asynccontextmanager
-async def limited_form(request: Request, directory: Path | None = None):
+async def limited_form(request: Request, directory: Path | None = None, max_file_bytes=MAX_FILE):
     received = 0
     original_receive = request._receive
 
@@ -250,6 +263,7 @@ async def limited_form(request: Request, directory: Path | None = None):
         request.headers, request.stream(), max_files=1, max_fields=0, max_part_size=1024
     )
     parser.storage_dir = directory
+    parser.file_limit = min(MAX_FILE, max_file_bytes)
     request._receive = receive
     try:
         try:
@@ -303,7 +317,7 @@ def sync_file(file):
 
 
 @asynccontextmanager
-async def staged_clip(request: Request, directory: Path | None = None):
+async def staged_clip(request: Request, directory: Path | None = None, max_file_bytes=MAX_FILE):
     if inspection_lock.locked():
         raise clip_error(
             503, "inspection_busy", "A clip is being inspected. Please try again shortly."
@@ -324,7 +338,7 @@ async def staged_clip(request: Request, directory: Path | None = None):
                 raise clip_error(
                     422, "invalid_multipart", "Send exactly one video file in the file field."
                 )
-            async with limited_form(request, directory) as form:
+            async with limited_form(request, directory, max_file_bytes) as form:
                 if len(form) != 1 or not isinstance(form.get("file"), UploadFile):
                     raise clip_error(
                         422, "invalid_multipart", "Send exactly one video file in the file field."
@@ -338,7 +352,7 @@ async def staged_clip(request: Request, directory: Path | None = None):
                 with path.open("xb") as target:
                     while chunk := await file.read(1024 * 1024):
                         size += len(chunk)
-                        if size > MAX_FILE:
+                        if size > min(MAX_FILE, max_file_bytes):
                             raise clip_error(
                                 413, "file_too_large", "The clip must be 100 MiB or smaller."
                             )

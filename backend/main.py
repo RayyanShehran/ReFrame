@@ -17,6 +17,7 @@ import caption_motion
 import caption_ocr
 import caption_preview
 import captions
+import clip_library
 import color_analysis
 import color_recipe
 import edit_plan
@@ -517,3 +518,36 @@ async def play_output(project_id: str, output_id: str):
 @app.get("/api/projects/{project_id}/outputs/{output_id}/download")
 async def download_output(project_id: str, output_id: str):
     return video_render.VideoResponse(project_id, output_id, download=True)
+
+
+@app.get("/api/projects/{project_id}/clips", response_model=clip_library.Library)
+async def list_clips(project_id: str):
+    async with projects.operation_lock:
+        return await projects.storage_call(clip_library.read, project_id)
+
+
+@app.post("/api/projects/{project_id}/clips", response_model=clip_library.Library)
+async def upload_footage(project_id: str, request: Request):
+    return await clip_library.upload(project_id, request)
+
+
+@app.post("/api/projects/{project_id}/clips/{clip_id}", response_model=clip_library.Library)
+async def rename_footage(project_id: str, clip_id: str, request: clip_library.Rename):
+    async with projects.operation_lock:
+        return await projects.storage_call(clip_library.rename, project_id, clip_id, request)
+
+
+@app.delete("/api/projects/{project_id}/clips/{clip_id}", response_model=clip_library.Library)
+async def remove_footage(project_id: str, clip_id: str):
+    if reference_jobs.active or reference_jobs.start_lock.locked():
+        raise ReferenceError(
+            409, "reference_busy", "Wait for the media job before removing footage."
+        )
+    async with reference_jobs.start_lock:
+        async with projects.operation_lock:
+            return await projects.storage_call(clip_library.remove, project_id, clip_id)
+
+
+@app.get("/api/projects/{project_id}/clips/{clip_id}/video")
+async def play_footage(project_id: str, clip_id: str):
+    return clip_library.VideoResponse(project_id, clip_id)
