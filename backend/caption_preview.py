@@ -206,7 +206,9 @@ def snapshot(project_id, request, deadline):
                 409, "captions_stale", "Automatic caption audio changed; regenerate and review."
             )
     return render.Spec(
-        renderer_version=render.STYLE_VERSION,
+        renderer_version=(
+            render.ANIMATION_VERSION if track.animation.mode != "none" else render.STYLE_VERSION
+        ),
         recipe_revision=saved_recipe.revision,
         reference=saved_recipe.reference,
         footage=saved_recipe.footage,

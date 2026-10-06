@@ -140,3 +140,137 @@ def test_real_none_fade_pop_slide_short_cues_and_export_lifetime(local, source):
     assert pop[2] - pop[0] < (full[2] - full[0]) * 0.7
     assert results["slide-up"][0.3][1][1] > full[1] + 15
     assert not list((directory / "render-staging").iterdir())
+
+
+def test_real_motion_preview_crosses_cut_preserves_phase_and_supports_fonts(local, source):
+    import base64
+
+    import font_assets
+    from tests.test_edit_plan import seed_pacing
+    from tests.test_font_assets import upload
+
+    client, directory, _ = local
+    pid = setup(client, directory, source)
+    base = f"/api/projects/{pid}"
+    seed_pacing(pid)
+    assert (
+        client.post(base + "/edit-plan/generate", json={"expected_revision": 0}).status_code == 200
+    )
+    changed = client.post(
+        base + "/edit-plan", json={"expected_revision": 1, "source_starts_seconds": [0, 2, 3]}
+    )
+    assert changed.status_code == 200, changed.text
+    body = {
+        "mode": "cuts",
+        "expected_plan_revision": 2,
+        "enabled": True,
+        "style": {
+            "font": "anton-regular",
+            "placement": "center",
+            "horizontal": 0.5,
+            "vertical": 0.45,
+            "size_percent": 9,
+            "outline_percent": 0.5,
+        },
+        "animation": {"mode": "pop", "entrance_seconds": 0.4, "initial_scale": 0.5},
+        "cues": [{"start": 0.6, "end": 1.5, "text": "Motion"}],
+    }
+    req = {
+        "cue_index": 0,
+        "expected_recipe_revision": 1,
+        "expected_framing_revision": 0,
+        "expected_caption_revision": 1,
+        "expected_plan_revision": 2,
+    }
+    url = base + "/caption-motion-preview"
+    saved = client.post(base + "/captions", json=body | {"expected_revision": 0})
+    assert saved.status_code == 200, saved.text
+    unchanged = client.get(base + "/render").json()
+    response = client.post(url, json=req)
+    assert response.status_code == 200, response.text
+    value = response.json()
+    assert value["silent"] and value["start_frame"] == 12 and value["end_frame"] == 51
+    assert value["decoded_frames"] == 39 and value["duration_seconds"] == 1.3
+    assert client.get(base + "/render").json() == unchanged
+    path = directory / "preview.mp4"
+    path.write_bytes(base64.b64decode(value["video_base64"]))
+    early = ink(frame(path, second=0.2, width=480, height=270))[1]
+    settled = ink(frame(path, second=0.7, width=480, height=270))[1]
+    assert early[2] - early[0] < (settled[2] - settled[0]) * 0.7
+    assert ink(frame(path, second=0, width=480, height=270))[1] is None
+    assert ink(frame(path, second=1.2, width=480, height=270))[1] is None
+    green = frame(path, second=0.5, width=480, height=270)[:3]
+    blue = frame(path, second=0.7, width=480, height=270)[:3]
+    assert green[1] > green[2] + 10 and blue[2] > blue[1] + 25
+    print(
+        "CUT MOTION",
+        value["start_frame"],
+        value["end_frame"],
+        value["decoded_frames"],
+        value["size_bytes"],
+        early,
+        settled,
+        tuple(green),
+        tuple(blue),
+    )
+    assert (
+        upload(client, pid, font_assets.BUNDLED.read_bytes(), caption_revision=1).status_code == 200
+    )
+    body["style"]["font"] = "custom"
+    saved = client.post(base + "/captions", json=body | {"expected_revision": 1})
+    assert saved.status_code == 200, saved.text
+    assert client.post(url, json=req).status_code == 409
+    custom = client.post(url, json=req | {"expected_caption_revision": 2})
+    assert custom.status_code == 200, custom.text
+    assert custom.json()["spec"]["captions"]["font_binding"]["kind"] == "custom"
+    assert not list((directory / "preview-staging").iterdir())
+
+
+def test_motion_bounds_timeout_and_stale_publication(local, source, monkeypatch):
+    import caption_motion as motion
+    import caption_preview
+    import reference_engine as engine
+
+    client, directory, _ = local
+    pid = setup(client, directory, source)
+    base = f"/api/projects/{pid}"
+    body = {
+        "expected_revision": 0,
+        "mode": "whole",
+        "enabled": True,
+        "cues": [{"start": 0.3, "end": 1.8, "text": "Caption"}],
+    }
+    assert client.post(base + "/captions", json=body).status_code == 200
+    req = {
+        "cue_index": 0,
+        "expected_recipe_revision": 1,
+        "expected_framing_revision": 0,
+        "expected_caption_revision": 1,
+    }
+    before = client.get(base + "/captions").json()
+    url = base + "/caption-motion-preview"
+    original = caption_preview.snapshot
+    calls = 0
+
+    def stale(*args):
+        nonlocal calls
+        calls += 1
+        spec = original(*args)
+        return spec.model_copy(update={"recipe_revision": 2}) if calls > 1 else spec
+
+    monkeypatch.setattr(caption_preview, "snapshot", stale)
+    assert client.post(url, json=req).json()["error"]["code"] == "source_changed"
+    monkeypatch.setattr(caption_preview, "snapshot", original)
+    original_tool = motion.preview.tool
+
+    def timeout(*args, **kwargs):
+        raise engine.ProbeTimeout()
+
+    monkeypatch.setattr(motion.preview, "tool", timeout)
+    assert client.post(url, json=req).status_code == 408
+    monkeypatch.setattr(motion.preview, "tool", original_tool)
+    monkeypatch.setattr(motion, "MAX_BYTES", 1)
+    assert client.post(url, json=req).status_code == 413
+    assert before == client.get(base + "/captions").json()
+    assert not list((directory / "preview-staging").iterdir())
+    assert motion.interval(captions.Cue(start=0, end=100, text="Long"), 3000) == (0, 120)
