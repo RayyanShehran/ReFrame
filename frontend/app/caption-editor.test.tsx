@@ -60,7 +60,7 @@ it("previews SRT before replacing, edits, saves and restores plain text", async 
     if (url.endsWith("/import")) { expect(options.body).toBeInstanceOf(File); return ok({ cues: imported }); }
     if (options.method === "POST") {
       const body = JSON.parse(options.body as string);
-      expect(body).toEqual({ expected_revision: 0, mode: "whole", expected_plan_revision: null, confirm_rebind: false, enabled: true, style: initial.track.style, animation: defaultAnimation, provenance: "srt_import", cues: [{ ...imported[0], text: "Edited مرحبا" }] });
+      expect(body).toEqual({ expected_revision: 0, mode: "whole", expected_plan_revision: null, expected_sequence_revision: null, confirm_rebind: false, enabled: true, style: initial.track.style, animation: defaultAnimation, provenance: "srt_import", cues: [{ ...imported[0], text: "Edited مرحبا" }] });
       result = { ...initial, status: "ready", track: { ...initial.track, ...body, revision: 1, timeline: { mode: "whole", plan_revision: null, duration_seconds: 4 } } };
     }
     return ok(result);
