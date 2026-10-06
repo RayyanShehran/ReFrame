@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { MatchFrame, Rectangle } from "./font-matching";
 
 const apiBase = (process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000").replace(/\/$/, "");
@@ -24,7 +24,8 @@ export function ReferenceOcr({projectId, frame, rectangle, polarity, disabled, o
  const current = !!proposal && !!frame && proposal.project_id === projectId && proposal.reference_operation_id === frame.reference_operation_id && proposal.source.media_sha256 === frame.source.media_sha256 && proposal.requested_timestamp_seconds === frame.requested_timestamp_seconds && JSON.stringify(proposal.rectangle) === JSON.stringify(rectangle) && proposal.language === language && proposal.polarity === polarity && proposal.capability_token === capability?.token;
  const validRegion = rectangle.width > 0 && rectangle.height > 0 && rectangle.x >= 0 && rectangle.y >= 0 && rectangle.x + rectangle.width <= 1.000001 && rectangle.y + rectangle.height <= 1.000001;
  useEffect(() => {onBusy(busy); return () => onBusy(false);},[busy,onBusy]);
- useEffect(() => {function cancel(){generation.current++; action.current?.abort();} cancel(); return cancel;},[context]);
+ // Settle context ownership before enabled controls can start a new request.
+ useLayoutEffect(() => {function cancel(){generation.current++; action.current?.abort();} cancel(); return cancel;},[context]);
  useEffect(() => {
   let active = true; const c = new AbortController(), timer = setTimeout(() => c.abort(),10000);
   void fetch(`${apiBase}/api/projects/${encodeURIComponent(projectId)}/caption-ocr`,{signal:c.signal}).then(async response => {const data = await response.json(); if(!response.ok)throw new Error(data?.error?.message || "OCR status could not be loaded. Manual entry remains available.");if(!c.signal.aborted)setCapability(readCapability(data));}).catch(e => {if(active)setError(e instanceof Error && e.name!=="AbortError" ? `${e.message} Reload OCR status after the current job; manual entry remains available.` : "OCR status timed out. Reload OCR status explicitly; manual entry remains available.");}).finally(()=>clearTimeout(timer));
