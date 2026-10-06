@@ -1,5 +1,6 @@
 "use client";
 
+import { Preparation } from "./preparation";
 import { WorkspaceSection } from "./guided-workspace";
 import { PacingBlueprint } from "./pacing-blueprint";
 import { useState } from "react";
@@ -22,7 +23,7 @@ export function ProjectColors({ projectId, hasFootage, footageDuration = null }:
   const names = ["Median encoded brightness", "Contrast spread", "Mean HSV saturation", "Mean red", "Mean green", "Mean blue"];
   const values = (b: Blueprint) => [b.color.brightness_p50, b.color.contrast_spread, b.color.mean_hsv_saturation, ...b.color.rgb_mean];
   const differences = ready ? colorDifferences(reference.color, footage.color) : [];
-  return <>
+  return <Preparation key={projectId} hasFootage={hasFootage}>
     <WorkspaceSection section="reference"><ReferenceMedia projectId={projectId} onReady={setMediaReady} showAnalysis={false} onColorChange={setReference} /></WorkspaceSection>
     <ColorRecipe key={projectId} projectId={projectId} analysesReady={!!ready} footageDuration={footageDuration} />
     <WorkspaceSection section="style">
@@ -43,5 +44,5 @@ export function ProjectColors({ projectId, hasFootage, footageDuration = null }:
     </section>
     {mediaReady && <PacingBlueprint projectId={projectId} />}
     </WorkspaceSection>
-  </>;
+  </Preparation>;
 }

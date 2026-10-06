@@ -1,5 +1,6 @@
 "use client";
 
+import { usePreparationOperation } from "./preparation";
 import { useWorkspaceReport, type Section } from "./guided-workspace";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -55,7 +56,7 @@ export function useMediaOperation<T extends MediaOperation>(projectId: string, r
     return () => { version.current++; action.current?.abort(); };
   }, [projectId, route]);
 
-  async function start(body?: unknown) {
+  const start = useCallback(async (body?: unknown) => {
     if (action.current) return;
     const controller = new AbortController();
     action.current = controller;
@@ -63,13 +64,15 @@ export function useMediaOperation<T extends MediaOperation>(projectId: string, r
     setStarting(true); setError("");
     try {
       const result = await request("POST", controller, body);
-      if (version === generation.current) { setOperation(result); setRevision(value => value + 1); }
+      if (version === generation.current) { setOperation(result); setRevision(value => value + 1); return result; }
     } catch (cause) {
       if (version === generation.current) setError(cause instanceof Error && cause.name !== "AbortError" ? cause.message : "Start response timed out. Reopen to check before retrying.");
     } finally {
       if (action.current === controller) action.current = null;
       if (version === generation.current) setStarting(false);
     }
-  }
-  return { operation, error, starting, start };
+  }, [request]);
+  const controls = { operation, error, starting, start, revision };
+  usePreparationOperation(route, controls);
+  return controls;
 }
