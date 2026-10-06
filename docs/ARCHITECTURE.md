@@ -238,3 +238,8 @@ Bindings include project/reference operation/hash, requested/selected source tim
 ## Milestone 24: caption animation and motion previews
 
 Saved track-wide schema-1 animation defaults to None for old tracks/specs; existing caption revisions and persistence handle conflicts and outdated full exports. Numeric ASS directives extend the actual subtitle renderer after framing; literal text and provenance remain separate. The explicit caption-motion endpoint reuses saved-cue snapshots, full video/cut helpers and the existing media slot/staging/process lifecycle. It trims without rebasing timestamps until after subtitle rendering, verifies bounded silent output and bindings, and returns a transient browser-held MP4. Static appearance suggestions preserve animation. [Method, limits and focused evidence](CAPTION_ANIMATION.md).
+
+
+## Assisted reference-caption motion (Milestone 25)
+
+Additive database version 16 stores schema-1 `temporal-glyph-fit-v1` suggestions bound to retained source, reviewed text/font, selected interval, independent motion region and fitting appearance. The existing shared preview lifecycle performs bounded temporal glyph fitting and real phase-preserving libass comparisons. Explicit reviewed Apply changes only estimated animation draft fields; caption persistence/export rendering remain unchanged. [Method, API, bounds, schema and evidence](REFERENCE_CAPTION_MOTION.md).

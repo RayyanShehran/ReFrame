@@ -2,7 +2,7 @@
 
 ReFrame takes a TikTok link as the reference edit and a separately uploaded user-owned clip as footage. Saved projects retain one validated user clip, a fixed reference metadata snapshot and, on request, experimental reference media. Offline color comparisons, estimated pacing, editable color recipes, cut plans and saved audio choices and reviewed captions with manual entrance/exit animations drive local video rendering, playback and download. See [TikTok reference feasibility](docs/TIKTOK_REFERENCE_FEASIBILITY.md) for live evidence and limitations.
 
-Saved captions support None, Fade, Pop and Slide up. Save changes, explicitly **Preview caption motion**, then render the full video. The real silent preview uses saved footage/color/framing/font settings; it does not detect reference motion. See [caption animation and preview limits](docs/CAPTION_ANIMATION.md).
+Saved captions support None, Fade, Pop and Slide up. Save changes, explicitly **Preview caption motion**, then render the full video. The real silent preview uses saved footage/color/framing/font settings; use the separate assisted comparison below to estimate supported reference motion. See [caption animation and preview limits](docs/CAPTION_ANIMATION.md).
 
 ## Prerequisites
 
@@ -242,3 +242,8 @@ This is responsive local editing, not phone-network access. Servers retain loopb
 Inspect a retained reference frame, select one caption region, choose English/Arabic/combined and explicitly **Extract text from this region**. Review/correct the proposal, then Apply to the reference matching field. Font ranking and selection remain explicit; your own caption words, times and style are unchanged. Applied text restores once used in a saved font comparison. Missing assets, busy workers or unreadable regions retain manual entry.
 
 [One-time Tesseract 5.5.3 setup, pinned assets and limits](docs/REFERENCE_CAPTION_OCR.md). Ordinary recognition is offline; no TikTok request, scanning, download or transcription inference.
+
+
+## Assisted reference-caption motion
+
+With saved confirmed reference text and a reviewed font, select **0.4–4 seconds** and an expanded motion region, then explicitly preview and **Analyze caption motion**. Static, Fade, Pop and Slide up can produce conservative suggestions; combined effects, missing settled evidence and tracking contamination remain unsupported/inconclusive. Missing entrance/exit evidence stays unestimated. Compare the real reference interval and labeled neutral subtitle reconstruction, review, **Apply animation to draft**, then Save captions and use **Preview caption motion** on your own footage. Words, timing, appearance and provenance stay unchanged. Suggestions restore after refresh; comparison videos are transient. Manual controls remain available. [Method, precision, bounds and evidence](docs/REFERENCE_CAPTION_MOTION.md).

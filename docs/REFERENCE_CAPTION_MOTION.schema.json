@@ -1,0 +1,685 @@
+{
+  "$defs": {
+    "Binding": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "default": "default",
+          "enum": [
+            "default",
+            "custom",
+            "builtin"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "candidate_id": {
+          "anyOf": [
+            {
+              "enum": [
+                "amiri-regular",
+                "amiri-bold",
+                "anton-regular"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Candidate Id"
+        },
+        "font_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Font Id"
+        },
+        "sha256": {
+          "default": "7da195a74c55bef988d0d48f9508bd5d849425c1770dba5d7bfc6ce9ed848954",
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "family": {
+          "default": "DejaVu Sans",
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Family",
+          "type": "string"
+        },
+        "style": {
+          "default": "Book",
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Style",
+          "type": "string"
+        }
+      },
+      "title": "Binding",
+      "type": "object"
+    },
+    "Observation": {
+      "additionalProperties": false,
+      "properties": {
+        "time": {
+          "maximum": 120,
+          "minimum": 0,
+          "title": "Time",
+          "type": "number"
+        },
+        "contrast": {
+          "maximum": 255,
+          "minimum": 0,
+          "title": "Contrast",
+          "type": "number"
+        },
+        "width": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Width",
+          "type": "number"
+        },
+        "height": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Height",
+          "type": "number"
+        },
+        "x": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "X",
+          "type": "number"
+        },
+        "y": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Y",
+          "type": "number"
+        },
+        "glyph_overlap": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Glyph Overlap",
+          "type": "number"
+        },
+        "clipped": {
+          "default": false,
+          "title": "Clipped",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "time",
+        "contrast",
+        "width",
+        "height",
+        "x",
+        "y",
+        "glyph_overlap"
+      ],
+      "title": "Observation",
+      "type": "object"
+    },
+    "Rectangle": {
+      "additionalProperties": false,
+      "properties": {
+        "x": {
+          "exclusiveMaximum": 1,
+          "minimum": 0,
+          "title": "X",
+          "type": "number"
+        },
+        "y": {
+          "exclusiveMaximum": 1,
+          "minimum": 0,
+          "title": "Y",
+          "type": "number"
+        },
+        "width": {
+          "exclusiveMinimum": 0,
+          "maximum": 1,
+          "title": "Width",
+          "type": "number"
+        },
+        "height": {
+          "exclusiveMinimum": 0,
+          "maximum": 1,
+          "title": "Height",
+          "type": "number"
+        }
+      },
+      "required": [
+        "x",
+        "y",
+        "width",
+        "height"
+      ],
+      "title": "Rectangle",
+      "type": "object"
+    },
+    "Request": {
+      "additionalProperties": false,
+      "properties": {
+        "expected_revision": {
+          "minimum": 0,
+          "title": "Expected Revision",
+          "type": "integer"
+        },
+        "expected_selection_revision": {
+          "minimum": 1,
+          "title": "Expected Selection Revision",
+          "type": "integer"
+        },
+        "expected_selection_token": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Expected Selection Token",
+          "type": "string"
+        },
+        "base_style": {
+          "$ref": "#/$defs/Style"
+        },
+        "start": {
+          "maximum": 120,
+          "minimum": 0,
+          "title": "Start",
+          "type": "number"
+        },
+        "end": {
+          "exclusiveMinimum": 0,
+          "maximum": 120,
+          "title": "End",
+          "type": "number"
+        },
+        "region": {
+          "$ref": "#/$defs/Rectangle"
+        }
+      },
+      "required": [
+        "expected_revision",
+        "expected_selection_revision",
+        "expected_selection_token",
+        "base_style",
+        "start",
+        "end",
+        "region"
+      ],
+      "title": "Request",
+      "type": "object"
+    },
+    "Selection": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": 1,
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "method": {
+          "maxLength": 64,
+          "title": "Method",
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/Source"
+        },
+        "reference_operation_id": {
+          "format": "uuid",
+          "title": "Reference Operation Id",
+          "type": "string"
+        },
+        "requested_timestamp_seconds": {
+          "maximum": 120.1,
+          "minimum": 0,
+          "title": "Requested Timestamp Seconds",
+          "type": "number"
+        },
+        "timestamp_seconds": {
+          "maximum": 120.1,
+          "minimum": 0,
+          "title": "Timestamp Seconds",
+          "type": "number"
+        },
+        "rectangle": {
+          "$ref": "#/$defs/Rectangle"
+        },
+        "frame_width": {
+          "maximum": 960,
+          "minimum": 2,
+          "title": "Frame Width",
+          "type": "integer"
+        },
+        "frame_height": {
+          "maximum": 960,
+          "minimum": 2,
+          "title": "Frame Height",
+          "type": "integer"
+        },
+        "text": {
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        },
+        "polarity": {
+          "enum": [
+            "light",
+            "dark"
+          ],
+          "title": "Polarity",
+          "type": "string"
+        },
+        "catalog_hash": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Catalog Hash",
+          "type": "string"
+        },
+        "reviewed_font": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Binding"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "method",
+        "source",
+        "reference_operation_id",
+        "requested_timestamp_seconds",
+        "timestamp_seconds",
+        "rectangle",
+        "frame_width",
+        "frame_height",
+        "text",
+        "polarity",
+        "catalog_hash"
+      ],
+      "title": "Selection",
+      "type": "object"
+    },
+    "Source": {
+      "additionalProperties": false,
+      "properties": {
+        "video_id": {
+          "pattern": "^[0-9]+$",
+          "title": "Video Id",
+          "type": "string"
+        },
+        "canonical_url": {
+          "pattern": "^https://www\\.tiktok\\.com/@[A-Za-z0-9._-]+/video/[0-9]+$",
+          "title": "Canonical Url",
+          "type": "string"
+        },
+        "media_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Media Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "video_id",
+        "canonical_url",
+        "media_sha256"
+      ],
+      "title": "Source",
+      "type": "object"
+    },
+    "Style": {
+      "additionalProperties": false,
+      "properties": {
+        "color": {
+          "default": "white",
+          "pattern": "^(white|yellow|#[0-9a-fA-F]{6})$",
+          "title": "Color",
+          "type": "string"
+        },
+        "size": {
+          "default": "medium",
+          "enum": [
+            "small",
+            "medium",
+            "large"
+          ],
+          "title": "Size",
+          "type": "string"
+        },
+        "placement": {
+          "default": "bottom-center",
+          "enum": [
+            "bottom-center",
+            "center"
+          ],
+          "title": "Placement",
+          "type": "string"
+        },
+        "font": {
+          "default": "default",
+          "enum": [
+            "default",
+            "custom",
+            "amiri-regular",
+            "amiri-bold",
+            "anton-regular"
+          ],
+          "title": "Font",
+          "type": "string"
+        },
+        "font_origin": {
+          "default": "manual",
+          "enum": [
+            "manual",
+            "assisted"
+          ],
+          "title": "Font Origin",
+          "type": "string"
+        },
+        "size_percent": {
+          "anyOf": [
+            {
+              "maximum": 15,
+              "minimum": 2,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Size Percent"
+        },
+        "outline_color": {
+          "default": "#000000",
+          "pattern": "^#[0-9a-fA-F]{6}$",
+          "title": "Outline Color",
+          "type": "string"
+        },
+        "outline_percent": {
+          "anyOf": [
+            {
+              "maximum": 2,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Outline Percent"
+        },
+        "shadow_color": {
+          "default": "#000000",
+          "pattern": "^#[0-9a-fA-F]{6}$",
+          "title": "Shadow Color",
+          "type": "string"
+        },
+        "shadow_percent": {
+          "default": 0,
+          "maximum": 3,
+          "minimum": 0,
+          "title": "Shadow Percent",
+          "type": "number"
+        },
+        "alignment": {
+          "default": "center",
+          "enum": [
+            "left",
+            "center",
+            "right"
+          ],
+          "title": "Alignment",
+          "type": "string"
+        },
+        "horizontal": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Horizontal"
+        },
+        "vertical": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Vertical"
+        },
+        "bold": {
+          "default": false,
+          "title": "Bold",
+          "type": "boolean"
+        },
+        "italic": {
+          "default": false,
+          "title": "Italic",
+          "type": "boolean"
+        }
+      },
+      "title": "Style",
+      "type": "object"
+    },
+    "Values": {
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "anyOf": [
+            {
+              "enum": [
+                "none",
+                "fade",
+                "pop",
+                "slide-up"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mode"
+        },
+        "entrance_seconds": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Entrance Seconds"
+        },
+        "exit_seconds": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Exit Seconds"
+        },
+        "initial_scale": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0.5,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Initial Scale"
+        },
+        "displacement": {
+          "anyOf": [
+            {
+              "maximum": 0.25,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Displacement"
+        }
+      },
+      "title": "Values",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "method": {
+      "default": "temporal-glyph-fit-v1",
+      "title": "Method",
+      "type": "string"
+    },
+    "request": {
+      "$ref": "#/$defs/Request"
+    },
+    "selection": {
+      "$ref": "#/$defs/Selection"
+    },
+    "appearance_token": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Appearance Token"
+    },
+    "fitting_style": {
+      "$ref": "#/$defs/Style"
+    },
+    "outcome": {
+      "enum": [
+        "static",
+        "supported",
+        "partial",
+        "inconclusive"
+      ],
+      "title": "Outcome",
+      "type": "string"
+    },
+    "values": {
+      "$ref": "#/$defs/Values"
+    },
+    "cue_start": {
+      "anyOf": [
+        {
+          "maximum": 120,
+          "minimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Cue Start"
+    },
+    "cue_end": {
+      "anyOf": [
+        {
+          "exclusiveMinimum": 0,
+          "maximum": 120.2,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Cue End"
+    },
+    "observations": {
+      "items": {
+        "$ref": "#/$defs/Observation"
+      },
+      "maxItems": 40,
+      "title": "Observations",
+      "type": "array"
+    },
+    "notes": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 16,
+      "title": "Notes",
+      "type": "array"
+    },
+    "generated_at": {
+      "title": "Generated At",
+      "type": "string"
+    },
+    "ffmpeg_version": {
+      "title": "Ffmpeg Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "request",
+    "selection",
+    "fitting_style",
+    "outcome",
+    "values",
+    "observations",
+    "notes",
+    "generated_at",
+    "ffmpeg_version"
+  ],
+  "title": "Suggestion",
+  "type": "object"
+}

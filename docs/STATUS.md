@@ -321,3 +321,12 @@ Users can save None/Fade/Pop/Slide up with bounded relevant controls, explicitly
 Focused real exports and a crossing-cut preview verify opacity, scale/displacement, final geometry, cue absence, timing/audio, bundled/custom fonts and Square framing. One browser workflow covers save, preview/play, change/outdated/update, full export/play and refresh; phone/tablet viewport checks show no overflow. Affected local tests/lint/types/build passed; exact-final-commit CI is reported at handoff. [Evidence and limitations](CAPTION_ANIMATION.md). No TikTok, OCR/transcription inference or downloads were used.
 
 **Milestone 24: 100% implemented and verified, subject to architect acceptance. Video baseline: 92%, pending architect reassessment. Image mode: 0%. Stop after Milestone 24.**
+
+
+## Milestone 25: assisted reference-caption motion matching
+
+Users explicitly select up to four seconds and a separate expanded region, inspect the interval, analyze supported static/Fade/Pop/Slide up evidence, compare real phase-preserving subtitle reconstruction, review and Apply animation only, Save and preview their own captions. Suggestions/bindings restore; missing effects remain unestimated and unsupported/combined/tracking-contaminated cases are inconclusive. Valid appearance suggestions are reused. Shared ownership, cleanup, deadlines and saved caption revisions remain in place. [Method, limits, measured fixture errors and browser evidence](REFERENCE_CAPTION_MOTION.md).
+
+Focused generated fixtures distinguish all four clean families, reject combined Fade + Pop, preserve unseen exit as null, and verify stale source/font/interval guards and caption preservation. The production-build browser completed analysis/comparison/apply/save/actual-footage-preview/refresh, including phone/tablet sizing. No new full export was needed because export rendering is unchanged. Full final-commit CI and fresh Git equality are reported at handoff.
+
+**Milestone 25: 100% implemented and verified, subject to architect acceptance. Video baseline: 94%, pending architect reassessment. Image mode: 0%. Stop after Milestone 25.**

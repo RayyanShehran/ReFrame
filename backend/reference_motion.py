@@ -390,6 +390,8 @@ def analyze(project_id, request):
                 "-xerror",
                 "-threads",
                 "2",
+                "-filter_threads",
+                "1",
                 "-protocol_whitelist",
                 "file",
                 "-i",
