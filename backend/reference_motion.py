@@ -1,5 +1,6 @@
 """Conservative temporal glyph fitting, using reviewed text/font and owned local tools."""
 
+import base64
 import math
 import shutil
 import statistics as stats
@@ -78,8 +79,8 @@ class Apply(Request):
     token: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
-def bindings(project_id, request, deadline):
-    revision, selection, token = appearance.current(project_id, deadline)
+def bindings(project_id, request, deadline, current=None):
+    revision, selection, token = current or appearance.current(project_id, deadline)
     if (revision, token) != (request.expected_selection_revision, request.expected_selection_token):
         raise ReferenceError(409, "motion_stale", "Reference text/region/font changed. Reload it.")
     selected = match.Selection.model_validate(selection)
@@ -87,18 +88,21 @@ def bindings(project_id, request, deadline):
         raise ReferenceError(
             409, "motion_prerequisite", "Choose the reviewed face in Caption font first."
         )
-    saved = appearance.read(project_id)
-    reused = saved["status"] == "ready" and saved["suggestion"][
-        "base_style"
-    ] == request.base_style.model_dump(mode="json")
+    row = appearance.record(project_id)
+    saved = appearance.Suggestion.model_validate_json(row["suggestion"]) if row else None
+    reused = bool(
+        saved
+        and saved.method == appearance.METHOD
+        and saved.selection_revision == revision
+        and saved.selection_token == token
+        and saved.base_style == request.base_style
+    )
     style = (
-        request.base_style.model_copy(
-            update={k: v for k, v in saved["suggestion"]["values"].items() if v is not None}
-        )
+        request.base_style.model_copy(update=saved.values.model_dump(exclude_none=True))
         if reused
         else request.base_style
     )
-    return selected, style, saved["token"] if reused else None
+    return selected, style, match.fingerprint(saved.model_dump(mode="json")) if reused else None
 
 
 def record(project_id):
@@ -109,13 +113,18 @@ def record(project_id):
         ).fetchone()
 
 
-def read(project_id):
+def read(project_id, deadline=None):
     row = record(project_id)
     value = Suggestion.model_validate_json(row["suggestion"]) if row else None
-    ready, message = False, None
+    ready, message, current_selection = False, None, None
     try:
+        current = appearance.current(project_id, deadline or time.monotonic() + 10)
+        revision, selected, selection_token = current
+        current_selection = {"revision": revision, "token": selection_token, "selection": selected}
         if value:
-            selected, style, token = bindings(project_id, value.request, time.monotonic() + 10)
+            selected, style, token = bindings(
+                project_id, value.request, deadline or time.monotonic() + 10, current
+            )
             ready = value.method == METHOD and (selected, style, token) == (
                 value.selection,
                 value.fitting_style,
@@ -129,6 +138,7 @@ def read(project_id):
         "suggestion": value.model_dump(mode="json") if value else None,
         "token": match.fingerprint(value.model_dump(mode="json")) if value else None,
         "message": message,
+        "current_selection": current_selection,
     }
 
 
@@ -491,4 +501,238 @@ def analyze(project_id, request):
         "suggestion": suggestion.model_dump(mode="json"),
         "token": match.fingerprint(suggestion.model_dump(mode="json")),
         "message": None,
+        "current_selection": {
+            "revision": request.expected_selection_revision,
+            "token": request.expected_selection_token,
+            "selection": selection.model_dump(mode="json"),
+        },
     }
+
+
+VIDEO_BYTES = 3 * 1024 * 1024
+
+
+class Clip(color.Schema):
+    width: int = Field(ge=2, le=640)
+    height: int = Field(ge=2, le=640)
+    duration_seconds: float = Field(gt=0, le=4, allow_inf_nan=False)
+    decoded_frames: int = Field(ge=1, le=120)
+    size_bytes: int = Field(gt=0, le=VIDEO_BYTES)
+    video_base64: str = Field(max_length=4 * VIDEO_BYTES // 3)
+    silent: Literal[True] = True
+
+
+def video_clip(inputs, graph, count, size, directory, deadline, name):
+    target = directory / f"{name}.mp4"
+    preview.tool(
+        [
+            shutil.which("ffmpeg") or "ffmpeg",
+            "-v",
+            "error",
+            "-nostdin",
+            "-xerror",
+            "-threads",
+            "2",
+            "-filter_threads",
+            "1",
+            *inputs,
+            "-vf",
+            graph,
+            "-an",
+            "-sn",
+            "-dn",
+            "-frames:v",
+            str(count),
+            "-c:v",
+            "libx264",
+            "-threads",
+            "2",
+            "-preset",
+            "veryfast",
+            "-crf",
+            "23",
+            "-pix_fmt",
+            "yuv420p",
+            "-fs",
+            str(VIDEO_BYTES + 1),
+            "-movflags",
+            "+faststart",
+            str(target),
+        ],
+        directory,
+        name,
+        deadline,
+    )
+    length = target.stat().st_size
+    if not 0 < length <= VIDEO_BYTES:
+        raise ReferenceError(413, "motion_limit", "Comparison exceeds its three-MiB video limit.")
+    v, a, d = render.probe(target, directory, deadline, temp_budget=preview.TEMP_BUDGET)
+    if a or (v["width"], v["height"]) != size or d > 4 or abs(d - count / 30) > 0.05:
+        raise ValueError("Invalid comparison video")
+    hashes = preview.tool(
+        [
+            shutil.which("ffmpeg") or "ffmpeg",
+            "-v",
+            "error",
+            "-nostdin",
+            "-xerror",
+            "-i",
+            str(target),
+            "-map",
+            "0:v:0",
+            "-f",
+            "framehash",
+            "-hash",
+            "sha256",
+            "-",
+        ],
+        directory,
+        name + "-decode",
+        deadline,
+    )
+    frames, audio = render.decode_counts(hashes, False)
+    if frames != count or audio:
+        raise ValueError("Incomplete comparison decoding")
+    return Clip(
+        width=size[0],
+        height=size[1],
+        duration_seconds=d,
+        decoded_frames=frames,
+        size_bytes=length,
+        video_base64=base64.b64encode(target.read_bytes()).decode(),
+    )
+
+
+def reference_video(project_id, request, directory, deadline):
+    selection, style, token = bindings(project_id, request, deadline)
+    source = color.source(project_id, deadline=deadline)
+    v, _, duration = render.probe(
+        source["path"], directory, deadline, temp_budget=preview.TEMP_BUDGET
+    )
+    if request.end > duration:
+        raise ReferenceError(
+            422, "invalid_interval", "Keep the interval inside the reference duration."
+        )
+    scale, canvas, _ = framing.geometry(v, framing.Settings())
+    factor = min(1, EDGE / max(canvas))
+    size = tuple(max(2, math.floor(n * factor / 2) * 2) for n in canvas)
+    first = math.ceil(request.start * 30 - 1e-7)
+    count = math.ceil(request.end * 30 - 1e-7) - first
+    graph = (
+        f"setpts=PTS-STARTPTS,{render.resize_filter(*scale, color.inspect_colors(v))},"
+        f"scale={size[0]}:{size[1]}:flags=area,fps=30,"
+        f"trim=start_frame={first}:end_frame={first + count},setpts=PTS-STARTPTS"
+    )
+    video = video_clip(
+        ["-protocol_whitelist", "file", "-i", str(source["path"])],
+        graph,
+        count,
+        size,
+        directory,
+        deadline,
+        "reference-interval",
+    )
+    return video, source, selection, style, token, first
+
+
+def interval_preview(project_id, request):
+    with preview.operation() as (directory, deadline):
+        video, source, selection, style, token, _ = reference_video(
+            project_id, request, directory, deadline
+        )
+        if color.source(project_id, deadline=deadline) != source or bindings(
+            project_id, request, deadline
+        ) != (selection, style, token):
+            raise ReferenceError(
+                409, "motion_stale", "Reference/font/appearance changed during preview."
+            )
+        return {
+            "reference": video.model_dump(),
+            "request": request.model_dump(),
+            "selection": selection.model_dump(mode="json"),
+        }
+
+
+def comparison(project_id, request):
+    with preview.operation() as (directory, deadline):
+        saved = read(project_id)
+        if (
+            saved["status"] != "ready"
+            or saved["revision"] != request.expected_revision
+            or saved["token"] != request.token
+        ):
+            raise ReferenceError(409, "motion_stale", "Motion suggestion changed. Reload it.")
+        suggestion = Suggestion.model_validate(saved["suggestion"])
+        if request.model_dump(
+            exclude={"expected_revision", "token"}
+        ) != suggestion.request.model_dump(exclude={"expected_revision"}):
+            raise ReferenceError(
+                409, "motion_stale", "Interval/region/appearance changed. Analyze again."
+            )
+        if suggestion.outcome == "inconclusive":
+            raise ReferenceError(
+                422,
+                "motion_inconclusive",
+                "No supported reconstruction; review the reference or use manual animation.",
+            )
+        reference, source, selection, style, token, first = reference_video(
+            project_id, request, directory, deadline
+        )
+        # Unseen transitions are neutral, never fabricated midway through the interval.
+        animation = captions.Animation.model_validate(
+            {
+                "entrance_seconds": 0.0,
+                "exit_seconds": 0.0,
+                "initial_scale": 1.0,
+                "displacement": 0.0,
+                **suggestion.values.model_dump(exclude_none=True),
+            }
+        )
+        cue = captions.Cue(
+            start=suggestion.cue_start if suggestion.cue_start is not None else 0.0,
+            end=min(
+                120.0, suggestion.cue_end if suggestion.cue_end is not None else request.end + 2
+            ),
+            text=selection.text,
+        )
+        prepared = fonts.prepare(project_id, selection.reviewed_font, [cue], directory, deadline)
+        track = captions.Track(
+            style=style, font_binding=selection.reviewed_font, cues=[cue], animation=animation
+        )
+        subtitle = captions.subtitle_filter(
+            track, directory, reference.width, reference.height, prepared[:2]
+        )
+        graph = f"setpts=PTS+{first / 30:.9f}/TB,{subtitle},setpts=PTS-STARTPTS"
+        reconstructed = video_clip(
+            [
+                "-f",
+                "lavfi",
+                "-i",
+                f"color=c=0x808080:s={reference.width}x{reference.height}:r=30:d={reference.duration_seconds:.9f}",
+            ],
+            graph,
+            reference.decoded_frames,
+            (reference.width, reference.height),
+            directory,
+            deadline,
+            "motion-reconstruction",
+        )
+        if (
+            bindings(project_id, request, deadline) != (selection, style, token)
+            or color.source(project_id, deadline=deadline) != source
+        ):
+            raise ReferenceError(
+                409, "motion_stale", "Comparison source/font changed before publication."
+            )
+        return {
+            "revision": saved["revision"],
+            "token": saved["token"],
+            "reference": reference.model_dump(),
+            "reconstruction": reconstructed.model_dump(),
+            "notes": [
+                "Neutral background; confirmed reference text/font/style. "
+                "Unseen transitions are omitted.",
+                "Reference timeline phase is preserved; videos are silent "
+                "and start only on request.",
+            ],
+        }

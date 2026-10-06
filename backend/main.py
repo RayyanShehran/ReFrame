@@ -376,6 +376,16 @@ async def analyze_reference_motion(project_id: str, request: reference_motion.Re
     return await saved_still(project_id, request, reference_motion.analyze)
 
 
+@app.post("/api/projects/{project_id}/reference-motion/preview")
+async def preview_reference_interval(project_id: str, request: reference_motion.Request):
+    return await saved_still(project_id, request, reference_motion.interval_preview)
+
+
+@app.post("/api/projects/{project_id}/reference-motion/compare")
+async def compare_reference_motion(project_id: str, request: reference_motion.Apply):
+    return await saved_still(project_id, request, reference_motion.comparison)
+
+
 @app.post("/api/projects/{project_id}/reference-motion/apply")
 async def apply_reference_motion(project_id: str, request: reference_motion.Apply):
     async with projects.operation_lock:

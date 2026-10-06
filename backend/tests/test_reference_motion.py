@@ -164,3 +164,69 @@ def test_saved_bindings_and_apply_does_not_edit_captions(local, sources):
         ).status_code
         == 422
     )
+
+
+def test_real_comparison_phase_and_limits(local, sources, tmp_path, monkeypatch):
+    import base64
+
+    import reference_motion as motion
+
+    client, directory, _ = local
+    pid = selected(client, directory, sources["fade"])
+    url = f"/api/projects/{pid}/reference-motion"
+    body = request(client, pid)
+    saved = client.post(url, json=body).json()
+    compare = body | {"expected_revision": 1, "token": saved["token"]}
+    result = client.post(url + "/compare", json=compare)
+    assert result.status_code == 200, result.text
+    for kind in ("reference", "reconstruction"):
+        video = result.json()[kind]
+        assert video["decoded_frames"] == 72 and video["silent"]
+        target = tmp_path / (kind + ".mp4")
+        target.write_bytes(base64.b64decode(video["video_base64"]))
+
+        def pixels(t):
+            return subprocess.run(
+                [
+                    shutil.which("ffmpeg"),
+                    "-v",
+                    "error",
+                    "-ss",
+                    str(t),
+                    "-i",
+                    str(target),
+                    "-frames:v",
+                    "1",
+                    "-pix_fmt",
+                    "gray",
+                    "-f",
+                    "rawvideo",
+                    "-",
+                ],
+                check=True,
+                capture_output=True,
+                timeout=10,
+            ).stdout
+
+        # Glyph region: visible intensity rises, settles, then exits; outside is absent.
+        def energy(t):
+            raw = pixels(t)
+            w = video["width"]
+            h = video["height"]
+            bg = raw[0]
+            return sum(
+                abs(raw[y * w + x] - bg)
+                for y in range(round(h * 0.58), round(h * 0.69))
+                for x in range(round(w * 0.24), round(w * 0.48))
+            )
+
+        e = [energy(t) for t in (0.1, 0.4, 1.0, 1.9, 2.2)]
+        print(kind, video["size_bytes"], "glyph-energy", e)
+        assert e[0] < e[1] < e[2] and e[4] < e[3] < e[2], e
+    assert client.post(url + "/compare", json=compare | {"start": 0.1}).status_code == 409
+    preview = client.post(url + "/preview", json=body | {"start": 0.4, "end": 1.2})
+    assert preview.status_code == 200, preview.text
+    assert preview.json()["reference"]["decoded_frames"] == 24
+    monkeypatch.setattr(motion, "VIDEO_BYTES", 1)
+    assert client.post(url + "/compare", json=compare).status_code == 413
+    assert not list((directory / "preview-staging").iterdir())
