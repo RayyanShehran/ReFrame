@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { CaptionEditor } from "./caption-editor";
+import { defaultAnimation } from "./caption-animation";
 import { defaultStyle } from "./caption-style-controls";
 vi.mock("./transcription-review", () => ({ TranscriptionReview: () => null }));
 vi.mock("./caption-style-controls", async original => ({ ...await original<typeof import("./caption-style-controls")>(), FontPicker: () => null }));
@@ -59,7 +60,7 @@ it("previews SRT before replacing, edits, saves and restores plain text", async 
     if (url.endsWith("/import")) { expect(options.body).toBeInstanceOf(File); return ok({ cues: imported }); }
     if (options.method === "POST") {
       const body = JSON.parse(options.body as string);
-      expect(body).toEqual({ expected_revision: 0, mode: "whole", expected_plan_revision: null, confirm_rebind: false, enabled: true, style: initial.track.style, provenance: "srt_import", cues: [{ ...imported[0], text: "Edited مرحبا" }] });
+      expect(body).toEqual({ expected_revision: 0, mode: "whole", expected_plan_revision: null, confirm_rebind: false, enabled: true, style: initial.track.style, animation: defaultAnimation, provenance: "srt_import", cues: [{ ...imported[0], text: "Edited مرحبا" }] });
       result = { ...initial, status: "ready", track: { ...initial.track, ...body, revision: 1, timeline: { mode: "whole", plan_revision: null, duration_seconds: 4 } } };
     }
     return ok(result);
@@ -120,9 +121,10 @@ it("blocks invalid cues, respects code-point length and deletes only the draft",
 
 it("applies selected suggested properties without changing automatic words, timing, provenance or unsupported styles", async () => {
  const style={...defaultStyle,font: "anton-regular" as const,font_origin: "assisted" as const,bold:true,alignment:"left" as const,placement:"center" as const,size_percent:8,outline_percent:1};
- const saved={...initial,status:"ready",track:{...initial.track,revision:2,enabled:true,style,provenance:"automatic_transcription",automatic_proposal_id:"proposal",cues:[{start:.3,end:1.4,text:"My reviewed words"}],timeline:{mode:"whole",plan_revision:null,duration_seconds:4}}};
+ const animation={...defaultAnimation,mode:"pop" as const};
+ const saved={...initial,status:"ready",track:{...initial.track,revision:2,enabled:true,animation,style,provenance:"automatic_transcription",automatic_proposal_id:"proposal",cues:[{start:.3,end:1.4,text:"My reviewed words"}],timeline:{mode:"whole",plan_revision:null,duration_seconds:4}}};
  vi.stubGlobal("fetch",vi.fn(async(_url:string,options:RequestInit)=>{
-  if(options.method==="POST") {const body=JSON.parse(options.body as string);expect(body.style).toEqual({...style,color:"#DDCC00"});expect(body.cues).toEqual(saved.track.cues);expect(body.provenance).toBe("automatic_transcription");expect(body.automatic_proposal_id).toBe("proposal");return ok({...saved,track:{...saved.track,style:body.style,revision:3}});}
+  if(options.method==="POST") {const body=JSON.parse(options.body as string);expect(body.animation).toEqual(animation);expect(body.style).toEqual({...style,color:"#DDCC00"});expect(body.cues).toEqual(saved.track.cues);expect(body.provenance).toBe("automatic_transcription");expect(body.automatic_proposal_id).toBe("proposal");return ok({...saved,track:{...saved.track,style:body.style,revision:3}});}
   return ok(saved);
  }));
  render(<CaptionEditor projectId="one" planState={plan} onState={vi.fn()} appearance={{recipeRevision:1,recipeReady:true,recipeDirty:false,recipeBusy:false,framing:{revision:0,ready:true,dirty:false,busy:false}}}/>);
