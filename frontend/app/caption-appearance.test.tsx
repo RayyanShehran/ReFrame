@@ -105,3 +105,21 @@ it("mounts one automatic-caption panel alongside comparison and finishes referen
   expect(screen.getAllByRole("region", { name: "Automatic captions" })).toHaveLength(1);
   expect(onState).toHaveBeenLastCalledWith(expect.objectContaining({ dirty: true }));
 });
+
+
+it("binds sequence previews to saved revisions and blocks unsaved sequence changes", async () => {
+  const sequence = { revision: 4, ready: true, dirty: false, busy: false, duration: 3 };
+  const sequenceTrack = { ...track, timeline: { mode: "sequence" as const, plan_revision: null, sequence_revision: 4 } };
+  vi.stubGlobal("fetch", vi.fn(async (url: string, options: RequestInit) => {
+    if (url.endsWith("reference-media")) return ok(reference);
+    expect(JSON.parse(options.body as string)).toEqual({ cue_index: 0, expected_recipe_revision: 2, expected_framing_revision: 1, expected_caption_revision: 2, expected_plan_revision: null, expected_sequence_revision: 4 });
+    return ok({ ...frame, mode: "sequence", plan_revision: null, sequence_revision: 4 });
+  }));
+  const view = render(<CaptionAppearancePreview {...props} track={sequenceTrack} sequence={sequence} />);
+  await screen.findByText("Retained reference: 4.000 seconds.");
+  fireEvent.click(screen.getByRole("button", { name: "Update caption preview" }));
+  await screen.findByRole("img", { name: /Actual saved caption preview/ });
+  expect(screen.getByText(/Sequence 4/)).toBeVisible();
+  view.rerender(<CaptionAppearancePreview {...props} track={sequenceTrack} sequence={{ ...sequence, dirty: true }} />);
+  expect(screen.getByRole("button", { name: "Update caption preview" })).toBeDisabled();
+});
