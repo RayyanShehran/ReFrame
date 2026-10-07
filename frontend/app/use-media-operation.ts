@@ -75,7 +75,7 @@ export function useMediaOperation<T extends MediaOperation>(projectId: string, r
       if (version === generation.current) setStarting(false);
     }
   }, [request]);
-  const controls = { operation, error, starting, start, revision };
+  const controls = { operation, error, starting, start, revision, refresh: () => setRevision(value => value + 1) };
   usePreparationOperation(route, controls);
   return controls;
 }

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { apiBase, clipRequest, readLibrary, type SourceClip } from "./clip-library";
+import { AssemblyReview, type Assignment } from "./assembly-review";
 import { useWorkspaceReport } from "./guided-workspace";
 
 type Slot = { id: string; clip_id: string | null; duration_frames: number; source_start_frame: number; source_end_frame: number; output_start_frame: number; output_end_frame: number; source_hash: string | null };
@@ -22,6 +23,7 @@ export function SequenceEditor({ projectId, onState }: { projectId: string; onSt
   const [result, setResult] = useState<Result | null>(null), [slots, setSlots] = useState<Draft[]>([]);
   const [clips, setClips] = useState<SourceClip[]>([]), [selected, setSelected] = useState("");
   const [busy, setBusy] = useState(false), [error, setError] = useState(""), [confirm, setConfirm] = useState(false);
+  const [review, setReview] = useState<Assignment | null>(null);
   const [playingRange, setPlayingRange] = useState(false);
   const player = useRef<HTMLVideoElement | null>(null), action = useRef<AbortController | null>(null);
   const sequence = result?.sequence;
@@ -31,7 +33,7 @@ export function SequenceEditor({ projectId, onState }: { projectId: string; onSt
   useEffect(() => { onState({ revision, ready, dirty, busy, duration: sequence ? sequence.output_frames / 30 : undefined }); }, [onState, revision, ready, dirty, busy, sequence]);
   useWorkspaceReport("sequence", "style", busy ? "Working" : ready && !dirty ? "Ready" : error || result?.status === "stale" ? "Needs attention" : "Needs input");
   function restore(data: unknown) {
-    const value = parse(data); setResult(value); setSlots(drafts(value.sequence?.slots ?? [])); setSelected(value.sequence?.slots[0]?.id ?? ""); setConfirm(false); setError("");
+    setReview(null); const value = parse(data); setResult(value); setSlots(drafts(value.sequence?.slots ?? [])); setSelected(value.sequence?.slots[0]?.id ?? ""); setConfirm(false); setError("");
   }
   useEffect(() => {
     const controller = new AbortController();
@@ -40,7 +42,7 @@ export function SequenceEditor({ projectId, onState }: { projectId: string; onSt
     window.addEventListener("reframe-clips", refresh);
     return () => { controller.abort(); window.removeEventListener("reframe-clips", refresh); action.current?.abort(); };
   }, [projectId]);
-  const slot = slots.find(s => s.id === selected), source = clips.find(c => c.id === slot?.clip_id);
+  const slot = review ? { id: review.id, clip_id: review.clip_id, start: String(review.source_start_frame/30), duration: String(review.duration_frames/30) } : slots.find(s => s.id === selected), source = clips.find(c => c.id === slot?.clip_id);
   const start = Number(slot?.start), duration = Number(slot?.duration), end = start + duration;
   const available = source ? Math.floor(source.metadata.duration_seconds * 30) / 30 : 0;
   function problem(s: Draft) {
@@ -53,7 +55,7 @@ export function SequenceEditor({ projectId, onState }: { projectId: string; onSt
   const bounded = total <= 3600 && slots.length >= 1 && slots.length <= 60;
   const rangeValid = !!slot && !!source?.available && !problem(slot);
   function patch(change: Partial<Draft>) { setPlayingRange(false); player.current?.pause(); setSlots(v => v.map(s => s.id === selected ? { ...s, ...change } : s)); }
-  function select(id: string) { player.current?.pause(); setPlayingRange(false); setSelected(id); }
+  function select(id: string) { setReview(null); player.current?.pause(); setPlayingRange(false); setSelected(id); }
   function move(index: number, direction: number) { setSlots(v => { const next = [...v]; [next[index], next[index + direction]] = [next[index + direction], next[index]]; return next; }); }
   async function run(kind: "generate" | "save" | "reload") {
     if (action.current) return;
@@ -68,10 +70,11 @@ export function SequenceEditor({ projectId, onState }: { projectId: string; onSt
     finally { clearTimeout(timer); action.current = null; setBusy(false); }
   }
   return <section className="reference-section" aria-label="Multi-clip sequence">
-    <h3>Multi-clip sequence</h3><p>Create editable slots from the reference’s estimated shots, then choose the footage yourself. The saved project color recipe is applied uniformly to every clip; no per-clip grade or automatic camera matching.</p>
+    <h3>Multi-clip sequence</h3><p>Create editable slots from the reference’s estimated shots, then choose footage manually or review an automatic range proposal. The saved project color recipe is applied uniformly to every clip; no per-clip grade or automatic camera matching.</p>
     <button disabled={busy || !result} onClick={() => sequence || dirty ? setConfirm(true) : void run("generate")}>{sequence ? "Regenerate slots from reference pacing" : "Create slots from reference pacing"}</button>
     {confirm && <div role="group" aria-label="Confirm slot replacement"><p>Replace the saved slots and unsaved edits? This clears assignments and can make captions and transcription stale.</p><button disabled={busy} onClick={() => void run("generate")}>Confirm replace slots</button><button onClick={() => setConfirm(false)}>Keep slots</button></div>}
     {sequence && <>
+      <AssemblyReview projectId={projectId} revision={sequence.revision} savedSlots={sequence.slots} clips={clips} dirty={dirty} disabled={busy} onApply={v => { setReview(null); setSlots(v.map(s => ({ id:s.id, clip_id:s.clip_id, start:String(s.source_start_frame/30), duration:String(s.duration_frames/30) }))); setSelected(v[0]?.id ?? ""); }} onPreview={v => { player.current?.pause(); setPlayingRange(false); setSelected(v.id); setReview(v); }} />
       <p>Saved revision {sequence.revision} · {sequence.output_frames / 30} seconds · 30 fps · at most 60 slots / 120 seconds</p>
       {result?.message && <p role="status">{result.message}</p>}
       <div className="sequence-editor">
@@ -81,17 +84,18 @@ export function SequenceEditor({ projectId, onState }: { projectId: string; onSt
           <button aria-label={`Remove slot ${i+1}`} disabled={busy || slots.length === 1} onClick={() => { const next = slots.filter(v => v.id !== s.id); setSlots(next); if (selected === s.id) select(next[0].id); }}>Remove slot</button>
         </li>)}</ol><button disabled={busy || slots.length >= 60} onClick={() => { const id = crypto.randomUUID(); setSlots(v => [...v, { id, clip_id: null, start: "0", duration: "1" }]); select(id); }}>Add slot</button></div>
         {slot && <div className="sequence-trim" role="group" aria-label="Selected source range">
-          <h4>Slot {slots.indexOf(slot) + 1}</h4>
-          <label>Source clip <select value={slot.clip_id ?? ""} disabled={busy} onChange={e => patch({ clip_id: e.target.value || null, start: "0" })}><option value="">Choose footage</option>{clips.map(c => <option key={c.id} value={c.id} disabled={!c.available}>{c.name}{!c.available ? " (unavailable)" : ""}</option>)}</select></label>
-          <label>Slot duration (seconds) <input type="number" min={1/30} max={120} step={1/30} value={slot.duration} disabled={busy} onChange={e => patch({ duration: e.target.value })} /></label>
+          <h4>Slot {slots.findIndex(s => s.id === slot.id) + 1}</h4>
+          {review && <p>Reviewing proposed range; the draft is unchanged. <button onClick={() => setReview(null)}>Return to draft range</button></p>}
+          <label>Source clip <select value={slot.clip_id ?? ""} disabled={busy || !!review} onChange={e => patch({ clip_id: e.target.value || null, start: "0" })}><option value="">Choose footage</option>{clips.map(c => <option key={c.id} value={c.id} disabled={!c.available}>{c.name}{!c.available ? " (unavailable)" : ""}</option>)}</select></label>
+          <label>Slot duration (seconds) <input type="number" min={1/30} max={120} step={1/30} value={slot.duration} disabled={busy || !!review} onChange={e => patch({ duration: e.target.value })} /></label>
           {source && <><video key={`${slot.id}-${source.id}`} ref={player} className="rendered-video" controls preload="metadata" src={`${apiBase}/api/projects/${encodeURIComponent(projectId)}/clips/${source.id}/video`} aria-label="Selected source video" onTimeUpdate={() => { const video = player.current; if (playingRange && video && video.currentTime >= end) { video.pause(); video.currentTime = end; setPlayingRange(false); } }} onEnded={() => setPlayingRange(false)} />
             <p>Target {duration.toFixed(3)} s · Available source {available.toFixed(3)} s · Selected {Number.isFinite(start) ? start.toFixed(3) : "?"}–{Number.isFinite(end) ? end.toFixed(3) : "?"} s</p>
             <div className="source-range" aria-label="Selected section" style={{ background: `linear-gradient(to right, #334155 ${Math.max(0, start/available*100)}%, #d0f75b ${Math.max(0, start/available*100)}%, #d0f75b ${Math.min(100, end/available*100)}%, #334155 ${Math.min(100, end/available*100)}%)` }} />
-            <label>Range start <input type="range" min={0} max={Math.max(0, available-duration)} step={1/30} value={Number.isFinite(start) ? Math.max(0, start) : 0} disabled={busy || duration > available} onChange={e => patch({ start: e.target.value })} /></label>
-            <label>Start (seconds) <input type="number" min={0} max={available} step={1/30} value={slot.start} disabled={busy} onChange={e => patch({ start: e.target.value })} /></label>
-            <label>End (seconds) <input type="number" min={duration} max={available} step={1/30} value={Number.isFinite(end) ? end : ""} disabled={busy} onChange={e => patch({ start: e.target.value ? String(Number(e.target.value) - duration) : "" })} /></label>
+            <label>Range start <input type="range" min={0} max={Math.max(0, available-duration)} step={1/30} value={Number.isFinite(start) ? Math.max(0, start) : 0} disabled={busy || !!review || duration > available} onChange={e => patch({ start: e.target.value })} /></label>
+            <label>Start (seconds) <input type="number" min={0} max={available} step={1/30} value={slot.start} disabled={busy || !!review} onChange={e => patch({ start: e.target.value })} /></label>
+            <label>End (seconds) <input type="number" min={duration} max={available} step={1/30} value={Number.isFinite(end) ? end : ""} disabled={busy || !!review} onChange={e => patch({ start: e.target.value ? String(Number(e.target.value) - duration) : "" })} /></label>
             <p className="hint">Changing start or end keeps the slot duration. Saved times snap to the 30 fps grid; footage is never looped, stretched or shortened automatically.</p>
-            <button disabled={busy} onClick={() => patch({ start: String(Math.round((player.current?.currentTime ?? 0) * 30) / 30) })}>Use current playback position as start</button>
+            <button disabled={busy || !!review} onClick={() => patch({ start: String(Math.round((player.current?.currentTime ?? 0) * 30) / 30) })}>Use current playback position as start</button>
             <button disabled={busy || !rangeValid} onClick={() => { const video = player.current; if (video) { video.currentTime = start; setPlayingRange(true); void video.play().catch(() => { setPlayingRange(false); setError("Playback could not start. Use the native player controls."); }); } }}>Preview selected range</button>
           </>}
           {problem(slot) && <p role="alert">{problem(slot)}</p>}

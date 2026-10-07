@@ -3,6 +3,8 @@ import { afterEach, expect, it, vi } from "vitest";
 import { SequenceEditor } from "./sequence-editor";
 import { RenderVideo } from "./render-video";
 
+vi.mock("./assembly-review", () => ({ AssemblyReview: () => null }));
+
 const a = "11111111-1111-4111-8111-111111111111", b = "22222222-2222-4222-8222-222222222222";
 const clip = (id: string, name: string) => ({ id, name, primary: id === a, available: true, sha256: "a".repeat(64), metadata: { filename: `${name}.mp4`, size_bytes: 1000, duration_seconds: 5, width: 320, height: 180, video_codec: "h264", has_audio: id === a, audio_codec: id === a ? "aac" : null, frame_rate: 30, validation_status: "accepted", storage_status: "not_retained" } });
 const library = { clips: [clip(a, "Camera A"), clip(b, "Camera B")], total_bytes: 2000, max_clips: 10, max_bytes: 500 * 1024 * 1024 };
