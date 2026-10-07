@@ -61,7 +61,9 @@ def generate(project_id, request):
             source["path"], directory, deadline, temp_budget=preview.TEMP_BUDGET
         )
         total = (
-            spec.edit_plan.output_frames
+            spec.sequence.output_frames
+            if spec.sequence
+            else spec.edit_plan.output_frames
             if spec.edit_plan
             else edit_plan.frames(duration, ROUND_CEILING)
         )
@@ -71,10 +73,28 @@ def generate(project_id, request):
             raise ReferenceError(409, "source_changed", "Cut plan exceeds current footage.")
         cue = spec.captions.cues[request.cue_index]
         start, end = interval(cue, total)
+        path = source["path"]
+        if spec.sequence:
+            path = render.assemble_sequence(
+                {"project_id": project_id, "path": path, "spec": spec},
+                directory,
+                None,
+                deadline,
+                shutil.which("ffmpeg") or "ffmpeg",
+                start_frame=start,
+                end_frame=end,
+                include_audio=False,
+                temp_budget=preview.TEMP_BUDGET,
+            )
+            video, _, _ = render.probe(path, directory, deadline, temp_budget=preview.TEMP_BUDGET)
         metadata = color.inspect_colors(video)
         scale, canvas, final = framing.geometry(video, spec.framing)
         resize = render.resize_filter(*scale, metadata)
-        if spec.edit_plan:
+        if spec.sequence:
+            canvas = (video["width"], video["height"])
+            final = ""
+            graph = f"[0:{video['index']}]setpts=PTS-STARTPTS+{start}/30/TB[vout]"
+        elif spec.edit_plan:
             graph = render.cut_graph(spec, video, None, 0, resize)
         else:
             graph = f"[0:{video['index']}]{render.whole_video_filter(resize, spec.effective)}[vout]"
@@ -86,7 +106,8 @@ def generate(project_id, request):
         chain = ",".join(
             part
             for part in (
-                f"trim=start_frame={start}:end_frame={end}",
+                f"trim=start_frame={0 if spec.sequence else start}:"
+                f"end_frame={end - start if spec.sequence else end}",
                 final,
                 subtitle,
                 "setpts=PTS-STARTPTS",
@@ -108,7 +129,7 @@ def generate(project_id, request):
                 "file",
                 "-copyts",
                 "-i",
-                str(source["path"]),
+                str(path),
                 "-filter_complex",
                 graph,
                 "-map",

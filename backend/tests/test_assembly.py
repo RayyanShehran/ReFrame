@@ -115,6 +115,19 @@ def test_real_proposal_restore_cache_stale_and_cancellation(local, monkeypatch):
     assert canceled["status"] == "failed" and canceled["proposal"] == proposal
     assert not assembly.staging(response.json()["operation_id"]).exists()
     assert client.get(seq_url).json()["sequence"] == saved
+    # Same-size external source changes invalidate application independently of sequence edits.
+    import clip_library
+
+    source_path, _ = clip_library.source(pid, clip_library.read(pid).clips[0].id)
+    original = source_path.read_bytes()
+    source_path.write_bytes(original[:-1] + bytes([original[-1] ^ 1]))
+    assert client.get(url).json()["proposal_stale"]
+    assert (
+        client.post(url + "/apply", json=settings | {"proposal_id": proposal["id"]}).status_code
+        == 409
+    )
+    source_path.write_bytes(original)
+    assert not client.get(url).json()["proposal_stale"]
     assert client.post(seq_url, json=apply.json()).status_code == 200
     assert client.get(url).json()["proposal_stale"]
     assert (

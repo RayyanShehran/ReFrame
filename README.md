@@ -281,3 +281,6 @@ With saved confirmed reference text and a reviewed font, select **0.4–4 second
 ## Prepare a complete video workflow
 
 After saving a project and uploading footage, **Prepare reference and footage** sequentially retrieves/analyzes the required sources and optionally pacing, reusing valid results. Failure stops the sequence; Retry/Continue are explicit. Stop after current step prevents later steps, while the backend job continues. Leaving/reloading ends automatic continuation. Generate/review/save creative settings and Render separately; optional recognition/matching/cuts do not block a basic export. **Check optional features** reports local caption/transcription/OCR setup on request without recognition or downloads. [Workflow, fixture evidence and limits](docs/VIDEO_WORKFLOW.md).
+
+
+Automatic assembly can propose source ranges from sampled motion, scene boundaries and image measurements. Lock saved choices, review the separate proposal, explicitly apply it to the draft, then Save and render. This is not subject-aware AI matching. Saved sequence caption still/motion previews are supported. [Method and limits](docs/AUTOMATIC_ASSEMBLY.md).

@@ -1,6 +1,6 @@
 # Implementation status
 
-Current scope includes Milestone 28 manual multi-clip assembly; earlier sections record historical milestone boundaries. [Current method and limits](MULTI_CLIP_SEQUENCE.md).
+Current scope includes Milestone 29 automatic range proposals and saved sequence caption previews; earlier sections record historical milestone boundaries. [Current method and limits](MULTI_CLIP_SEQUENCE.md).
 
 ## Milestone 1: development foundation
 
@@ -376,3 +376,10 @@ Multi-clip export uses the existing shared owned worker, normalization/framing, 
 Windows focused checks verified migration, streamed/count/concurrent upload bounds, ranges/revisions/hash invalidation, assigned removal, stale publication and a real 320 × 180 / 3.000-second / 90-frame green → blue → red assembly with source reuse. Captions appeared only in their selected interval; audio RMS was approximately 2046 / 0 / 2044 across tone/silent/tone sections. One isolated browser session uploaded two additional fixtures (different dimensions; one silent), created/assigned/trimmed/saved slots, rendered, played, downloaded and refreshed. Phone 390 × 844 stacked the editor without horizontal overflow and retained drafts between slots; desktop 1280 × 900 restored the same sequence/output. No physical-phone claim. [Evidence and remaining limitations](MULTI_CLIP_SEQUENCE.md).
 
 **Milestone 28: 100% implemented and locally verified, subject to exact-final-commit CI and architect acceptance. Expanded video baseline: 80%, pending architect reassessment. AI assembly: 0%; image mode: 0%. Stop after Milestone 28.**
+
+
+## Milestone 29: automatic selection and editable proposals
+
+Implemented **100%**, subject to final CI and architect acceptance. Users can suggest measured source ranges for saved reference slots, lock assignments, explicitly allow reuse, review/preview, apply to draft, adjust/save and export. Proposals/cache are separate from sequences; cancellation preserves prior results. Sequence caption still/motion previews now reuse export assembly and preserve animation phase across boundaries.
+
+Generated fixtures and one desktop/phone browser session verified selection, adjustment, real export/play/download and refresh. Method, scoring, actual evidence and limits: [Automatic assembly](AUTOMATIC_ASSEMBLY.md). No semantic subject-aware AI matching, model downloads or live TikTok calls. Expanded video baseline remains **88% pending architect reassessment**; image mode **0%**. Automatic measured range selection is complete; subject-aware matching remains pending. Earlier percentages are historical.

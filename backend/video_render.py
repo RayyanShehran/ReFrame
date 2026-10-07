@@ -616,16 +616,60 @@ def audio_graph(spec, original, video_start, reference, reference_start, duratio
     return ";".join(graph)
 
 
-def assemble_sequence(source, directory, stop, deadline, ffmpeg):
+def assemble_sequence(
+    source,
+    directory,
+    stop,
+    deadline,
+    ffmpeg,
+    *,
+    start_frame=0,
+    end_frame=None,
+    include_audio=True,
+    temp_budget=TEMP_BUDGET,
+):
     """One owned decode at a time; bounded intermediates feed the existing final encode."""
+    from functools import partial
+
+    run = partial(tool, temp_budget=temp_budget)
     spec = source["spec"]
+    original_sequence = spec.sequence
+    if end_frame is not None:
+        clipped, cursor = [], 0
+        for slot in original_sequence.slots:
+            first = max(start_frame, slot.output_start_frame)
+            last = min(end_frame, slot.output_end_frame)
+            if first >= last:
+                continue
+            source_start = slot.source_start_frame + first - slot.output_start_frame
+            clipped.append(
+                slot.model_copy(
+                    update={
+                        "source_start_frame": source_start,
+                        "source_end_frame": source_start + last - first,
+                        "duration_frames": last - first,
+                        "output_start_frame": cursor,
+                        "output_end_frame": cursor + last - first,
+                    }
+                )
+            )
+            cursor += last - first
+        spec = spec.model_copy(
+            update={
+                "sequence": original_sequence.model_copy(
+                    update={"slots": clipped, "output_frames": cursor}
+                )
+            }
+        )
     sources = sequences.validate(source["project_id"], spec.sequence, stop=stop, deadline=deadline)
-    primary_video, _, _ = probe(source["path"], directory, deadline)
+    primary_video, _, _ = probe(source["path"], directory, deadline, temp_budget=temp_budget)
     _, canvas, _ = framing_choices.geometry(primary_video, spec.framing)
-    original_audio = spec.audio.mode in {"original", "mix"} and any(
-        clip.metadata.has_audio for _, clip in sources.values()
+    original_audio = (
+        include_audio
+        and spec.audio.mode in {"original", "mix"}
+        and any(clip.metadata.has_audio for _, clip in sources.values())
     )
-    if spec.audio.mode == "mix" and not original_audio:
+    if include_audio and spec.audio.mode == "mix" and not original_audio:
         raise engine.RetrievalFailure(
             "audio_unavailable", "Mix requires audio in an assigned footage clip."
         )
@@ -633,7 +677,7 @@ def assemble_sequence(source, directory, stop, deadline, ffmpeg):
     for index, slot in enumerate(spec.sequence.slots):
         color.guard(stop, deadline)
         path, clip = sources[slot.clip_id]
-        video, audio, duration = probe(path, directory, deadline)
+        video, audio, duration = probe(path, directory, deadline, temp_budget=temp_budget)
         if slot.source_end_frame > cuts.frames(duration, cuts.ROUND_FLOOR):
             raise ValueError("Selected range exceeds decoded source duration")
         video_start = float(video.get("start_time", 0))
@@ -714,7 +758,7 @@ def assemble_sequence(source, directory, stop, deadline, ffmpeg):
             str(MAX_BYTES + 1),
             str(segment),
         ]
-        tool(args, directory, "sequence-segment", deadline)
+        run(args, directory, "sequence-segment", deadline)
         segments.append(segment)
     manifest = directory / "sequence.ffconcat"
     manifest.write_text(
@@ -726,7 +770,7 @@ def assemble_sequence(source, directory, stop, deadline, ffmpeg):
         encoding="utf-8",
     )
     assembled = directory / "assembled.mkv"
-    tool(
+    run(
         [
             ffmpeg,
             "-v",

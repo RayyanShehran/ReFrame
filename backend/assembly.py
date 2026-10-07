@@ -204,6 +204,7 @@ def overlaps(start, end, ranges):
 
 
 def select(data, measured, reference, stop=None, deadline=None):
+    # ponytail: greedy slot-order packing; revisit only if manual corrections prove insufficient.
     seq, settings = data["sequence"], data["settings"]
     occupied = {id: [] for id in measured}
     locked = set(settings.locked_slot_ids)

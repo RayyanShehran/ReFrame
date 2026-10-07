@@ -10,7 +10,7 @@ Sequence output: **1–60 slots, 1–3600 total frames at 30 fps**. Source range
 
 ## Storage/API
 
-SQLite schema **17**, sequence schema **1**, method **reference-slots-30fps-v1**, renderer **sdr-eq-mp4-v9**. Original `clips`/old plans/specs remain compatible; older renders default to no sequence. One sequence per project.
+SQLite schema **18**, sequence schema **1**, method **reference-slots-30fps-v1**, renderer **sdr-eq-mp4-v9**. Original `clips`/old plans/specs remain compatible; older renders default to no sequence. One sequence per project.
 
 - GET/POST `/api/projects/{id}/clips`: list/stream-upload. First library upload can retain the original; subsequent sources are additional clips.
 - POST `/api/projects/{id}/clips/{clip_id}`: validated display name. DELETE: explicit removal, blocked while a media job runs or saved sequence assigns it.
@@ -29,7 +29,7 @@ Each selected source interval is independently autorotated, SAR-corrected, resam
 
 Existing **300-second overall deadline**, **100 MiB final output**, **120 MiB aggregate staging watchdog (100 ms polling; possible overshoot)** and bounded tool output remain. Intermediate/final copies share that staging budget; complex/high-bitrate sequences can fail the resource bound even when input quotas pass. Staging uses sequential intermediates and a final encode, so more slots cost time and incur an additional video encode. No second worker/framework. Every assigned hash and saved sequence is revalidated before publication; stale work leaves previous output intact. Unconfirmed process cleanup remains quarantined.
 
-Individual caption still/motion previews currently support whole/legacy-cut timelines. Sequence captions/animation are inspected in the full real export; the UI says so and prevents misleading primary-clip previews. No live crop/waveform/professional timeline, automatic selection, per-clip grading, AI/model downloads or image mode. Physical phones were not tested.
+Saved sequence caption still/motion previews now share interval assembly with export, preserving output-time animation phase. See [automatic proposal and preview method](AUTOMATIC_ASSEMBLY.md). No live crop/waveform/professional timeline, automatic selection, per-clip grading, AI/model downloads or image mode. Physical phones were not tested.
 
 ## Actual evidence — 2026-10-07
 

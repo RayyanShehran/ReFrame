@@ -16,6 +16,7 @@ import font_assets
 import footage_analysis as footage
 import frame_preview as preview
 import framing
+import sequence
 import video_render as render
 from references import ReferenceError
 
@@ -43,6 +44,7 @@ class CaptionRequest(color.Schema):
     expected_framing_revision: int = Field(ge=0, strict=True)
     expected_caption_revision: int = Field(ge=1, strict=True)
     expected_plan_revision: int | None = Field(default=None, ge=1, strict=True)
+    expected_sequence_revision: int | None = Field(default=None, ge=1, strict=True)
 
 
 class CaptionFrame(color.Schema):
@@ -58,8 +60,10 @@ class CaptionFrame(color.Schema):
     cue_end_seconds: float
     output_timestamp_seconds: float
     source_timestamp_seconds: float
-    mode: Literal["whole", "cuts"]
+    mode: Literal["whole", "cuts", "sequence"]
     plan_revision: int | None
+    sequence_revision: int | None = None
+    source_clip_id: UUID | None = None
     image: preview.Image
     warnings: list[str]
     ffmpeg_version: str
@@ -183,12 +187,23 @@ def snapshot(project_id, request, deadline):
         raise ReferenceError(
             409, "captions_stale", "Save captions for the current output timeline."
         )
+    saved_sequence = None
     if track.timeline.mode == "sequence":
-        raise ReferenceError(
-            409,
-            "sequence_preview_unavailable",
-            "Render the saved sequence to inspect captions on its final timeline.",
-        )
+        current = sequence.read(project_id)
+        if (
+            current.status != "ready"
+            or current.sequence.revision != request.expected_sequence_revision
+        ):
+            raise ReferenceError(
+                409, "revision_conflict", "Sequence changed. Reload before previewing."
+            )
+        if request.expected_plan_revision is not None:
+            raise ReferenceError(
+                422, "invalid_timeline", "Sequence captions do not use a legacy plan."
+            )
+        saved_sequence = current.sequence
+    elif request.expected_sequence_revision is not None:
+        raise ReferenceError(422, "invalid_timeline", "This caption timeline has no sequence.")
     plan = None
     if track.timeline.mode == "cuts":
         current = edit_plan.read(project_id)
@@ -213,7 +228,11 @@ def snapshot(project_id, request, deadline):
             )
     return render.Spec(
         renderer_version=(
-            render.ANIMATION_VERSION if track.animation.mode != "none" else render.STYLE_VERSION
+            "sdr-eq-mp4-v9"
+            if saved_sequence
+            else render.ANIMATION_VERSION
+            if track.animation.mode != "none"
+            else render.STYLE_VERSION
         ),
         recipe_revision=saved_recipe.revision,
         reference=saved_recipe.reference,
@@ -222,6 +241,7 @@ def snapshot(project_id, request, deadline):
         framing=saved_framing,
         captions=track,
         edit_plan=plan,
+        sequence=saved_sequence,
     )
 
 
@@ -242,13 +262,51 @@ def caption_frame(project_id, request):
         video, _, duration = render.probe(
             source["path"], directory, deadline, temp_budget=preview.TEMP_BUDGET
         )
-        metadata = color.inspect_colors(video)
-        scale, canvas, final = framing.geometry(video, spec.framing)
-        resize = render.resize_filter(*scale, metadata)
         cue = spec.captions.cues[request.cue_index]
         index = output_frame(cue)
         source_index = index
-        if spec.edit_plan:
+        source_clip_id = None
+        original_source = source
+        path = source["path"]
+        if spec.sequence:
+            import clip_library
+
+            slot = next(
+                s for s in spec.sequence.slots if s.output_start_frame <= index < s.output_end_frame
+            )
+            source_index = slot.source_start_frame + index - slot.output_start_frame
+            source_clip_id = slot.clip_id
+            actual_path, actual_clip = clip_library.source(
+                project_id, slot.clip_id, deadline=deadline
+            )
+            source = dict(
+                source,
+                identity=footage.Source(
+                    project_id=project_id, clip_id=actual_path.name, media_sha256=actual_clip.sha256
+                ),
+            )
+            path = render.assemble_sequence(
+                {"project_id": project_id, "path": original_source["path"], "spec": spec},
+                directory,
+                None,
+                deadline,
+                shutil.which("ffmpeg") or "ffmpeg",
+                start_frame=index,
+                end_frame=index + 1,
+                include_audio=False,
+                temp_budget=preview.TEMP_BUDGET,
+            )
+            video, _, duration = render.probe(
+                path, directory, deadline, temp_budget=preview.TEMP_BUDGET
+            )
+        metadata = color.inspect_colors(video)
+        scale, canvas, final = framing.geometry(video, spec.framing)
+        resize = render.resize_filter(*scale, metadata)
+        if spec.sequence:
+            canvas = (video["width"], video["height"])
+            final = ""
+            graph = f"[0:{video['index']}]setpts=PTS-STARTPTS+{index}/30/TB[vout]"
+        elif spec.edit_plan:
             if spec.edit_plan.footage_frames > edit_plan.frames(duration, edit_plan.ROUND_FLOOR):
                 raise ReferenceError(409, "source_changed", "Cut plan exceeds the current footage.")
             segment = next(
@@ -273,7 +331,7 @@ def caption_frame(project_id, request):
             for part in (
                 final,
                 subtitle,
-                f"select='eq(n,{index})'",
+                f"select='eq(n,{0 if spec.sequence else index})'",
                 "trim=end_frame=1",
                 f"scale={size[0]}:{size[1]}:flags=area",
                 "format=rgb24",
@@ -281,10 +339,10 @@ def caption_frame(project_id, request):
             if part
         )
         graph += f";[vout]{filters}[image]"
-        image = png(graph, source["path"], directory, deadline, size)
+        image = png(graph, path, directory, deadline, size)
         if (
             snapshot(project_id, request, deadline) != spec
-            or footage.source(project_id, deadline=deadline) != source
+            or footage.source(project_id, deadline=deadline) != original_source
         ):
             raise ReferenceError(
                 409, "source_changed", "Caption preview sources or settings changed."
@@ -303,6 +361,8 @@ def caption_frame(project_id, request):
             source_timestamp_seconds=source_index / 30,
             mode=spec.captions.timeline.mode,
             plan_revision=spec.captions.timeline.plan_revision,
+            sequence_revision=spec.captions.timeline.sequence_revision,
+            source_clip_id=source_clip_id,
             image=image,
             warnings=metadata.warnings + warnings,
             ffmpeg_version=version(directory, deadline),
