@@ -8,6 +8,7 @@ from uuid import UUID
 
 from pydantic import Field
 
+import audio_settings
 import captions
 import color_analysis as color
 import color_recipe as recipe
@@ -16,6 +17,7 @@ import font_assets
 import footage_analysis as footage
 import frame_preview as preview
 import framing
+import grading
 import sequence
 import video_render as render
 from references import ReferenceError
@@ -40,11 +42,12 @@ class ReferenceFrame(color.Schema):
 
 class CaptionRequest(color.Schema):
     cue_index: int = Field(ge=0, le=199, strict=True)
-    expected_recipe_revision: int = Field(ge=1, strict=True)
+    expected_recipe_revision: int = Field(ge=0, strict=True)
     expected_framing_revision: int = Field(ge=0, strict=True)
     expected_caption_revision: int = Field(ge=1, strict=True)
     expected_plan_revision: int | None = Field(default=None, ge=1, strict=True)
     expected_sequence_revision: int | None = Field(default=None, ge=1, strict=True)
+    expected_grading_revision: int | None = Field(default=None, ge=0, strict=True)
 
 
 class CaptionFrame(color.Schema):
@@ -85,6 +88,7 @@ def version(directory, deadline):
 
 def png(graph, path, directory, deadline, size):
     target = directory / "caption-preview.png"
+    target.unlink(missing_ok=True)
     args = [
         shutil.which("ffmpeg") or "ffmpeg",
         "-v",
@@ -164,6 +168,21 @@ def reference_frame(project_id, request, *, stage=None):
 
 
 def snapshot(project_id, request, deadline):
+    grade = grading.read_settings(project_id)
+    if request.expected_grading_revision is not None or grade.revision:
+        spec = render.specification(
+            project_id,
+            request.expected_recipe_revision,
+            request.expected_plan_revision,
+            audio_settings.read(project_id).settings.revision,
+            request.expected_caption_revision,
+            request.expected_framing_revision,
+            request.expected_sequence_revision,
+            request.expected_grading_revision,
+        )
+        if not spec.captions.enabled or request.cue_index >= len(spec.captions.cues):
+            raise ReferenceError(422, "invalid_cue", "Enable and save a valid cue first.")
+        return spec
     color_request = preview.PreviewRequest(
         expected_recipe_revision=request.expected_recipe_revision,
         expected_framing_revision=request.expected_framing_revision,
@@ -215,8 +234,6 @@ def snapshot(project_id, request, deadline):
     elif request.expected_plan_revision is not None:
         raise ReferenceError(422, "invalid_timeline", "Whole-clip captions do not use a cut plan.")
     if track.automatic_binding:
-        import audio_settings
-
         audio = audio_settings.read(project_id)
         if (
             audio.status == "stale"
@@ -315,13 +332,19 @@ def caption_frame(project_id, request):
                 if s.output_start_frame <= index < s.output_end_frame
             )
             source_index = segment.source_start_frame + index - segment.output_start_frame
-            graph = render.cut_graph(spec, video, None, 0, resize)
+            graph = render.cut_graph(
+                spec, video, None, 0, resize, grade_filter=render.grading_filter(spec, directory)
+            )
         else:
             if index / 30 >= duration:
                 raise ReferenceError(
                     422, "invalid_cue", "Cue has no frame inside the current video."
                 )
-            graph = f"[0:{video['index']}]{render.whole_video_filter(resize, spec.effective)}[vout]"
+            grade_filter = render.grading_filter(spec, directory)
+            graph = (
+                f"[0:{video['index']}]"
+                f"{render.whole_video_filter(resize, spec.effective, grade_filter)}[vout]"
+            )
         subtitle, warnings = render.subtitle(
             spec.captions, project_id, directory, *canvas, deadline, temp_budget=preview.TEMP_BUDGET
         )

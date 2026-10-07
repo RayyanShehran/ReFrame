@@ -95,9 +95,15 @@ def generate(project_id, request):
             final = ""
             graph = f"[0:{video['index']}]setpts=PTS-STARTPTS+{start}/30/TB[vout]"
         elif spec.edit_plan:
-            graph = render.cut_graph(spec, video, None, 0, resize)
+            graph = render.cut_graph(
+                spec, video, None, 0, resize, grade_filter=render.grading_filter(spec, directory)
+            )
         else:
-            graph = f"[0:{video['index']}]{render.whole_video_filter(resize, spec.effective)}[vout]"
+            grade_filter = render.grading_filter(spec, directory)
+            graph = (
+                f"[0:{video['index']}]"
+                f"{render.whole_video_filter(resize, spec.effective, grade_filter)}[vout]"
+            )
         subtitle, warnings = render.subtitle(
             spec.captions, project_id, directory, *canvas, deadline, temp_budget=preview.TEMP_BUDGET
         )

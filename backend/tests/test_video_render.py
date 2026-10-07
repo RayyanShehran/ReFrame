@@ -393,7 +393,7 @@ def test_empty_decode_invalid_requests_and_bounds(local):
     client, directory, _ = local
     saved, _, _ = prepared(client, directory)
     endpoint = f"/api/projects/{saved['id']}/render"
-    for body in ({}, {"expected_revision": 0}, {"expected_revision": 1, "path": "other.mp4"}):
+    for body in ({}, {"expected_revision": -1}, {"expected_revision": 1, "path": "other.mp4"}):
         assert client.post(endpoint, json=body).status_code == 422
     with pytest.raises(ValueError, match="Missing decoded"):
         render.decode_counts(b"# no packets\n", False)

@@ -10,15 +10,19 @@ import time
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Literal
+from uuid import UUID
 
 from pydantic import Field
 
+import clip_library
 import color_analysis as color
 import color_recipe as recipe
 import footage_analysis as footage
 import framing
+import grading
 import projects
 import reference_engine as engine
+import sequence
 import video_render as render
 from references import ReferenceError
 
@@ -30,9 +34,13 @@ MAX_EDGE = 960
 
 
 class PreviewRequest(color.Schema):
-    expected_recipe_revision: int = Field(ge=1, strict=True)
+    expected_recipe_revision: int = Field(ge=0, strict=True)
     expected_framing_revision: int = Field(ge=0, strict=True)
     timestamp_seconds: float = Field(ge=0, le=120.1, strict=True, allow_inf_nan=False)
+    expected_grading_revision: int | None = Field(default=None, ge=0, strict=True)
+    clip_id: UUID | None = None
+    slot_id: UUID | None = None
+    expected_sequence_revision: int | None = Field(default=None, ge=1, strict=True)
 
 
 class Image(color.Schema):
@@ -48,6 +56,10 @@ class Preview(color.Schema):
     timestamp_seconds: float
     recipe_revision: int
     framing_revision: int
+    grading_revision: int | None = None
+    clip_id: UUID | None = None
+    slot_id: UUID | None = None
+    reference: Image | None = None
     original: Image
     edited: Image
     warnings: list[str]
@@ -221,6 +233,8 @@ def operation():
 
 
 def generate(project_id, request):
+    if request.expected_grading_revision is not None:
+        return generate_graded(project_id, request)
     with operation() as (directory, deadline):
         saved, settings = snapshot(project_id, request, deadline)
         source = footage.source(project_id, deadline=deadline)
@@ -304,6 +318,142 @@ def generate(project_id, request):
             timestamp_seconds=selected,
             recipe_revision=saved.revision,
             framing_revision=settings.revision,
+            original=before,
+            edited=after,
+            warnings=metadata.warnings,
+            ffmpeg_version=version,
+        )
+
+
+def generate_graded(project_id, request):
+    from caption_preview import ReferenceRequest, png, reference_frame
+
+    with operation() as (directory, deadline):
+        selected_settings = grading.read_settings(project_id)
+        if selected_settings.revision != request.expected_grading_revision:
+            raise ReferenceError(
+                409, "revision_conflict", "Color mode changed. Reload before previewing."
+            )
+        settings = framing.read(project_id).settings
+        if settings.revision != request.expected_framing_revision:
+            raise ReferenceError(
+                409, "revision_conflict", "Framing changed. Reload before previewing."
+            )
+        slot = None
+        clip_id = request.clip_id
+        if request.slot_id:
+            seq = sequence.read(project_id)
+            if seq.status != "ready" or seq.sequence.revision != request.expected_sequence_revision:
+                raise ReferenceError(409, "sequence_stale", "Save and reload the sequence first.")
+            slot = next((s for s in seq.sequence.slots if s.id == request.slot_id), None)
+            if not slot or (clip_id and clip_id != slot.clip_id):
+                raise ReferenceError(422, "invalid_slot", "Choose an assigned saved slot.")
+            clip_id = slot.clip_id
+            if (
+                not slot.source_start_frame / 30
+                <= request.timestamp_seconds
+                < slot.source_end_frame / 30
+            ):
+                raise ReferenceError(
+                    422, "invalid_timestamp", "Choose a time within this slot's source range."
+                )
+        if not clip_id:
+            clip_id = UUID(footage.source(project_id, deadline=deadline)["identity"].clip_id[5:37])
+        source_path, clip = clip_library.source(project_id, clip_id, deadline=deadline)
+        bound = grading.snapshot(project_id, [clip_id], [slot] if slot else [], deadline=deadline)
+        saved = recipe.read(project_id) if selected_settings.mode == "basic" else None
+        if saved and (
+            saved.status != "ready" or saved.recipe.revision != request.expected_recipe_revision
+        ):
+            raise ReferenceError(409, "recipe_stale", "Save and reload a valid Basic recipe first.")
+        video, _, duration = render.probe(source_path, directory, deadline, temp_budget=TEMP_BUDGET)
+        metadata = color.inspect_colors(video)
+        selected = moment(
+            source_path, video, duration, request.timestamp_seconds, directory, deadline
+        )
+        scale, canvas, final = framing.geometry(video, settings)
+        size = display_size(canvas)
+        resize = render.resize_filter(*scale, metadata)
+        grade_filter = (
+            render.color_filter(saved.effective)
+            if saved
+            else grading.filter_for(bound, clip_id, directory, slot)
+        )
+        prefix = (
+            f"[0:{video['index']}]setpts=PTS-STARTPTS,"
+            f"select='gte(t,{selected:.9f}-0.000001)',trim=end_frame=1,"
+        )
+
+        def picture(effect):
+            filters = ",".join(
+                p
+                for p in (
+                    resize,
+                    effect,
+                    final,
+                    f"scale={size[0]}:{size[1]}:flags=area",
+                    "format=rgb24",
+                )
+                if p
+            )
+            return png(prefix + filters + "[image]", source_path, directory, deadline, size)
+
+        before, after = picture("null"), picture(grade_filter)
+        reference = None
+        try:
+            ref_source = color.source(project_id, deadline=deadline)
+        except ReferenceError:
+            if selected_settings.mode == "transfer":
+                raise
+        else:
+            ref_time = (
+                (slot.reference_start_frame + slot.reference_end_frame) / 60
+                if slot and slot.reference_start_frame is not None
+                else render.probe(ref_source["path"], directory, deadline, temp_budget=TEMP_BUDGET)[
+                    2
+                ]
+                / 2
+            )
+            reference = reference_frame(
+                project_id,
+                ReferenceRequest(
+                    timestamp_seconds=ref_time,
+                    expected_reference_operation_id=ref_source["reference_operation_id"],
+                ),
+                stage=(directory, deadline),
+            ).image
+        if (
+            grading.read_settings(project_id) != selected_settings
+            or framing.read(project_id).settings != settings
+            or clip_library.source(project_id, clip_id, deadline=deadline)[1].sha256 != clip.sha256
+            or grading.snapshot(project_id, [clip_id], [slot] if slot else [], deadline=deadline)
+            != bound
+        ):
+            raise ReferenceError(409, "source_changed", "Preview settings or sources changed.")
+        color.guard(None, deadline)
+        version = (
+            tool(
+                [shutil.which("ffmpeg") or "ffmpeg", "-version"],
+                directory,
+                "preview-version",
+                deadline,
+                8192,
+            )
+            .decode()
+            .splitlines()[0]
+        )
+        return Preview(
+            source=footage.Source(
+                project_id=project_id, clip_id=source_path.name, media_sha256=clip.sha256
+            ),
+            requested_timestamp_seconds=request.timestamp_seconds,
+            timestamp_seconds=selected,
+            recipe_revision=saved.recipe.revision if saved else 0,
+            framing_revision=settings.revision,
+            grading_revision=selected_settings.revision,
+            clip_id=clip_id,
+            slot_id=request.slot_id,
+            reference=reference,
             original=before,
             edited=after,
             warnings=metadata.warnings,

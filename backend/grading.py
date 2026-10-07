@@ -6,9 +6,9 @@ import shutil
 import sys
 import uuid
 from functools import partial
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 import clip_library
 import color_analysis as color
@@ -57,18 +57,40 @@ class Prepare(color.Schema):
     expected_sequence_revision: int | None = Field(default=None, ge=1, strict=True)
 
 
+Time = Annotated[float, Field(ge=0, le=120.1, allow_inf_nan=False)]
+
+
 class Match(color.Schema):
     schema_version: Literal[1] = 1
     key: str = Field(pattern=r"^(clip|slot):[0-9a-f-]{36}$")
     clip_id: uuid.UUID
     source_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
     reference: color_recipe.ReferenceBinding
-    source_interval: tuple[float, float] | None = None
-    reference_interval: tuple[float, float] | None = None
+    source_interval: tuple[Time, Time] | None = None
+    reference_interval: tuple[Time, Time] | None = None
     slot_id: uuid.UUID | None = None
+    sequence_revision: int | None = Field(default=None, ge=1, strict=True)
     model: transfer.Model
     ffmpeg_version: str
     prepared_at: str
+
+    @model_validator(mode="after")
+    def coherent(self):
+        expected = f"slot:{self.slot_id}" if self.slot_id else f"clip:{self.clip_id}"
+        if self.key != expected:
+            raise ValueError("Invalid transform route")
+        if self.slot_id:
+            if (
+                not self.source_interval
+                or not self.reference_interval
+                or not self.sequence_revision
+            ):
+                raise ValueError("Assigned-shot matches need ranges and a sequence revision")
+            if any(start >= end for start, end in (self.source_interval, self.reference_interval)):
+                raise ValueError("Match intervals must be positive")
+        elif self.source_interval or self.reference_interval or self.sequence_revision:
+            raise ValueError("Project-look matches use the entire clip")
+        return self
 
 
 class Prepared(color.Schema):
@@ -117,18 +139,34 @@ def reference_binding(project_id, stop=None, deadline=None):
     )
 
 
-def validate(project_id, match, stop=None, deadline=None):
-    if match.model.algorithm != ALGORITHM or match.reference != reference_binding(
-        project_id, stop, deadline
+def cached(cache, key, function):
+    if key not in cache:
+        try:
+            cache[key] = function()
+        except ReferenceError as exc:
+            cache[key] = exc
+    if isinstance(cache[key], ReferenceError):
+        raise cache[key]
+    return cache[key]
+
+
+def validate(project_id, match, stop=None, deadline=None, *, cache=None):
+    cache = {} if cache is None else cache
+    if match.model.algorithm != ALGORITHM or match.reference != cached(
+        cache, "reference", lambda: reference_binding(project_id, stop, deadline)
     ):
         raise ReferenceError(
             409, "match_stale", "Reference or analysis changed. Match explicitly again."
         )
-    path, clip = clip_library.source(project_id, match.clip_id, stop=stop, deadline=deadline)
+    path, clip = cached(
+        cache,
+        str(match.clip_id),
+        lambda: clip_library.source(project_id, match.clip_id, stop=stop, deadline=deadline),
+    )
     if clip.sha256 != match.source_hash:
         raise ReferenceError(409, "match_stale", "Footage changed. Match this clip again.")
     if match.slot_id:
-        saved = sequence.read(project_id)
+        saved = cached(cache, "sequence", lambda: sequence.read(project_id))
         slot = (
             next((s for s in saved.sequence.slots if s.id == match.slot_id), None)
             if saved.sequence
@@ -160,11 +198,11 @@ def get_operation(project_id, require_active=False):
         matches = db.execute(
             "SELECT match FROM color_matches WHERE project_id=? ORDER BY key", (project_id,)
         ).fetchall()
-    entries = []
+    entries, cache = [], {}
     for record in matches:
         match = Match.model_validate_json(record[0])
         try:
-            validate(project_id, match)
+            validate(project_id, match, cache=cache)
             entries.append(Entry(match=match, valid=True))
         except ReferenceError as exc:
             entries.append(Entry(match=match, valid=False, message=exc.message))
@@ -400,6 +438,9 @@ def pipeline(data, directory, stop, deadline):
                     source_interval=target["source_interval"],
                     reference_interval=interval,
                     slot_id=target["slot_id"],
+                    sequence_revision=data["request"].expected_sequence_revision
+                    if target["slot_id"]
+                    else None,
                     model=transfer.fit(source, ref, mask or refmask),
                     ffmpeg_version=version,
                     prepared_at=projects.now(),
@@ -435,8 +476,9 @@ def pipeline(data, directory, stop, deadline):
 def commit(project_id, operation_id, data, prepared, stop, deadline):
     color.guard(stop, deadline)
     check_revision(project_id, data["request"].expected_revision)
+    cache = {}
     for match in prepared.matches:
-        validate(project_id, match, stop, deadline)
+        validate(project_id, match, stop, deadline, cache=cache)
     clean_stage(operation_id)
     with projects.database() as db:
         row = db.execute(
@@ -531,13 +573,13 @@ def snapshot(project_id, clip_ids, slots=(), stop=None, deadline=None):
             "SELECT key,match FROM color_matches WHERE project_id=?", (project_id,)
         ).fetchall()
     models = {r["key"]: Match.model_validate_json(r["match"]) for r in records}
-    result = []
+    result, cache = [], {}
     for key in sorted(keys):
         if key not in models:
             raise ReferenceError(
                 409, "match_required", "Match every selected clip/shot before rendering."
             )
-        validate(project_id, models[key], stop, deadline)
+        validate(project_id, models[key], stop, deadline, cache=cache)
         result.append(models[key])
     return Snapshot(settings=settings, matches=result)
 
@@ -570,5 +612,6 @@ def filter_for(bound, clip_id, directory, slot=None):
     path = directory / name
     if not path.exists():
         transfer.cube(path, match.model, controls)
-    # Server-generated basename, never a supplied path; renderer executes in directory.
-    return f"format=gbrp,lut3d=file={name}:interp=tetrahedral,format=yuv420p"
+    from captions import filter_path
+
+    return f"format=gbrp,lut3d=file={filter_path(path)}:interp=tetrahedral,format=yuv420p"

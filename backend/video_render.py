@@ -14,12 +14,14 @@ from starlette.responses import FileResponse
 
 import audio_settings as audio_choices
 import captions as caption_tracks
+import clip_library
 import color_analysis as color
 import color_recipe as recipe
 import edit_plan as cuts
 import font_assets
 import footage_analysis as footage
 import framing as framing_choices
+import grading as grading_choices
 import projects
 import reference_engine as engine
 import sequence as sequences
@@ -59,8 +61,8 @@ class Settings(color.Schema):
 class Spec(color.Schema):
     schema_version: Literal[1] = 1
     renderer_version: str = Field(default=VERSION, pattern=r"^sdr-eq-mp4-v[1-9][0-9]*$")
-    recipe_revision: int = Field(ge=1, strict=True)
-    reference: recipe.ReferenceBinding
+    recipe_revision: int = Field(ge=0, strict=True)
+    reference: recipe.ReferenceBinding | None
     footage: recipe.FootageBinding
     effective: recipe.Values
     settings: Settings = Field(default_factory=Settings)
@@ -69,6 +71,7 @@ class Spec(color.Schema):
     audio: audio_choices.Settings = Field(default_factory=audio_choices.Settings)
     captions: caption_tracks.Track = Field(default_factory=caption_tracks.Track)
     framing: framing_choices.Settings = Field(default_factory=framing_choices.Settings)
+    grading: grading_choices.Snapshot | None = None
 
 
 class Output(color.Schema):
@@ -100,12 +103,13 @@ class Operation(color.Schema):
 
 
 class RenderRequest(color.Schema):
-    expected_revision: int = Field(ge=1, strict=True)
+    expected_revision: int = Field(ge=0, strict=True)
     expected_plan_revision: int | None = Field(default=None, ge=1, strict=True)
     expected_audio_revision: int | None = Field(default=None, ge=0, strict=True)
     expected_caption_revision: int | None = Field(default=None, ge=0, strict=True)
     expected_framing_revision: int | None = Field(default=None, ge=0, strict=True)
     expected_sequence_revision: int | None = Field(default=None, ge=1, strict=True)
+    expected_grading_revision: int | None = Field(default=None, ge=0, strict=True)
 
 
 def destination(project_id, output_id):
@@ -125,12 +129,32 @@ def specification(
     expected_caption_revision=None,
     expected_framing_revision=None,
     expected_sequence_revision=None,
+    expected_grading_revision=None,
 ):
-    result = recipe.read(project_id)
-    if result.status != "ready":
-        raise ReferenceError(409, "recipe_stale", "Save a valid color recipe before rendering.")
-    if result.recipe.revision != expected_revision:
+    settings = grading_choices.read_settings(project_id)
+    if settings.revision != (expected_grading_revision or 0):
+        raise ReferenceError(
+            409, "revision_conflict", "Include the current saved color-mode revision."
+        )
+    result = recipe.read(project_id) if settings.mode == "basic" else None
+    if result and result.status != "ready":
+        raise ReferenceError(409, "recipe_stale", "Save a valid Basic recipe before rendering.")
+    if result and result.recipe.revision != expected_revision:
         raise ReferenceError(409, "revision_conflict", "Recipe changed. Reload before rendering.")
+    source = footage.source(project_id)
+    original_id = uuid.UUID(source["identity"].clip_id[5:37])
+    _, original_clip = clip_library.source(project_id, original_id)
+    clip_binding = (
+        result.recipe.footage
+        if result
+        else recipe.FootageBinding(
+            source=source["identity"],
+            operation_id=original_id,
+            schema_version=1,
+            algorithm_version="retained-source-v1",
+            analyzed_at=original_clip.saved_at,
+        )
+    )
     sequence = None
     if expected_sequence_revision is not None:
         if expected_plan_revision is not None:
@@ -193,10 +217,22 @@ def specification(
             raise ReferenceError(409, "revision_conflict", "Include the saved framing revision.")
     elif expected_framing_revision != saved_framing.revision:
         raise ReferenceError(409, "revision_conflict", "Framing changed. Reload before rendering.")
+    grade = (
+        grading_choices.snapshot(
+            project_id,
+            [original_id] + ([s.clip_id for s in sequence.slots] if sequence else []),
+            sequence.slots if sequence else [],
+        )
+        if settings.revision
+        else None
+    )
     return Spec(
+        grading=grade,
         framing=saved_framing,
         sequence=sequence,
-        renderer_version="sdr-eq-mp4-v9"
+        renderer_version="sdr-eq-mp4-v10"
+        if grade
+        else "sdr-eq-mp4-v9"
         if sequence
         else ANIMATION_VERSION
         if caption.track.animation.mode != "none"
@@ -217,10 +253,10 @@ def specification(
         audio=audio.settings,
         captions=caption.track,
         edit_plan=plan,
-        recipe_revision=result.recipe.revision,
-        reference=result.recipe.reference,
-        footage=result.recipe.footage,
-        effective=result.effective,
+        recipe_revision=result.recipe.revision if result else 0,
+        reference=result.recipe.reference if result else None,
+        footage=clip_binding,
+        effective=result.effective if result else recipe.Values(),
     )
 
 
@@ -269,21 +305,23 @@ def get_operation(project_id, require_active=False):
         try:
             bound = output.spec if output else spec
             current_plan = cuts.read(project_id) if bound.edit_plan else None
-            current = recipe.read(project_id)
+            grade_settings = grading_choices.read_settings(project_id)
+            current = recipe.read(project_id) if grade_settings.mode == "basic" else None
             current_audio = audio_choices.read(project_id)
             current_captions = caption_tracks.read(project_id)
             outdated = (
-                current.status != "ready"
+                (current is not None and current.status != "ready")
                 or (current_plan is not None and current_plan.status != "ready")
                 or current_audio.status == "stale"
                 or specification(
                     project_id,
-                    current.recipe.revision,
+                    current.recipe.revision if current and current.recipe else 0,
                     current_plan.plan.revision if current_plan and current_plan.plan else None,
                     current_audio.settings.revision,
                     current_captions.track.revision,
                     framing_choices.read(project_id).settings.revision,
                     sequences.read(project_id).sequence.revision if bound.sequence else None,
+                    grade_settings.revision,
                 )
                 != bound
             )
@@ -310,6 +348,7 @@ def reusable(
     expected_caption_revision=None,
     expected_framing_revision=None,
     expected_sequence_revision=None,
+    expected_grading_revision=None,
 ):
     spec = specification(
         project_id,
@@ -319,6 +358,7 @@ def reusable(
         expected_caption_revision,
         expected_framing_revision,
         expected_sequence_revision,
+        expected_grading_revision,
     )
     current = get_operation(project_id, True)
     return current if current.status in {"running", "ready"} and current.spec == spec else None
@@ -373,6 +413,7 @@ def begin_operation(
     expected_caption_revision=None,
     expected_framing_revision=None,
     expected_sequence_revision=None,
+    expected_grading_revision=None,
 ):
     current = reusable(
         project_id,
@@ -382,6 +423,7 @@ def begin_operation(
         expected_caption_revision,
         expected_framing_revision,
         expected_sequence_revision,
+        expected_grading_revision,
     )
     if current:
         return current, None
@@ -394,6 +436,7 @@ def begin_operation(
         expected_caption_revision,
         expected_framing_revision,
         expected_sequence_revision,
+        expected_grading_revision,
     )
     source = footage.source(project_id)
     operation_id = str(uuid.uuid4())
@@ -492,8 +535,16 @@ def color_filter(values):
     )
 
 
-def whole_video_filter(resize, values):
-    return f"setpts=PTS-STARTPTS,{resize},{color_filter(values)},fps=30:round=near"
+def grading_filter(spec, directory, clip_id=None, slot=None):
+    if not spec.grading or spec.grading.settings.mode == "basic":
+        return color_filter(spec.effective)
+    return grading_choices.filter_for(
+        spec.grading, clip_id or uuid.UUID(spec.footage.source.clip_id[5:37]), directory, slot
+    )
+
+
+def whole_video_filter(resize, values, grade_filter=None):
+    return f"setpts=PTS-STARTPTS,{resize},{grade_filter or color_filter(values)},fps=30:round=near"
 
 
 def subtitle(track, project_id, directory, width, height, deadline, *, temp_budget=TEMP_BUDGET):
@@ -545,7 +596,7 @@ def decode_counts(raw, has_audio):
     return frames, samples
 
 
-def cut_graph(spec, video, audio, video_start, resize, audio_label="aout"):
+def cut_graph(spec, video, audio, video_start, resize, audio_label="aout", grade_filter=None):
     """Chronological select concatenates video without buffering sixty video branches."""
     plan = spec.edit_plan
     selection = "+".join(
@@ -555,7 +606,7 @@ def cut_graph(spec, video, audio, video_start, resize, audio_label="aout"):
     graph = (
         f"[0:{video['index']}]setpts=PTS-STARTPTS,{resize},fps=30:round=near,"
         f"select='{selection}',setpts=N/(30*TB),"
-        f"{color_filter(v)}[vout]"
+        f"{grade_filter or color_filter(v)}[vout]"
     )
     if audio:
         count = len(plan.segments)
@@ -697,7 +748,8 @@ def assemble_sequence(
         graph = (
             f"[0:{video['index']}]setpts=PTS-STARTPTS,fps=30:round=near,"
             f"trim=start_frame={slot.source_start_frame}:end_frame={slot.source_end_frame},"
-            f"setpts=N/(30*TB),{resize_filter(*scale, metadata)},{color_filter(spec.effective)}"
+            f"setpts=N/(30*TB),{resize_filter(*scale, metadata)},"
+            f"{grading_filter(spec, directory, slot.clip_id, slot)}"
             + (f",{final}" if final else "")
             + "[v]"
         )
@@ -841,7 +893,9 @@ def pipeline(source, directory, stop, deadline):
         )
         # Normalize range before eq; output is tagged limited BT.709. Autorotation is enabled.
         resize = resize_filter(scale_width, scale_height, metadata)
-        filters = whole_video_filter(resize, values)
+        filters = whole_video_filter(
+            resize, values, "null" if spec.sequence else grading_filter(spec, directory)
+        )
         target = directory / "output.mp4"
         args = [
             ffmpeg,
@@ -892,6 +946,7 @@ def pipeline(source, directory, stop, deadline):
                 video_start,
                 resize,
                 "aorig" if custom_audio else "aout",
+                grading_filter(spec, directory),
             )
             if final_filter:
                 graph += f";[vout]{final_filter}[vfinal]"
@@ -1074,11 +1129,17 @@ def pipeline(source, directory, stop, deadline):
 def commit(project_id, operation_id, path, output, stop, deadline):
     color.guard(stop, deadline)
     # An edit can make this revision outdated; source/analysis bindings must still match.
-    _, _, reference, clip = recipe.bindings(project_id, stop=stop, deadline=deadline)
-    if reference != output.spec.reference or clip != output.spec.footage:
-        raise engine.RetrievalFailure(
-            "source_changed", "Render sources changed before publication."
-        )
+    if not output.spec.grading or output.spec.grading.settings.mode == "basic":
+        _, _, reference, clip = recipe.bindings(project_id, stop=stop, deadline=deadline)
+        if reference != output.spec.reference or clip != output.spec.footage:
+            raise engine.RetrievalFailure(
+                "source_changed", "Render sources changed before publication."
+            )
+    elif footage.source(project_id, stop, deadline)["identity"] != output.spec.footage.source:
+        raise engine.RetrievalFailure("source_changed", "Footage changed before publication.")
+    if output.spec.grading:
+        for match in output.spec.grading.matches:
+            grading_choices.validate(project_id, match, stop, deadline)
     if output.spec.sequence:
         sequences.validate(project_id, output.spec.sequence, stop=stop, deadline=deadline)
         current = sequences.read(project_id)

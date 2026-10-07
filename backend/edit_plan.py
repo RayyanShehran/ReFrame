@@ -251,7 +251,9 @@ def generate(project_id, request):
         raise ReferenceError(
             409, "plan_exists", "Regenerate explicitly to replace the saved cut plan and edits."
         )
-    if recipe.read(project_id).status != "ready":
+    from grading import read_settings
+
+    if read_settings(project_id).mode == "basic" and recipe.read(project_id).status != "ready":
         raise ReferenceError(
             409, "recipe_not_ready", "Save a valid color recipe before generating cuts."
         )

@@ -514,6 +514,7 @@ async def start_render(project_id: str, request: video_render.RenderRequest):
         expected_caption_revision=request.expected_caption_revision,
         expected_framing_revision=request.expected_framing_revision,
         expected_sequence_revision=request.expected_sequence_revision,
+        expected_grading_revision=request.expected_grading_revision,
     )
 
 
