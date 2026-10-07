@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { WorkspaceSection, useWorkspaceReport, useWorkspaceNavigation } from "./guided-workspace";
+import { GradingControls, initialGrading, type GradingState } from "./grading-controls";
 import { FramePreview } from "./frame-preview";
 import { RenderVideo } from "./render-video";
 import { SequenceEditor, emptySequence, type SequenceState } from "./sequence-editor";
@@ -60,6 +61,7 @@ export function ColorRecipe({ projectId, analysesReady, footageDuration = null, 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [confirmRegenerate, setConfirmRegenerate] = useState(false);
+  const [grading, setGrading] = useState<GradingState>(initialGrading);
   const [sequenceState, setSequenceState] = useState<SequenceState>(emptySequence);
   const [planState, setPlanState] = useState<PlanState>({ revision: null, ready: false, dirty: false, busy: false });
   const [audioState, setAudioState] = useState<AudioState>({ revision: null, ready: false, dirty: false, busy: false });
@@ -68,7 +70,7 @@ export function ColorRecipe({ projectId, analysesReady, footageDuration = null, 
   const action = useRef<AbortController | null>(null);
   const recipe = result?.recipe;
   const dirty = !!recipe && (fields.some(f => draft.selected[f.name] !== recipe.selected[f.name]) || draft.strength !== recipe.strength);
-  useWorkspaceReport("recipe", "style", busy ? "Working" : error || result?.status === "stale" ? "Needs attention" : result?.status === "ready" && !dirty ? "Ready" : "Needs input", busy ? "Saving or loading recipe…" : undefined);
+  useWorkspaceReport("recipe", "style", grading.mode !== "basic" ? "Ready" : busy ? "Working" : error || result?.status === "stale" ? "Needs attention" : result?.status === "ready" && !dirty ? "Ready" : "Needs input", grading.mode === "basic" && busy ? "Saving or loading recipe…" : undefined);
   function restore(value: Result) {
     setResult(value); setError(""); setConfirmRegenerate(false);
     if (value.recipe) setDraft({ selected: value.recipe.selected, strength: value.recipe.strength });
@@ -104,7 +106,13 @@ export function ColorRecipe({ projectId, analysesReady, footageDuration = null, 
     } finally { if (action.current === controller) { action.current = null; if (!controller.signal.aborted) setBusy(false); } }
   }
 
-  return <><WorkspaceSection section="style"><section className="reference-section" aria-label="Color recipe">
+  const activeRevision = grading.mode === "basic" ? recipe?.revision ?? null : 0;
+  const activeReady = grading.mode === "basic" ? result?.status === "ready" : grading.ready;
+  const activeDirty = grading.dirty || (grading.mode === "basic" && dirty);
+  const activeBusy = grading.busy || (grading.mode === "basic" && busy);
+  return <><WorkspaceSection section="style">
+    <GradingControls projectId={projectId} sourceKey={sourceKey} analysesReady={analysesReady} sequence={sequenceState} onState={setGrading} />
+    <details open={grading.mode === "basic"}><summary>Basic adjustment recipe</summary><section className="reference-section" aria-label="Color recipe">
     <h3>Color recipe</h3>
     <p className="hint">Experimental creative settings, not exposure stops, recovered LUTs or a guarantee of matching appearance. White balance is not inferred. Changing these controls does not produce a live video preview. Save, then render to see the result.</p>
     {!result && !error && <p role="status">Loading recipe…</p>}
@@ -136,14 +144,14 @@ export function ColorRecipe({ projectId, analysesReady, footageDuration = null, 
     </>}
     <button disabled={busy} onClick={() => void run("reload")}>{dirty ? "Discard changes and reload" : "Reload saved recipe"}</button>
     {busy && <p role="status">Saving or loading recipe…</p>}
-    </section>
-    <FramePreview key={`preview-${projectId}`} projectId={projectId} duration={footageDuration} revision={recipe?.revision ?? null} recipeReady={result?.status === "ready"} recipeDirty={dirty} recipeBusy={busy} framing={framingState} />
-    <EditPlan key={`plan-${projectId}`} projectId={projectId} recipeReady={result?.status === "ready" && !dirty && !busy} onState={setPlanState} /><SequenceEditor projectId={projectId} onState={setSequenceState} /></WorkspaceSection>
+    </section></details>
+    <FramePreview key={`preview-${projectId}`} projectId={projectId} duration={footageDuration} grading={grading} revision={activeRevision} recipeReady={activeReady} recipeDirty={activeDirty} recipeBusy={activeBusy} framing={framingState} />
+    <EditPlan key={`plan-${projectId}`} projectId={projectId} recipeReady={activeReady && !activeDirty && !activeBusy} onState={setPlanState} /><SequenceEditor projectId={projectId} onState={setSequenceState} /></WorkspaceSection>
     <WorkspaceSection section="audio">
     <AudioChoices sourceKey={sourceKey} key={`audio-${projectId}`} projectId={projectId} onState={setAudioState} />
-    <CaptionEditor sourceKey={sourceKey} key={`captions-${projectId}`} projectId={projectId} planState={planState} sequenceState={sequenceState} onState={setCaptionState} appearance={{ recipeRevision: recipe?.revision ?? null, recipeReady: result?.status === "ready", recipeDirty: dirty, recipeBusy: busy, framing: framingState }} />
+    <CaptionEditor sourceKey={sourceKey} key={`captions-${projectId}`} projectId={projectId} planState={planState} sequenceState={sequenceState} onState={setCaptionState} appearance={{ gradingRevision: grading.revision, recipeRevision: activeRevision, recipeReady: activeReady, recipeDirty: activeDirty, recipeBusy: activeBusy, framing: framingState }} />
     </WorkspaceSection><WorkspaceSection section="export">
-    <RenderVideo savedStrength={recipe?.strength} savedValues={recipe?.selected} framingState={framingState} projectId={projectId} revision={recipe?.revision ?? null} recipeReady={result?.status === "ready"} dirty={dirty} busy={busy} planState={planState} sequenceState={sequenceState} audioState={audioState} captionState={captionState} />
+    <RenderVideo grading={grading} savedStrength={grading.mode === "basic" ? recipe?.strength : undefined} savedValues={grading.mode === "basic" ? recipe?.selected : undefined} framingState={framingState} projectId={projectId} revision={activeRevision} recipeReady={activeReady} dirty={activeDirty} busy={activeBusy} planState={planState} sequenceState={sequenceState} audioState={audioState} captionState={captionState} />
     <FramingControls key={`framing-${projectId}`} projectId={projectId} onState={setFramingState} />
   </WorkspaceSection></>;
 }

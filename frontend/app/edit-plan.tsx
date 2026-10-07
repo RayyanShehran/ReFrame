@@ -88,7 +88,7 @@ export function EditPlan({ projectId, recipeReady, onState }: { projectId: strin
     <p className="hint">Optional for whole-clip export. An experimental timing suggestion from estimated reference shot lengths, not semantic matching. Review the footage ranges. No transitions are added. Audio and manual captions are saved separately below.</p>
     {!result && !error && <p role="status">Loading cut plan…</p>}
     {result?.message && <p role={result.status === "stale" ? "alert" : "note"}>{result.message}</p>}
-    {!recipeReady && <p>Save a valid color recipe before generating or rendering cuts.</p>}
+    {!recipeReady && <p>Save a valid color mode and its required settings before generating or rendering cuts.</p>}
     {error && <p role="alert">{error}</p>}
     <label htmlFor={`duration-${projectId}`}>Requested output duration (seconds)
       <input id={`duration-${projectId}`} type="number" min={1 / 30} max={result?.max_duration_seconds ?? 120} step="any" value={duration} disabled={busy} onChange={e => setDuration(e.target.value)} />

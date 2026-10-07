@@ -83,7 +83,7 @@ it("requires a saved valid recipe and sends only its revision, then restores nat
 it("shows running and failed replacement while retaining the completed video", async () => {
   vi.stubGlobal("fetch", vi.fn(async () => ok({ ...ready, status: "running", spec: { recipe_revision: 3 }, outdated: true })));
   const view = render(<RenderVideo projectId="project" revision={3} recipeReady dirty={false} busy={false} />);
-  expect(await screen.findByText(/Rendering saved recipe revision 3/)).toBeInTheDocument();
+  expect(await screen.findByText(/Rendering saved color settings/)).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Render video" })).toBeDisabled();
   view.unmount();
   vi.stubGlobal("fetch", vi.fn(async () => ok({ ...ready, status: "failed", outdated: true, message: "Encoder failed safely." })));

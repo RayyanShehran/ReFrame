@@ -21,7 +21,7 @@ it("waits for an explicit action and picks the midpoint when footage becomes ava
   fireEvent.click(screen.getByRole("button", { name: "Update preview" }));
   await screen.findByRole("img", { name: /Original footage/ });
   expect(JSON.parse(fetcher.mock.calls[0][1].body as string)).toEqual({ expected_recipe_revision: 2, expected_framing_revision: 0, timestamp_seconds: 2 });
-  expect(screen.getByRole("img", { name: /Edited footage/ })).toBeVisible();
+  expect(screen.getByRole("img", { name: /Graded footage/ })).toBeVisible();
 });
 
 it("retains previous images during replacement and failure, and marks saved revisions outdated", async () => {
@@ -78,4 +78,24 @@ it("keeps its preview across workspace sections without decoding again", async (
   expect(original).not.toBeVisible();
   fireEvent.click(screen.getByRole("button", { name: "Style & cuts" }));
   expect(original).toBeVisible(); expect(fetcher).toHaveBeenCalledTimes(1);
+});
+
+it("uses the saved selected clip route and marks rematched frames outdated", async () => {
+  const clipId = "11111111-1111-4111-8111-111111111111";
+  const grading = { mode: "transfer" as const, revision: 4, ready: true, dirty: false,
+    busy: false, sequenceReady: true, sequenceRevision: null,
+    choices: [{ key: `clip:${clipId}`, name: "Second clip", clipId, start: 0, end: 3, version: "first-fit" }] };
+  const fetcher = vi.fn<(url: string, options: RequestInit) => Promise<Response>>(async () => ok({ ...result(1.5, 0), grading_revision: 4,
+    clip_id: clipId, slot_id: null, reference: image }));
+  vi.stubGlobal("fetch", fetcher);
+  const view = render(<FramePreview {...props} revision={0} grading={grading} />);
+  fireEvent.click(screen.getByRole("button", { name: "Update preview" }));
+  expect(await screen.findByRole("img", { name: "Reference color look" })).toBeVisible();
+  expect(screen.getByRole("img", { name: /Graded footage/ })).toBeVisible();
+  expect(JSON.parse(fetcher.mock.calls[0][1].body as string)).toMatchObject({
+    expected_recipe_revision: 0, expected_grading_revision: 4, clip_id: clipId,
+  });
+  view.rerender(<FramePreview {...props} revision={0} grading={{...grading,
+    choices:[{...grading.choices[0], version: "replacement-fit"}]}} />);
+  expect(screen.getByText(/Outdated preview/)).toBeVisible();
 });

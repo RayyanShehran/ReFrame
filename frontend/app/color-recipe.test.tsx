@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, expect, it, vi } from "vitest";
 import { ColorRecipe } from "./color-recipe";
 
+vi.mock("./grading-controls", async importOriginal => ({ ...(await importOriginal<typeof import("./grading-controls")>()), GradingControls: () => null }));
 vi.mock("./render-video", () => ({ RenderVideo: () => null }));
 vi.mock("./sequence-editor", () => ({ SequenceEditor: () => null, emptySequence: { revision: null, ready: false, dirty: false, busy: false } }));
 vi.mock("./edit-plan", () => ({ EditPlan: () => null }));

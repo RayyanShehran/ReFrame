@@ -1,5 +1,6 @@
 "use client";
 
+import { colorModes, type GradingState } from "./grading-controls";
 import { MediaOperation, useMediaOperation } from "./use-media-operation";
 import { useEffect, useState } from "react";
 import { sections, useWorkspaceNavigation, type Section } from "./guided-workspace";
@@ -10,7 +11,7 @@ import { CaptionState } from "./caption-editor";
 import { FramingState, formatLabels } from "./framing-controls";
 import { fontLabel, validFont, type FontBinding } from "./caption-style-controls";
 
-type Spec = { recipe_revision: number; edit_plan?: { revision: number } | null; sequence?: { revision: number } | null; audio?: { revision: number; mode: keyof typeof audioModeLabels }; captions?: { revision: number; enabled: boolean; font_binding?: FontBinding; style?: { font_origin?: string } }; framing?: { revision: number; format: keyof typeof formatLabels } };
+type Spec = { grading?: { settings: { mode: keyof typeof colorModes; revision: number } } | null; recipe_revision: number; edit_plan?: { revision: number } | null; sequence?: { revision: number } | null; audio?: { revision: number; mode: keyof typeof audioModeLabels }; captions?: { revision: number; enabled: boolean; font_binding?: FontBinding; style?: { font_origin?: string } }; framing?: { revision: number; format: keyof typeof formatLabels } };
 type Output = { output_id: string; spec: Spec; width: number; height: number; duration_seconds: number; size_bytes: number; font_warnings?: string[] };
 type Operation = MediaOperation & { output: Output | null; spec: Spec | null; outdated: boolean };
 const apiBase = (process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000").replace(/\/$/, "");
@@ -20,7 +21,7 @@ function parse(data: unknown): Operation {
   if (value.output) {
     const o = value.output;
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(o.output_id) ||
-      !Number.isSafeInteger(o.spec?.recipe_revision) || o.spec.recipe_revision < 1 ||
+      !Number.isSafeInteger(o.spec?.recipe_revision) || o.spec.recipe_revision < 0 ||
       ![o.width, o.height, o.duration_seconds, o.size_bytes].every(n => Number.isFinite(n) && n > 0)) throw new Error("Invalid rendered video response.");
     if (o.spec.audio && (!Object.hasOwn(audioModeLabels, o.spec.audio.mode) || !Number.isSafeInteger(o.spec.audio.revision) || o.spec.audio.revision < 0)) throw new Error("Invalid rendered audio response.");
     if (o.spec.framing && (!Object.hasOwn(formatLabels, o.spec.framing.format) || !Number.isSafeInteger(o.spec.framing.revision) || o.spec.framing.revision < 0)) throw new Error("Invalid rendered framing response.");
@@ -30,13 +31,14 @@ function parse(data: unknown): Operation {
   return value;
 }
 
-export function RenderVideo({ savedStrength, savedValues, projectId, revision, recipeReady, dirty, busy, planState, sequenceState = emptySequence, audioState = { revision: 0, ready: true, dirty: false, busy: false }, framingState = { revision: 0, ready: true, dirty: false, busy: false }, captionState = { revision: 0, ready: true, dirty: false, busy: false, enabled: false, mode: null, planRevision: null } }: { savedStrength?: number; savedValues?: { brightness: number; contrast: number; saturation: number }; projectId: string; revision: number | null; recipeReady: boolean; dirty: boolean; busy: boolean; planState?: PlanState; sequenceState?: SequenceState; audioState?: AudioState; captionState?: CaptionState; framingState?: FramingState }) {
+export function RenderVideo({ grading, savedStrength, savedValues, projectId, revision, recipeReady, dirty, busy, planState, sequenceState = emptySequence, audioState = { revision: 0, ready: true, dirty: false, busy: false }, framingState = { revision: 0, ready: true, dirty: false, busy: false }, captionState = { revision: 0, ready: true, dirty: false, busy: false, enabled: false, mode: null, planRevision: null } }: { grading?: GradingState; savedStrength?: number; savedValues?: { brightness: number; contrast: number; saturation: number }; projectId: string; revision: number | null; recipeReady: boolean; dirty: boolean; busy: boolean; planState?: PlanState; sequenceState?: SequenceState; audioState?: AudioState; captionState?: CaptionState; framingState?: FramingState }) {
   const [mode, setMode] = useState("whole");
   const cuts = mode === "cuts", sequence = mode === "sequence";
   const captionMatches = !captionState.enabled || (captionState.mode === mode && (!cuts || captionState.planRevision === planState?.revision) && (!sequence || captionState.sequenceRevision === sequenceState.revision));
-  const { operation, error, starting, start } = useMediaOperation(projectId, "render", parse, 360);
+  const { operation, error, starting, start, refresh } = useMediaOperation(projectId, "render", parse, 360);
+  useEffect(() => { refresh(); }, [grading?.revision, grading?.version, refresh]);
   const output = operation?.output;
-  const outdated = !!output && (operation?.outdated || !recipeReady || output.spec.recipe_revision !== revision ||
+  const outdated = !!output && (operation?.outdated || !recipeReady || output.spec.recipe_revision !== revision || (grading && (output.spec.grading?.settings.revision ?? 0) !== grading.revision) ||
     !framingState.ready || (output.spec.framing?.revision ?? 0) !== framingState.revision ||
     !captionState.ready || (output.spec.captions?.revision ?? 0) !== captionState.revision ||
     !audioState.ready || (output.spec.audio?.revision ?? 0) !== audioState.revision ||
@@ -48,9 +50,10 @@ export function RenderVideo({ savedStrength, savedValues, projectId, revision, r
   const next = navigation?.next;
   const blockers: { section: Section; message: string }[] = [];
   const block = (condition: unknown, section: Section, message: string) => { if (condition) blockers.push({ section, message }); };
-  block(!recipeReady || !revision, "style", "Generate or regenerate a valid color recipe before rendering.");
-  block(dirty, "style", "Save your unsaved recipe changes before rendering.");
-  block(busy, "style", "Wait for the recipe operation to finish.");
+  block(!recipeReady || revision === null, "style", "Save a valid color mode and required matches before rendering.");
+  block(sequence && grading && !grading.sequenceReady, "style", "Match every assigned clip or reference shot before rendering the sequence.");
+  block(dirty, "style", "Save your unsaved color changes before rendering.");
+  block(busy, "style", "Wait for the color operation to finish.");
   block(cuts && !planState?.ready, "style", "Generate or regenerate a valid saved cut plan before rendering cuts.");
   block(cuts && planState?.dirty, "style", "Save your unsaved cut changes before rendering.");
   block(cuts && planState?.busy, "style", "Wait for the cut plan operation to finish.");
@@ -80,14 +83,15 @@ export function RenderVideo({ savedStrength, savedValues, projectId, revision, r
   const url = output ? `${apiBase}/api/projects/${encodeURIComponent(projectId)}/outputs/${output.output_id}` : "";
   return <section className="reference-section" aria-label="Rendered video">
     <h3>Rendered video</h3>
-    <p className="hint">Uses the saved color recipe, framing, audio choices and optional captions, with optional saved cuts. No transitions. These controls have no live preview; render to see the actual result.</p>
+    <p className="hint">Uses the saved color mode, framing, audio choices and optional captions, with optional saved cuts. No transitions. These controls have no live preview; render to see the actual result.</p>
     {navigation && <button onClick={() => navigation.open("style", `preview-${projectId}`)}>Review before/after frame</button>}
     <label>Render mode <select value={mode} onChange={e => setMode(e.target.value)} disabled={starting || running}>
       <option value="whole">Whole clip (color + saved audio)</option><option value="cuts">Saved cut plan (cuts + color)</option><option value="sequence">Multi-clip sequence (saved slots)</option></select></label>
     <div className="export-summary" aria-label="Saved export settings">
       <h4>Saved settings for this export</h4>
       <p>{sequence ? `Multi-clip sequence · Revision ${sequenceState.revision ?? "not saved"}` : cuts ? `Saved cut plan · Revision ${planState?.revision ?? "not saved"}` : "Whole clip · Cuts optional"}</p>
-      <p>Color recipe: {revision ? `revision ${revision}` : "not saved"}{savedStrength !== undefined ? ` · Strength ${Math.round(savedStrength * 100)}%` : ""}</p>
+      {grading && <p>Saved color: {colorModes[grading.mode]} · Color revision {grading.revision}</p>}
+      {(!grading || grading.mode === "basic") && <p>Color recipe: {revision ? `revision ${revision}` : "not saved"}{savedStrength !== undefined ? ` · Strength ${Math.round(savedStrength * 100)}%` : ""}</p>}
       {savedValues && <p className="hint">Brightness {savedValues.brightness.toFixed(2)} · Contrast {savedValues.contrast.toFixed(2)} · Saturation {savedValues.saturation.toFixed(2)}</p>}
       <p>Saved audio: {audioState.ready ? audioModeLabels[audioState.mode ?? "original"] : "unavailable"} · Revision {audioState.revision ?? "loading"}</p>
       <p>Saved captions: {captionState.enabled ? "enabled" : "disabled"} · Revision {captionState.revision ?? "loading"}</p>
@@ -97,13 +101,14 @@ export function RenderVideo({ savedStrength, savedValues, projectId, revision, r
     </div>
     {blockers.map(({ section, message }) => <p key={message} role="status">{message}{navigation && <> <button onClick={() => navigation.open(section)}>Open {sections[section]}</button></>}</p>)}
     <button disabled={!!blockers.length || starting || running || current}
-      onClick={() => void start({ expected_revision: revision, expected_audio_revision: audioState.revision, expected_caption_revision: captionState.revision, expected_framing_revision: framingState.revision, ...(cuts ? { expected_plan_revision: planState?.revision } : sequence ? { expected_sequence_revision: sequenceState.revision } : {}) })}>{operation?.status === "failed" ? "Retry render" : "Render video"}</button>
-    {running && <p role="status">Rendering saved recipe revision {operation.spec?.recipe_revision}{operation.spec?.edit_plan ? ` and cut plan revision ${operation.spec.edit_plan.revision}` : ""}… This can take up to five minutes.</p>}
+      onClick={() => void start({ ...(grading ? { expected_grading_revision: grading.revision } : {}), expected_revision: revision, expected_audio_revision: audioState.revision, expected_caption_revision: captionState.revision, expected_framing_revision: framingState.revision, ...(cuts ? { expected_plan_revision: planState?.revision } : sequence ? { expected_sequence_revision: sequenceState.revision } : {}) })}>{operation?.status === "failed" ? "Retry render" : "Render video"}</button>
+    {running && <p role="status">Rendering saved color settings{operation.spec?.edit_plan ? ` and cut plan revision ${operation.spec.edit_plan.revision}` : ""}… This can take up to five minutes.</p>}
     {error && <p role="alert">{error}</p>}
     {operation?.status === "failed" && <p role="alert">{operation.message || "Rendering failed. Retry explicitly."}</p>}
     {output && <>
-      <p role="status">{outdated ? "Outdated output" : "Rendered output"} · Recipe revision {output.spec.recipe_revision} · {output.width} × {output.height} · {output.duration_seconds.toFixed(2)} seconds</p>
-      <p>{output.spec.sequence ? `Multi-clip sequence revision ${output.spec.sequence.revision} · Uniform project color recipe` : output.spec.edit_plan ? `Cut plan revision ${output.spec.edit_plan.revision}` : "Whole clip"}</p>
+      <p role="status">{outdated ? "Outdated output" : "Rendered output"} · {output.spec.grading ? `Color revision ${output.spec.grading.settings.revision}` : `Recipe revision ${output.spec.recipe_revision}`} · {output.width} × {output.height} · {output.duration_seconds.toFixed(2)} seconds</p>
+      {output.spec.grading && <p>{colorModes[output.spec.grading.settings.mode]} · Color revision {output.spec.grading.settings.revision}</p>}
+      <p>{output.spec.sequence ? `Multi-clip sequence revision ${output.spec.sequence.revision} · Saved color mode applied per source` : output.spec.edit_plan ? `Cut plan revision ${output.spec.edit_plan.revision}` : "Whole clip"}</p>
       <p>{audioModeLabels[output.spec.audio?.mode ?? "original"]} · Audio revision {output.spec.audio?.revision ?? 0}</p>
       <p>{formatLabels[output.spec.framing?.format ?? "original"]} · Framing revision {output.spec.framing?.revision ?? 0}</p>
       <p>Captions {output.spec.captions?.enabled ? "enabled" : "disabled"} · Caption revision {output.spec.captions?.revision ?? 0}</p>

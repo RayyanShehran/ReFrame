@@ -1,6 +1,7 @@
 import math
 import threading
 import time
+import uuid
 
 import pytest
 from pydantic import ValidationError
@@ -120,7 +121,11 @@ def test_persistent_modes_revision_immutable_analyses_and_source_staleness(local
         client.post(endpoint, json={"expected_revision": 1, "mode": "transfer"}).status_code == 409
     )
     assert (
-        client.post(endpoint, json={"expected_revision": 1, "mode": "original"}).status_code == 200
+        client.post(
+            endpoint,
+            json={"expected_revision": 1, "mode": "original", "shot_slots": [str(uuid.uuid4())]},
+        ).status_code
+        == 200
     )
     assert grading.read_settings(id).mode == "original"
 

@@ -6,7 +6,7 @@ ReFrame takes a TikTok link as the reference edit and separately uploaded user-o
 
 Saved captions support None, Fade, Pop and Slide up. Save changes, explicitly **Preview caption motion**, then render the full video. The real silent preview uses saved footage/color/framing/font settings; use the separate assisted comparison below to estimate supported reference motion. See [caption animation and preview limits](docs/CAPTION_ANIMATION.md).
 
-Manual assembly: upload/rename clips in **Footage**, create reference-paced slots in **Style & cuts**, assign clips and trim ranges, Save sequence, then choose **Multi-clip sequence** in Export. The project recipe applies uniformly. [Limits, API and verification](docs/MULTI_CLIP_SEQUENCE.md).
+Manual assembly: upload/rename clips in **Footage**, create reference-paced slots in **Style & cuts**, assign clips and trim ranges, Save sequence, then choose **Multi-clip sequence** in Export. Choose Original, Basic, or Reference color transfer; transfer uses separately prepared per-clip or explicit assigned-shot matches. [Limits, API and verification](docs/MULTI_CLIP_SEQUENCE.md).
 
 ## Prerequisites
 
@@ -167,6 +167,10 @@ After saving one clip, select **Analyze my footage**. This offline analysis work
 
 When both color results are valid, the read-only **Reference / Your footage** table shows palettes, median encoded brightness, contrast spread, mean HSV saturation and mean RGB. Signed differences are **reference minus footage**, in percentage points. These describe sampled pixels and can reflect different scene content; they are not exposure stops, white-balance corrections or a ready-to-apply grade. Missing/failed results show the required action instead. Saved creative recipes can drive color-only rendering; sampled differences are not automatic grades.
 
+## Reference color matching
+
+In **Style & cuts**, explicitly **Match reference colors**, select Original/no adjustment, Basic adjustments, or Reference color transfer, then Save. Transfer prepares each clip separately; per-clip strength and optional advanced tonal/color refinements are editable. Assigned-reference-shot matching is explicit. Saved settings drive the same three-frame comparison and whole/cut/multi-clip exports; analysis alone never activates a grade. Existing projects keep Basic behavior. [Method, API, bounds and actual evidence](docs/COLOR_TRANSFER.md).
+
 ## Editable saved color recipe
 
 With both color analyses ready, **Generate suggestion** creates a separate experimental recipe at 50% strength. Adjust brightness offset (−0.20…+0.20), contrast/saturation multipliers (0.5…1.5) and strength (0…100%), then **Save recipe**. Saved settings restore after refresh. Resets affect the unsaved draft: suggestion restores its suggested values/50% strength; neutral sets brightness 0, both multipliers 1 and strength 0. Regeneration explicitly replaces saved edits. Conflicting revisions require reloading.
@@ -176,17 +180,17 @@ Suggestions use measured median-brightness difference clamped to ±0.10 and cont
 
 ## Render, playback and download
 
-Save a valid recipe, choose **Whole clip (color + saved audio)**, then select **Render video**. Unsaved recipe/audio/caption edits must be saved first. The app renders the whole uploaded clip using those saved revisions, restores status/output after refresh, and provides native playback/seeking and **Download MP4**. A prior output remains available until its replacement succeeds; older revisions or changed sources are labeled **outdated**. Retry is explicit. This mode does not apply cuts; both modes support saved captions, without transitions.
+Save a valid color mode and its required settings, choose **Whole clip (color + saved audio)**, then select **Render video**. Unsaved recipe/audio/caption edits must be saved first. The app renders the whole uploaded clip using those saved revisions, restores status/output after refresh, and provides native playback/seeking and **Download MP4**. A prior output remains available until its replacement succeeds; older revisions or changed sources are labeled **outdated**. Retry is explicit. This mode does not apply cuts; both modes support saved captions, without transitions.
 
 ## Reference-paced saved cuts
 
-With valid reference pacing, retained footage and a saved color recipe, select **Generate cut plan**. The default output duration is the shorter source; a custom duration cannot exceed either. Estimated reference shot lengths become fixed target segment lengths on a 30 fps grid, with a trimmed final shot. Sub-frame intervals merge explicitly; more than 60 segments fails rather than truncating the plan. Initial footage ranges are chronological with unused time distributed between segments; a single range is centered.
+With valid reference pacing, retained footage and a saved color mode, select **Generate cut plan**. The default output duration is the shorter source; a custom duration cannot exceed either. Estimated reference shot lengths become fixed target segment lengths on a 30 fps grid, with a trimmed final shot. Sub-frame intervals merge explicitly; more than 60 segments fails rather than truncating the plan. Initial footage ranges are chronological with unused time distributed between segments; a single range is centered.
 
 Adjust only **Source start**, review the computed end and fixed output length, then **Save cut plan**. Starts snap to the nearest frame and ranges must remain ordered, nonoverlapping and inside the footage. Reset restores the suggested draft; explicit regeneration replaces the saved plan. Conflicts retain unsaved edits. Plans and outputs restore after refresh. Source/pacing changes mark plans stale; recipe edits leave cut timing valid. Select **Saved cut plan (cuts + color)** to render both saved revisions. Original footage and measured blueprints remain unchanged.
 
 This is a timing suggestion, not semantic footage matching. Continuous source ranges do not create visible jumps merely because segment boundaries exist. The renderer skips unselected footage, normalizes timestamps and applies color once. Original audio follows footage ranges; reference audio follows the continuous output timeline. Original mode leaves a silent source silent. See [method, frame rules and schema](docs/ARCHITECTURE.md#reference-paced-cut-planning-and-rendering).
 
-Output is MP4/H.264 (CRF 20, veryfast), yuv420p, faststart and 30 fps, with first-stream AAC at 48 kHz/128 kbit/s when audio exists. Display rotation is applied, pixel aspect ratio normalized, and even dimensions fit landscape 1280 × 720 or portrait 720 × 1280 without enlarging the displayed image. Color processing uses the ordinary-SDR policy and effective brightness/contrast/saturation exactly once; settings are heuristic, not recovered LUTs or a match guarantee. See [renderer method and bounds](docs/ARCHITECTURE.md#color-only-rendering).
+Output is MP4/H.264 (CRF 20, veryfast), yuv420p, faststart and 30 fps, with first-stream AAC at 48 kHz/128 kbit/s when audio exists. Display rotation is applied, pixel aspect ratio normalized, and even dimensions fit landscape 1280 × 720 or portrait 720 × 1280 without enlarging the displayed image. Color processing uses the ordinary-SDR policy and the saved Basic recipe or per-source reference transform exactly once; settings are heuristic, not recovered LUTs or a match guarantee. See [renderer method and bounds](docs/ARCHITECTURE.md#color-only-rendering).
 
 `GET/POST /api/projects/<id>/render` reads/starts work; POST accepts `{"expected_revision": <recipe revision>, "expected_audio_revision": <audio revision>, "expected_caption_revision": <caption revision>}` for a whole clip, with `"expected_plan_revision": <saved plan revision>` added for cuts. Older requests work only while audio and captions remain unchanged revision-zero defaults. Inline and attachment routes are `/api/projects/<id>/outputs/<output-id>/video` and `/download`, including framework byte-range support. IDs resolve only server-generated paths. The existing shared worker applies a 300-second deadline, 100 MiB output limit, 120 MiB polled staging budget and bounded logs. Full-file decoded frame/audio hashes, streams, dimensions, duration, size and SHA-256 are verified before publication.
 
@@ -248,7 +252,7 @@ Framing applies to whole clips and saved cuts. Captions are drawn on the final c
 
 ## Before / after frame previews
 
-In **Style & cuts**, choose a footage time in seconds and select **Update preview**. Original shows the entire normalized source frame; Edited applies the saved color recipe and framing. Both use the same source moment and show its timestamp and saved revisions. **Review before/after frame** in Export opens this panel. Save relevant draft changes first to include them; no decoding happens on page load or slider changes.
+In **Style & cuts**, choose a footage time in seconds and select **Update preview**. Select a clip or slot. Reference look shows its retained reference moment, Original shows the normalized source frame, and Graded applies saved color and framing. Both use the same source moment and show its timestamp and saved revisions. **Review before/after frame** in Export opens this panel. Save relevant draft changes first to include them; no decoding happens on page load or slider changes.
 
 Previous images remain visible while updating or after failure, and become outdated when saved settings change. Switching sections retains them; refresh clears this transient preview. Images stack on narrow screens and have a maximum edge of 960 pixels. Review motion, cuts, audio and captions through the actual video render, not these still images. Processing shares the media slot, has a 30-second deadline and explicit size/failure limits. [Method and response](docs/ARCHITECTURE.md#beforeafter-frame-preview-milestone-18) describe source validation, EOF selection and cleanup.
 

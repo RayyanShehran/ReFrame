@@ -70,7 +70,7 @@ export function SequenceEditor({ projectId, onState }: { projectId: string; onSt
     finally { clearTimeout(timer); action.current = null; setBusy(false); }
   }
   return <section className="reference-section" aria-label="Multi-clip sequence">
-    <h3>Multi-clip sequence</h3><p>Create editable slots from the reference’s estimated shots, then choose footage manually or review an automatic range proposal. The saved project color recipe is applied uniformly to every clip; no per-clip grade or automatic camera matching.</p>
+    <h3>Multi-clip sequence</h3><p>Create editable slots from the reference’s estimated shots, then choose footage manually or review an automatic range proposal. Saved Original/Basic modes retain their existing behavior. Reference color transfer uses each clip’s prepared match, or its explicitly selected assigned-shot match. Review every source before export.</p>
     <button disabled={busy || !result} onClick={() => sequence || dirty ? setConfirm(true) : void run("generate")}>{sequence ? "Regenerate slots from reference pacing" : "Create slots from reference pacing"}</button>
     {confirm && <div role="group" aria-label="Confirm slot replacement"><p>Replace the saved slots and unsaved edits? This clears assignments and can make captions and transcription stale.</p><button disabled={busy} onClick={() => void run("generate")}>Confirm replace slots</button><button onClick={() => setConfirm(false)}>Keep slots</button></div>}
     {sequence && <>

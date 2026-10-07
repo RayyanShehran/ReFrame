@@ -516,7 +516,7 @@ def save(project_id, request):
         raise ReferenceError(
             422, "invalid_controls", "Only prepared clips/slots can have color overrides."
         )
-    for id in request.shot_slots:
+    for id in request.shot_slots if request.mode == "transfer" else []:
         if f"slot:{id}" not in keys or not keys[f"slot:{id}"].valid:
             raise ReferenceError(
                 409, "match_stale", "Prepare a valid assigned-shot match before selecting it."

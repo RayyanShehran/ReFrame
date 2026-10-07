@@ -18,10 +18,10 @@ export function useMediaOperation<T extends MediaOperation>(projectId: string, r
   const action = useRef<AbortController | null>(null);
   const generation = useRef(0);
   const pollEpoch = useRef(0);
-  const request = useCallback(async (method: string, controller: AbortController, body?: unknown): Promise<T> => {
+  const request = useCallback(async (method: string, controller: AbortController, body?: unknown, suffix = ""): Promise<T> => {
     const timer = setTimeout(() => controller.abort(), 10000);
     try {
-      const response = await fetch(`${apiBase}/api/projects/${encodeURIComponent(projectId)}/${route}`, { method, signal: controller.signal,
+      const response = await fetch(`${apiBase}/api/projects/${encodeURIComponent(projectId)}/${route}${suffix}`, { method, signal: controller.signal,
         ...(body ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : {}) });
       const data = await response.json();
       if (!response.ok) throw new Error(data?.error?.message || "Media request failed.");
@@ -58,7 +58,7 @@ export function useMediaOperation<T extends MediaOperation>(projectId: string, r
     return () => { version.current++; action.current?.abort(); };
   }, [projectId, route]);
 
-  const start = useCallback(async (body?: unknown) => {
+  const start = useCallback(async (body?: unknown, suffix = "") => {
     if (action.current) return;
     const controller = new AbortController();
     action.current = controller;
@@ -66,7 +66,7 @@ export function useMediaOperation<T extends MediaOperation>(projectId: string, r
     const version = generation.current;
     setStarting(true); setError("");
     try {
-      const result = await request("POST", controller, body);
+      const result = await request("POST", controller, body, suffix);
       if (version === generation.current) { setOperation(result); setRevision(value => value + 1); return result; }
     } catch (cause) {
       if (version === generation.current) setError(cause instanceof Error && cause.name !== "AbortError" ? cause.message : "Start response timed out. Reopen to check before retrying.");
@@ -75,7 +75,8 @@ export function useMediaOperation<T extends MediaOperation>(projectId: string, r
       if (version === generation.current) setStarting(false);
     }
   }, [request]);
-  const controls = { operation, error, starting, start, revision, refresh: () => setRevision(value => value + 1) };
+  const refresh = useCallback(() => setRevision(value => value + 1), []);
+  const controls = { operation, error, starting, start, revision, refresh };
   usePreparationOperation(route, controls);
   return controls;
 }
