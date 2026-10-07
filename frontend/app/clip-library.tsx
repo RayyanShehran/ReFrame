@@ -23,13 +23,43 @@ export function readLibrary(data: unknown): Library {
     return { ...c, metadata: parseClipDetails(c.metadata) };
   }) };
 }
-export function ClipLibrary({ projectId, sourceKey, onSaved }: { projectId: string; sourceKey: string; onSaved: () => void }) {
+type LibraryProps = { projectId: string; sourceKey: string; onSaved: () => void };
+type UploadItem = { id: string; file: File; status: "pending" | "uploading" | "succeeded" | "failed"; error?: string };
+const MiB = 1024 * 1024;
+function rejected(file: File, count: number, bytes: number) {
+  if (!/\.(mp4|mov)$/i.test(file.name)) return "Choose an MP4 or MOV file.";
+  if (!file.size) return "The file is empty.";
+  if (file.size > 100 * MiB) return "The file exceeds 100 MiB.";
+  if (count >= 10) return "This project allows 10 clips, including retained and pending files. Remove a clip or pending item first.";
+  if (bytes + file.size > 500 * MiB) return "This file would exceed the 500 MiB project budget, including retained and pending files.";
+  return "";
+}
+export function ClipLibrary(props: LibraryProps) {
+  return <LibraryContents key={props.projectId} {...props} />;
+}
+function LibraryContents({ projectId, sourceKey, onSaved }: LibraryProps) {
   const [library, setLibrary] = useState<Library | null>(null);
-  const [file, setFile] = useState<File | null>(null);
+  const [queue, setQueue] = useState<UploadItem[]>([]);
+  const items = useRef<UploadItem[]>([]);
+  const action = useRef<AbortController | null>(null);
+  function updateQueue(value: UploadItem[]) { items.current = value; setQueue(value); }
+  function mark(id: string, status: UploadItem["status"], error?: string) {
+    updateQueue(items.current.map(item => item.id === id ? { ...item, status, error } : item));
+  }
+  function enqueue(files: File[]) {
+    if (!library || action.current) return;
+    let count = library.clips.length, bytes = library.total_bytes;
+    for (const item of items.current) if (item.status === "pending") { count++; bytes += item.file.size; }
+    const added = files.map(file => {
+      const error = rejected(file, count, bytes);
+      if (!error) { count++; bytes += file.size; }
+      return { id: crypto.randomUUID(), file, status: error ? "failed" as const : "pending" as const, error };
+    });
+    updateQueue([...items.current, ...added]);
+  }
   const [names, setNames] = useState<Record<string, string>>({});
   const [remove, setRemove] = useState<string | null>(null);
   const [busy, setBusy] = useState(false), [error, setError] = useState("");
-  const action = useRef<AbortController | null>(null);
   function restore(data: unknown) {
     const value = readLibrary(data); setLibrary(value); setNames(Object.fromEntries(value.clips.map(c => [c.id, c.name])));
   }
@@ -38,10 +68,51 @@ export function ClipLibrary({ projectId, sourceKey, onSaved }: { projectId: stri
     void clipRequest(projectId, "/clips", undefined, controller.signal).then(data => { if (!controller.signal.aborted && !action.current) restore(data); }).catch(e => { if (!controller.signal.aborted) setError(e.message); });
     return () => controller.abort();
   }, [projectId, sourceKey]);
-  useEffect(() => () => action.current?.abort(), [projectId]);
-  async function run(kind: "upload" | "rename" | "remove", id?: string) {
+  useEffect(() => { const active = action; return () => { active.current?.abort(); active.current = null; }; }, [projectId]);
+  function saved(data: unknown) {
+    restore(data); onSaved(); window.dispatchEvent(new CustomEvent("reframe-clips", { detail: projectId }));
+  }
+  async function uploadQueue(retry?: string) {
     if (action.current) return;
-    if (kind === "upload" && (!file || file.size > 100 * 1024 * 1024)) { setError("Choose an MP4 or MOV, at most 100 MiB."); return; }
+    if (retry) mark(retry, "pending");
+    const controller = new AbortController(); action.current = controller; setBusy(true); setError("");
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      timer = setTimeout(() => controller.abort(), 35000);
+      let current = readLibrary(await clipRequest(projectId, "/clips", undefined, controller.signal));
+      clearTimeout(timer);
+      if (controller.signal.aborted) return;
+      restore(current);
+      while (!controller.signal.aborted) {
+        const item = items.current.find(item => item.status === "pending");
+        if (!item) break;
+        const invalid = rejected(item.file, current.clips.length, current.total_bytes);
+        if (invalid) { mark(item.id, "failed", invalid); continue; }
+        mark(item.id, "uploading");
+        timer = setTimeout(() => controller.abort(), 35000);
+        try {
+          const body = new FormData(); body.append("file", item.file);
+          const result = readLibrary(await clipRequest(projectId, "/clips", body, controller.signal));
+          if (controller.signal.aborted) break;
+          current = result; mark(item.id, "succeeded"); saved(result);
+        } catch (e) {
+          if (controller.signal.aborted) {
+            if (action.current === controller) mark(item.id, "failed", "Request interrupted. Check retained clips before retrying; the server may have saved this file.");
+            break;
+          }
+          mark(item.id, "failed", e instanceof Error ? e.message : "Upload failed. Check retained clips before retrying.");
+        } finally { clearTimeout(timer); }
+      }
+    } catch (e) {
+      if (!controller.signal.aborted) setError(e instanceof Error ? e.message : "Could not load the current library.");
+      else if (action.current === controller) setError("Request interrupted. Reload the library before retrying.");
+    } finally {
+      clearTimeout(timer);
+      if (action.current === controller) { action.current = null; setBusy(false); }
+    }
+  }
+  async function run(kind: "rename" | "remove", id: string) {
+    if (action.current) return;
     const controller = new AbortController(); action.current = controller; setBusy(true); setError("");
     const timer = setTimeout(() => controller.abort(), 35000);
     try {
@@ -50,18 +121,28 @@ export function ClipLibrary({ projectId, sourceKey, onSaved }: { projectId: stri
         const response = await fetch(`${apiBase}/api/projects/${encodeURIComponent(projectId)}/clips/${id}`, { method: "DELETE", signal: controller.signal });
         data = await response.json(); if (!response.ok) throw new Error(data?.error?.message || "Clip removal failed.");
       } else {
-        const body = new FormData(); if (file) body.append("file", file);
-        data = await clipRequest(projectId, `/clips${kind === "rename" ? `/${id}` : ""}`, kind === "rename" ? { name: names[id!] } : body, controller.signal);
+        data = await clipRequest(projectId, `/clips/${id}`, { name: names[id] }, controller.signal);
       }
-      if (!controller.signal.aborted) { restore(data); setFile(null); setRemove(null); onSaved(); window.dispatchEvent(new CustomEvent("reframe-clips", { detail: projectId })); }
+      if (!controller.signal.aborted) { saved(data); setRemove(null); }
     } catch (e) { if (!controller.signal.aborted) setError(e instanceof Error ? e.message : "Clip request failed."); else setError("Request interrupted. Reload the library before retrying."); }
     finally { clearTimeout(timer); action.current = null; setBusy(false); }
   }
   return <section className="reference-section" aria-label="Footage library">
     <h3>Footage library</h3><p>Up to 10 clips · 100 MiB per file · 500 MiB total. The original clip remains the source for color measurements, whole-clip output and legacy cuts.</p>
     {library && <p role="status">{library.clips.length}/10 clips · {(library.total_bytes / 1024 / 1024).toFixed(1)}/500 MiB retained</p>}
-    <label>Add footage <input type="file" accept="video/mp4,video/quicktime,.mp4,.mov" disabled={busy} onChange={e => setFile(e.target.files?.[0] ?? null)} /></label>
-    <button disabled={busy || !file || (library?.clips.length ?? 10) >= 10} onClick={() => void run("upload")}>{busy ? "Working…" : "Upload additional clip"}</button>
+    <div className="footage-drop" role="group" aria-label="Add footage files" onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); enqueue(Array.from(e.dataTransfer.files)); }}>
+      <label>Add footage <input type="file" multiple accept="video/mp4,video/quicktime,.mp4,.mov" disabled={busy || !library} onChange={e => { enqueue(Array.from(e.target.files ?? [])); e.target.value = ""; }} /></label>
+      <p className="hint">Select one or more files, or drop them here. Uploads run one at a time. The first saved clip becomes the original. Duration, dimensions and media validity are checked by the server.</p>
+    </div>
+    <button disabled={busy || !library || !queue.some(item => item.status === "pending")} onClick={() => void uploadQueue()}>{busy ? "Working…" : "Upload queued files"}</button>
+    <ul className="upload-queue" aria-label="Upload queue" aria-live="polite">
+      {queue.map(item => <li key={item.id}>
+        <span>{item.file.name} · {({ pending: "Pending", uploading: "Uploading", succeeded: "Succeeded", failed: "Failed" })[item.status]}{item.error && <span className="error"> — {item.error}</span>}</span>
+        {item.status === "pending" && <button aria-label={`Remove pending ${item.file.name}`} onClick={() => updateQueue(items.current.filter(other => other.id !== item.id))}>Remove pending</button>}
+        {item.status === "failed" && <button disabled={busy || !library} aria-label={`Retry ${item.file.name}`} onClick={() => void uploadQueue(item.id)}>Retry</button>}
+      </li>)}
+    </ul>
+    <p className="hint">Successful files stay saved if another fails. Switching projects stops further submissions; an in-flight file may already have been saved. The queue is temporary and clears on refresh.</p>
     {library?.clips.map(c => <div className="clip-library-row" key={c.id}>
       <label>Clip name <input value={names[c.id] ?? c.name} maxLength={80} disabled={busy} onChange={e => setNames(v => ({ ...v, [c.id]: e.target.value }))} /></label>
       <p>{c.primary ? "Original · " : ""}{c.metadata.duration_seconds.toFixed(2)} s · {c.metadata.width} × {c.metadata.height} · {c.metadata.has_audio ? "Audio" : "Silent"}{!c.available ? " · Unavailable" : ""}</p>

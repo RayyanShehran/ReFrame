@@ -159,3 +159,10 @@ input:focus-visible, select:focus-visible, textarea:focus-visible, a:focus-visib
 /* Bounded model thumbnails stay compact rather than stretching across the editor. */
 .assembly-samples { max-width: 340px; }
 .assembly-samples img { max-width: 128px; }
+
+.footage-drop { border: 1px dashed #718474; border-radius: 8px; padding: 12px; margin-block: 12px; }
+.footage-drop input { display: block; width: 100%; min-width: 0; margin-block: 8px; }
+.upload-queue { padding: 0; list-style: none; }
+.upload-queue li { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; border-bottom: 1px solid #334155; padding-block: 10px; }
+.upload-queue li > span { flex: 1 1 200px; min-width: 0; overflow-wrap: anywhere; }
+.upload-queue button { min-height: 44px; }
