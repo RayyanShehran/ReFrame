@@ -261,6 +261,8 @@ async def worker(project_id, operation_id, url, stop, analysis=False):
     if analysis:
         if analysis == "render":
             import video_render as color
+        elif analysis == "grading":
+            import grading as color
         elif analysis == "assembly":
             import assembly as color
         elif analysis == "transcription":
@@ -367,12 +369,15 @@ async def start(
     transcription_request=None,
     expected_sequence_revision=None,
     assembly_request=None,
+    grading_request=None,
 ):
     global active
     projects.identifier(project_id)
     if analysis:
         if analysis == "render":
             import video_render as color
+        elif analysis == "grading":
+            import grading as color
         elif analysis == "assembly":
             import assembly as color
         elif analysis == "transcription":
@@ -402,6 +407,9 @@ async def start(
                     expected_framing_revision,
                     expected_sequence_revision,
                 )
+        elif analysis == "grading":
+            async with projects.operation_lock:
+                current = await projects.storage_call(color.reusable, project_id, grading_request)
         elif analysis == "assembly":
             async with projects.operation_lock:
                 current = await projects.storage_call(color.reusable, project_id, assembly_request)
@@ -434,6 +442,8 @@ async def start(
                         expected_sequence_revision,
                     )
                     if analysis == "render"
+                    else (project_id, grading_request)
+                    if analysis == "grading"
                     else (project_id, assembly_request)
                     if analysis == "assembly"
                     else (project_id, transcription_request)
@@ -503,6 +513,9 @@ async def delete(project_id):
             import transcription
 
             await projects.storage_call(transcription.prepare_delete, project_id)
+            import grading
+
+            await projects.storage_call(grading.prepare_delete, project_id)
             await projects.storage_call(projects.delete_project, project_id)
     finally:
         closing.discard(project_id)
@@ -525,6 +538,7 @@ def check_quarantine():
             "UNION ALL SELECT 1 FROM pacing_operations WHERE cleanup_safe = 0 "
             "UNION ALL SELECT 1 FROM footage_color_operations WHERE cleanup_safe = 0 "
             "UNION ALL SELECT 1 FROM render_operations WHERE cleanup_safe = 0 "
+            "UNION ALL SELECT 1 FROM grading_operations WHERE cleanup_safe = 0 "
             "UNION ALL SELECT 1 FROM assembly_operations WHERE cleanup_safe = 0 "
             "UNION ALL SELECT 1 FROM transcription_operations WHERE cleanup_safe = 0 LIMIT 1"
         ).fetchone()

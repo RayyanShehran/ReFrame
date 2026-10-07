@@ -27,6 +27,7 @@ import font_match
 import footage_analysis
 import frame_preview
 import framing
+import grading
 import pacing_analysis
 import projects
 import reference_jobs
@@ -66,6 +67,7 @@ async def lifespan(_app: FastAPI):
     await projects.storage_call(footage_analysis.recover)
     await projects.storage_call(video_render.recover)
     await projects.storage_call(transcription.recover)
+    await projects.storage_call(grading.recover)
     try:
         yield
     finally:
@@ -607,3 +609,22 @@ async def cancel_assembly(project_id: str):
     if owned and owned[0] == project_id and owned[1] == current.operation_id:
         await asyncio.shield(owned[3])
     return await projects.storage_call(assembly.get_operation, project_id)
+
+
+@app.get("/api/projects/{project_id}/grading", response_model=grading.Operation)
+async def read_grading(project_id: str):
+    async with projects.operation_lock:
+        return await projects.storage_call(grading.get_operation, project_id)
+
+
+@app.post("/api/projects/{project_id}/grading", response_model=grading.Operation)
+async def save_grading(project_id: str, request: grading.Save):
+    async with projects.operation_lock:
+        return await projects.storage_call(grading.save, project_id, request)
+
+
+@app.post(
+    "/api/projects/{project_id}/grading/prepare", response_model=grading.Operation, status_code=202
+)
+async def prepare_grading(project_id: str, request: grading.Prepare):
+    return await reference_jobs.start(project_id, analysis="grading", grading_request=request)
