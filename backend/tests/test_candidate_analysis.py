@@ -42,4 +42,4 @@ def test_real_decode_and_hash_version_cache(local, monkeypatch):
     )
     assert cached and restored == measured
     with projects.database() as db:
-        assert db.execute("PRAGMA user_version").fetchone()[0] == 18
+        assert db.execute("PRAGMA user_version").fetchone()[0] == 19
