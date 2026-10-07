@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+import assembly
 import audio_settings
 import caption_appearance
 import caption_motion
@@ -59,6 +60,7 @@ async def lifespan(_app: FastAPI):
     reference_jobs.stopping = False
     await projects.storage_call(reference_jobs.recover)
     await projects.storage_call(color_analysis.recover)
+    await projects.storage_call(assembly.recover)
     await projects.storage_call(pacing_analysis.recover)
     await projects.storage_call(footage_analysis.recover)
     await projects.storage_call(video_render.recover)
@@ -571,3 +573,31 @@ async def generate_sequence(project_id: str, request: sequence.Generate):
 async def save_sequence(project_id: str, request: sequence.Save):
     async with projects.operation_lock:
         return await projects.storage_call(sequence.save, project_id, request)
+
+
+@app.get("/api/projects/{project_id}/assembly", response_model=assembly.Operation)
+async def get_assembly(project_id: str):
+    return await projects.storage_call(assembly.get_operation, project_id)
+
+
+@app.post("/api/projects/{project_id}/assembly", response_model=assembly.Operation, status_code=202)
+async def suggest_assembly(project_id: str, request: assembly.Settings):
+    return await reference_jobs.start(project_id, analysis="assembly", assembly_request=request)
+
+
+@app.post("/api/projects/{project_id}/assembly/apply")
+async def apply_assembly(project_id: str, request: assembly.Apply):
+    async with projects.operation_lock:
+        return await projects.storage_call(assembly.apply, project_id, request)
+
+
+@app.post("/api/projects/{project_id}/assembly/cancel", response_model=assembly.Operation)
+async def cancel_assembly(project_id: str):
+    current = await projects.storage_call(assembly.get_operation, project_id)
+    async with reference_jobs.start_lock:
+        owned = reference_jobs.active
+        if owned and owned[0] == project_id and owned[1] == current.operation_id:
+            owned[2].set()
+    if owned and owned[0] == project_id and owned[1] == current.operation_id:
+        await asyncio.shield(owned[3])
+    return await projects.storage_call(assembly.get_operation, project_id)

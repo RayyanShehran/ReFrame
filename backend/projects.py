@@ -277,6 +277,7 @@ def initialize():
             "pacing_operations",
             "footage_color_operations",
             "transcription_operations",
+            "assembly_operations",
         ):
             connection.execute(f"""CREATE TABLE IF NOT EXISTS {table} (
                 project_id TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
@@ -346,6 +347,18 @@ def initialize():
             project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
             source_hash TEXT NOT NULL, algorithm TEXT NOT NULL, analysis TEXT NOT NULL,
             PRIMARY KEY(project_id,source_hash,algorithm))""")
+        if "completed" not in {
+            r[1] for r in connection.execute("PRAGMA table_info(assembly_operations)")
+        }:
+            connection.execute(
+                "ALTER TABLE assembly_operations ADD COLUMN completed INTEGER NOT NULL DEFAULT 0"
+            )
+            connection.execute(
+                "ALTER TABLE assembly_operations ADD COLUMN total INTEGER NOT NULL DEFAULT 0"
+            )
+        connection.execute("""CREATE TABLE IF NOT EXISTS assembly_proposals (
+            project_id TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+            proposal TEXT NOT NULL)""")
         connection.execute("PRAGMA user_version = 18")
     # Only generated staging names are ours. Unknown files are left untouched.
     for path in staging.glob("clip-*"):
