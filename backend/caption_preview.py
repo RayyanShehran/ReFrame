@@ -55,6 +55,7 @@ class CaptionFrame(color.Schema):
     source: footage.Source
     recipe_revision: int
     framing_revision: int
+    grading_revision: int = 0
     caption_revision: int
     font: font_assets.Binding
     font_origin: Literal["manual", "assisted"] = "manual"
@@ -373,6 +374,7 @@ def caption_frame(project_id, request):
         result = CaptionFrame(
             source=source["identity"],
             recipe_revision=spec.recipe_revision,
+            grading_revision=spec.grading.settings.revision if spec.grading else 0,
             framing_revision=spec.framing.revision,
             caption_revision=spec.captions.revision,
             font=spec.captions.font_binding,

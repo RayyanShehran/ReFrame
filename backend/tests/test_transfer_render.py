@@ -265,9 +265,51 @@ def test_real_transfer_perclip_slot_preview_export_and_timing(local, monkeypatch
         ).status_code
         == 409
     )
+    # Compare real decoded previews across strengths; zero is the original path.
+    strengths = {}
+    for revision, strength in enumerate((0, 0.5, 1), start=1):
+        assert (
+            client.post(
+                base + "/grading",
+                json=dict(
+                    expected_revision=revision,
+                    mode="transfer",
+                    controls={f"clip:{first.id}": dict(strength=strength)},
+                ),
+            ).status_code
+            == 200
+        )
+        response = client.post(
+            base + "/frame-preview",
+            json=preview_request
+            | dict(
+                expected_grading_revision=revision + 1,
+            ),
+        )
+        assert response.status_code == 200, response.text
+        preview_value = response.json()
+        raw = png_pixels(preview_value["original"]["png_base64"], directory)
+        graded = png_pixels(preview_value["edited"]["png_base64"], directory)
+        strengths[strength] = sum(abs(a - b) for a, b in zip(raw, graded)) / len(raw)
+    assert strengths[0] == 0
+    assert strengths[1] > strengths[0.5] > 1
+    # The moving source's static top patch stays stable through the fixed LUT.
+    moving = render.destination(pid, output["output"]["output_id"])
+    patches = []
+    for second in (0.2, 0.4, 0.7):
+        frame = decoded(moving, second)
+        patches.append(tuple(frame[(12 * 320 + 25) * 3 : (12 * 320 + 25) * 3 + 3]))
+    assert max(max(v[i] for v in patches) - min(v[i] for v in patches) for i in range(3)) < 8
     (directory / "transfer-evidence.json").write_text(
         json.dumps(
-            dict(preview_encode_mae=error, models=models, output=output["output"]), indent=2
+            dict(
+                preview_encode_mae=error,
+                strength_mae=strengths,
+                temporal_patch_rgb=patches,
+                models=models,
+                output=output["output"],
+            ),
+            indent=2,
         ),
         encoding="utf-8",
     )

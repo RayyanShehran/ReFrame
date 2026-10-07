@@ -522,10 +522,11 @@ def save(project_id, request):
                 409, "match_stale", "Prepare a valid assigned-shot match before selecting it."
             )
     if request.mode == "transfer":
-        for clip in clip_library.read(project_id).clips:
-            if clip.primary and (
-                f"clip:{clip.id}" not in keys or not keys[f"clip:{clip.id}"].valid
-            ):
+        originals = [clip for clip in clip_library.read(project_id).clips if clip.primary]
+        if not originals:
+            raise ReferenceError(409, "match_required", "Upload and match the original clip first.")
+        for clip in originals:
+            if f"clip:{clip.id}" not in keys or not keys[f"clip:{clip.id}"].valid:
                 raise ReferenceError(
                     409, "match_required", "Match the original clip to reference colors first."
                 )
@@ -614,4 +615,8 @@ def filter_for(bound, clip_id, directory, slot=None):
         transfer.cube(path, match.model, controls)
     from captions import filter_path
 
-    return f"format=gbrp,lut3d=file={filter_path(path)}:interp=tetrahedral,format=yuv420p"
+    return (
+        f"format=gbrp,lut3d=file={filter_path(path)}:interp=tetrahedral,"
+        "scale=iw:ih:in_range=full:out_range=limited:out_color_matrix=bt709,"
+        "format=yuv420p,setparams=range=limited:colorspace=bt709"
+    )

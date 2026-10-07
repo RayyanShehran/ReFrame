@@ -85,6 +85,24 @@ def test_persistent_modes_revision_immutable_analyses_and_source_staleness(local
         )
     endpoint = f"/api/projects/{id}/grading"
     body = {"expected_revision": 0, "mode": "transfer", "controls": {match.key: {"strength": 0.7}}}
+    for field, value in (
+        ("strength", -0.1),
+        ("strength", 1.01),
+        ("shadows", 0.11),
+        ("saturation", 1.21),
+        ("highlight_red", -0.09),
+    ):
+        bad = body | {"controls": {match.key: {field: value}}}
+        assert client.post(endpoint, json=bad).status_code == 422
+    assert (
+        client.post(
+            endpoint,
+            content='{"expected_revision":0,"mode":"transfer",'
+            '"controls":{"' + match.key + '":{"strength":NaN}}}',
+            headers={"Content-Type": "application/json"},
+        ).status_code
+        == 422
+    )
     assert client.post(endpoint, json=body).status_code == 200
     assert client.post(endpoint, json=body).status_code == 409
     result = client.get(endpoint).json()
