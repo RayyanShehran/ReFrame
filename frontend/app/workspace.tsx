@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ClipLibrary } from "./clip-library";
-import { ClipUpload, parseClipDetails, type ClipDetails } from "./clip-upload";
+import { parseClipDetails, type ClipDetails } from "./clip-upload";
 import { ReferenceSelection } from "./reference-selection";
 import { GuidedWorkspace, WorkspaceSection } from "./guided-workspace";
 import { ProjectColors } from "./project-colors";
@@ -168,8 +168,8 @@ export function Workspace() {
       {current.status === "active" && <ProjectColors key={current.id} projectId={current.id} hasFootage={current.clip_status === "ready"} footageDuration={current.clip?.duration_seconds ?? null} libraryKey={current.updated_at} />}
       <WorkspaceSection section="footage">{current.status === "deleting" ? <p role="alert">Deletion is incomplete. Retry deletion from the project list.</p> :
         current.clip_status === "empty" || current.clip_status === "ready" ?
-          <ClipUpload key={`${current.id}-${current.clip_status}`} projectId={current.id} initialDetails={current.clip} onSaved={() => setRevision((value) => value + 1)} /> :
-          <p role="alert">{current.clip_status === "unavailable" ? "Saved media is unavailable or corrupt. Delete this project and create a new one." : "A clip save is incomplete. Reopen after the operation finishes; restart the backend if it was interrupted."}</p>}<ClipLibrary projectId={current.id} sourceKey={current.updated_at} onSaved={() => setRevision(v => v + 1)} /></WorkspaceSection>
+          null :
+          <p role="alert">{current.clip_status === "unavailable" ? "Saved media is unavailable or corrupt. Delete this project and create a new one." : "A clip save is incomplete. Reopen after the operation finishes; restart the backend if it was interrupted."}</p>}<ClipLibrary projectId={current.id} sourceKey={current.updated_at} initialDetails={current.clip} showOriginal={["empty", "ready"].includes(current.clip_status)} onSaved={() => setRevision(v => v + 1)} /></WorkspaceSection>
       </GuidedWorkspace>
     </section>}
   </>;

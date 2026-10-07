@@ -51,7 +51,7 @@ export function parseClipDetails(data: unknown, retained = false): ClipDetails {
   return data as ClipDetails;
 }
 
-export function ClipUpload({ projectId, initialDetails = null, onSaved }: { projectId?: string; initialDetails?: ClipDetails | null; onSaved?: () => void }) {
+export function ClipUpload({ projectId, initialDetails = null, onSaved, onFilesSelected, selectionDisabled = false }: { projectId?: string; initialDetails?: ClipDetails | null; onSaved?: () => void; onFilesSelected?: (files: File[]) => void; selectionDisabled?: boolean }) {
   const [file, setFile] = useState<File | null>(null);
   const [details, setDetails] = useState<ClipDetails | null>(initialDetails);
   const [checking, setChecking] = useState(false);
@@ -103,9 +103,14 @@ export function ClipUpload({ projectId, initialDetails = null, onSaved }: { proj
 
   return <section className="reference-section footage-section" aria-labelledby="footage-title">
     <p className="eyebrow">Your footage</p>
-    <h2 id="footage-title">{projectId ? "Save original clip" : "Inspect one clip"}</h2>
+    <h2 id="footage-title">{onFilesSelected ? "Choose footage" : projectId ? "Save original clip" : "Inspect one clip"}</h2>
     <p className="reference-help">MP4 or MOV, up to 100 MiB, 120 seconds, and 4096 pixels in either dimension. Audio is optional.</p>
-    {!(projectId && details) && <form onSubmit={check}>
+    {!(projectId && details) && (onFilesSelected ? <div className="reference-form-row">
+      <label htmlFor="clip-file">Video clip</label>
+      <input id="clip-file" type="file" multiple disabled={selectionDisabled} accept=".mp4,.mov,video/mp4,video/quicktime"
+        onChange={event => { onFilesSelected(Array.from(event.target.files ?? [])); event.target.value = ""; }} />
+      <p className="hint">Select one or more videos. Review the shared queue below, then choose Upload queued files. The first successful upload becomes your original clip.</p>
+    </div> : <form onSubmit={check}>
       <label htmlFor="clip-file">Video clip</label>
       <div className="reference-form-row">
         <input id="clip-file" ref={input} type="file" accept=".mp4,.mov,video/mp4,video/quicktime"
@@ -113,7 +118,7 @@ export function ClipUpload({ projectId, initialDetails = null, onSaved }: { proj
         <button type="submit" disabled={!file || checking}>{checking ? "Inspecting…" : error ? "Retry inspection" : projectId ? "Save clip" : "Inspect clip"}</button>
       </div>
       {file && <p className="hint">Selected: {file.name}</p>}
-    </form>}
+    </form>)}
     {checking && <p role="status" aria-live="polite">Uploading and inspecting clip…</p>}
     {error && <p className="error" role="alert">{error}</p>}
     {details && <div className="reference-card" aria-label="Accepted clip details">
@@ -124,6 +129,6 @@ export function ClipUpload({ projectId, initialDetails = null, onSaved }: { proj
       <p>Audio: {details.has_audio ? details.audio_codec || "Present" : "None"} · Frame rate: {details.frame_rate === null ? "Unknown" : `${details.frame_rate} fps`}</p>
     </div>}
     {file && !(projectId && details) && <button className="clear-clip" type="button" onClick={() => { invalidate(); setFile(null); if (input.current) input.current.value = ""; }}>Clear clip</button>}
-    <p className="hint retention-note">{projectId ? details ? "Your original clip is saved locally; rendering creates a separate output. Add and manage other clips in the Footage library. This original stays the source for whole-clip output and color measurements." : "Choose a clip to validate and save locally for this project. Add and manage other clips in the Footage library. This original stays the source for whole-clip output and color measurements." : "This clip is inspected, then deleted. It is not retained or edited. Upload it again after refresh or when persistent editing becomes available."}</p>
+    <p className="hint retention-note">{projectId ? details ? "Your original clip is saved locally; rendering creates a separate output. Add and manage other clips in the Footage library. This original stays the source for whole-clip output and color measurements." : onFilesSelected ? "Choose one or more clips to add to the queue below. The first successful upload becomes the source for whole-clip output and color measurements." : "Choose a clip to validate and save locally for this project. Add and manage other clips in the Footage library. This original stays the source for whole-clip output and color measurements." : "This clip is inspected, then deleted. It is not retained or edited. Upload it again after refresh or when persistent editing becomes available."}</p>
   </section>;
 }

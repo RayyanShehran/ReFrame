@@ -3,7 +3,6 @@ import { afterEach, expect, it, vi } from "vitest";
 import { Workspace } from "./workspace";
 
 vi.mock("./sequence-editor", () => ({ SequenceEditor: () => null, emptySequence: { revision: null, ready: false, dirty: false, busy: false } }));
-vi.mock("./clip-library", () => ({ ClipLibrary: () => null }));
 
 const reference = { provider: "tiktok", video_id: "123", canonical_url: "https://www.tiktok.com/@a/video/123", title: "Reference", author_name: "A", metadata_status: "available", analysis_status: "not_started" };
 const clip = { filename: "saved.mp4", size_bytes: 10, duration_seconds: 1, width: 32, height: 24, video_codec: "mpeg4", has_audio: false, audio_codec: null, frame_rate: 10, validation_status: "accepted", storage_status: "retained" };
@@ -18,7 +17,10 @@ it("creates, uploads, restores on refresh, and confirms deletion by name", async
   const fetchMock = vi.fn(async (url: string, options: RequestInit = {}) => {
     if (url.endsWith("/api/references/inspect")) return ok(reference);
     if (url.endsWith("/api/projects") && options.method === "POST") { saved = first; return ok(saved, 201); }
-    if (url.endsWith("/clip")) { saved = { ...first, clip_status: "ready", clip } as unknown as typeof first; return ok(saved); }
+    if (url.endsWith("/clips")) {
+      if (options.method === "POST") saved = { ...first, clip_status: "ready", clip } as unknown as typeof first;
+      return ok({ clips: saved?.clip_status === "ready" ? [{ id: first.id, name: "saved.mp4", primary: true, available: true, sha256: "a".repeat(64), metadata: { ...clip, storage_status: "not_retained" } }] : [], total_bytes: saved?.clip_status === "ready" ? 10 : 0 });
+    }
     if (options.method === "DELETE") { saved = null; return ok(null, 204); }
     return ok(url.endsWith("/api/projects") ? saved ? [saved] : [] : saved);
   });
@@ -34,9 +36,10 @@ it("creates, uploads, restores on refresh, and confirms deletion by name", async
   await screen.findByLabelText("Video clip");
   expect(fetchMock.mock.calls.filter(([, options]) => options?.method === "POST" && !(options.body instanceof FormData))).toHaveLength(2); // reference + creation
   expect(window.location.search).toContain(first.id);
+  await waitFor(() => expect(screen.getByLabelText("Video clip")).toBeEnabled());
   fireEvent.change(screen.getByLabelText("Video clip"), { target: { files: [new File(["video"], "saved.mp4", { type: "video/mp4" })] } });
   fireEvent.click(screen.getByRole("button", { name: "Footage" }));
-  fireEvent.click(screen.getByRole("button", { name: "Save clip" }));
+  fireEvent.click(screen.getByRole("button", { name: "Upload queued files" }));
   await screen.findByLabelText("Accepted clip details");
   expect(screen.getByText(/Your original clip is saved locally; rendering creates a separate output/)).toBeInTheDocument();
   expect(screen.queryByLabelText("Video clip")).not.toBeInTheDocument();
@@ -63,7 +66,8 @@ it("aborts uploads and ignores late project responses across navigation", async 
   let uploadSignal!: AbortSignal;
   vi.stubGlobal("fetch", vi.fn((url: string, options: RequestInit = {}) => {
     if (url.endsWith("/api/projects")) return Promise.resolve(ok([first, second]));
-    if (url.endsWith("/clip")) { uploadSignal = options.signal as AbortSignal; return new Promise<Response>((done) => { lateUpload = done; }); }
+    if (url.endsWith("/clips") && options.method !== "POST") return Promise.resolve(ok({ clips: [], total_bytes: 0 }));
+    if (url.endsWith("/clips")) { uploadSignal = options.signal as AbortSignal; return new Promise<Response>((done) => { lateUpload = done; }); }
     if (url.endsWith(first.id)) {
       reads++;
       if (reads === 1) return new Promise<Response>((done) => { lateRead = done; });
@@ -80,13 +84,15 @@ it("aborts uploads and ignores late project responses across navigation", async 
   expect(screen.queryByText("Reference", { selector: "h3" })).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Open First" }));
   await screen.findByText("Reference", { selector: "h3" });
+  await waitFor(() => expect(screen.getByLabelText("Video clip")).toBeEnabled());
   fireEvent.change(screen.getByLabelText("Video clip"), { target: { files: [new File(["video"], "saved.mp4", { type: "video/mp4" })] } });
   fireEvent.click(screen.getByRole("button", { name: "Footage" }));
-  fireEvent.click(screen.getByRole("button", { name: "Save clip" }));
+  fireEvent.click(screen.getByRole("button", { name: "Upload queued files" }));
+  await waitFor(() => expect(uploadSignal).toBeDefined());
   fireEvent.click(screen.getByRole("button", { name: "Open Second" }));
   expect(uploadSignal.aborted).toBe(true);
   await screen.findByText("Second reference");
-  await act(async () => lateUpload(ok({ ...first, clip })));
+  await act(async () => lateUpload(ok({ clips: [], total_bytes: 0 })));
   expect(screen.queryByLabelText("Accepted clip details")).not.toBeInTheDocument();
   expect(screen.getByText("Second reference")).toBeInTheDocument();
 });

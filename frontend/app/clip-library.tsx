@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { parseClipDetails, type ClipDetails } from "./clip-upload";
+import { ClipUpload, parseClipDetails, type ClipDetails } from "./clip-upload";
 
 export const apiBase = (process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000").replace(/\/$/, "");
 export type SourceClip = { id: string; name: string; primary: boolean; available: boolean; metadata: ClipDetails; sha256: string };
@@ -23,7 +23,7 @@ export function readLibrary(data: unknown): Library {
     return { ...c, metadata: parseClipDetails(c.metadata) };
   }) };
 }
-type LibraryProps = { projectId: string; sourceKey: string; onSaved: () => void };
+type LibraryProps = { projectId: string; sourceKey: string; onSaved: () => void; initialDetails?: ClipDetails | null; showOriginal?: boolean };
 type UploadItem = { id: string; file: File; status: "pending" | "uploading" | "succeeded" | "failed"; error?: string };
 const MiB = 1024 * 1024;
 function rejected(file: File, count: number, bytes: number) {
@@ -37,7 +37,7 @@ function rejected(file: File, count: number, bytes: number) {
 export function ClipLibrary(props: LibraryProps) {
   return <LibraryContents key={props.projectId} {...props} />;
 }
-function LibraryContents({ projectId, sourceKey, onSaved }: LibraryProps) {
+function LibraryContents({ projectId, sourceKey, onSaved, initialDetails, showOriginal = true }: LibraryProps) {
   const [library, setLibrary] = useState<Library | null>(null);
   const [queue, setQueue] = useState<UploadItem[]>([]);
   const items = useRef<UploadItem[]>([]);
@@ -69,14 +69,14 @@ function LibraryContents({ projectId, sourceKey, onSaved }: LibraryProps) {
     return () => controller.abort();
   }, [projectId, sourceKey]);
   useEffect(() => { const active = action; return () => { active.current?.abort(); active.current = null; }; }, [projectId]);
-  function saved(data: unknown) {
-    restore(data); onSaved(); window.dispatchEvent(new CustomEvent("reframe-clips", { detail: projectId }));
-  }
+  function notifySaved() { onSaved(); window.dispatchEvent(new CustomEvent("reframe-clips", { detail: projectId })); }
+  function saved(data: unknown) { restore(data); notifySaved(); }
   async function uploadQueue(retry?: string) {
     if (action.current) return;
     if (retry) mark(retry, "pending");
     const controller = new AbortController(); action.current = controller; setBusy(true); setError("");
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let changed = false;
     try {
       timer = setTimeout(() => controller.abort(), 35000);
       let current = readLibrary(await clipRequest(projectId, "/clips", undefined, controller.signal));
@@ -94,7 +94,7 @@ function LibraryContents({ projectId, sourceKey, onSaved }: LibraryProps) {
           const body = new FormData(); body.append("file", item.file);
           const result = readLibrary(await clipRequest(projectId, "/clips", body, controller.signal));
           if (controller.signal.aborted) break;
-          current = result; mark(item.id, "succeeded"); saved(result);
+          current = result; mark(item.id, "succeeded"); restore(result); changed = true;
         } catch (e) {
           if (controller.signal.aborted) {
             if (action.current === controller) mark(item.id, "failed", "Request interrupted. Check retained clips before retrying; the server may have saved this file.");
@@ -108,7 +108,7 @@ function LibraryContents({ projectId, sourceKey, onSaved }: LibraryProps) {
       else if (action.current === controller) setError("Request interrupted. Reload the library before retrying.");
     } finally {
       clearTimeout(timer);
-      if (action.current === controller) { action.current = null; setBusy(false); }
+      if (action.current === controller) { action.current = null; setBusy(false); if (changed) notifySaved(); }
     }
   }
   async function run(kind: "rename" | "remove", id: string) {
@@ -127,7 +127,10 @@ function LibraryContents({ projectId, sourceKey, onSaved }: LibraryProps) {
     } catch (e) { if (!controller.signal.aborted) setError(e instanceof Error ? e.message : "Clip request failed."); else setError("Request interrupted. Reload the library before retrying."); }
     finally { clearTimeout(timer); action.current = null; setBusy(false); }
   }
-  return <section className="reference-section" aria-label="Footage library">
+  const original = library?.clips.find(clip => clip.primary);
+  return <>
+    {showOriginal && <ClipUpload key={original?.id ?? "empty"} projectId={projectId} initialDetails={initialDetails ?? original?.metadata ?? null} onFilesSelected={enqueue} selectionDisabled={busy || !library} />}
+    <section className="reference-section" aria-label="Footage library">
     <h3>Footage library</h3><p>Up to 10 clips · 100 MiB per file · 500 MiB total. The original clip remains the source for color measurements, whole-clip output and legacy cuts.</p>
     {library && <p role="status">{library.clips.length}/10 clips · {(library.total_bytes / 1024 / 1024).toFixed(1)}/500 MiB retained</p>}
     <div className="footage-drop" role="group" aria-label="Add footage files" onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); enqueue(Array.from(e.dataTransfer.files)); }}>
@@ -151,5 +154,5 @@ function LibraryContents({ projectId, sourceKey, onSaved }: LibraryProps) {
       {remove === c.id && <div role="group" aria-label="Confirm clip removal"><p>Remove {c.name} from this computer? Saved slot assignments must be removed or replaced first. Removing the original makes its measurements, recipe and legacy cut plan stale. Previous output remains playable.</p><button disabled={busy} onClick={() => void run("remove", c.id)}>Confirm removal</button><button onClick={() => setRemove(null)}>Keep clip</button></div>}
     </div>)}
     {error && <p role="alert">{error}</p>}
-  </section>;
+  </section></>;
 }

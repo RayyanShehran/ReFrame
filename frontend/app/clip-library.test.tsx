@@ -12,15 +12,17 @@ async function add(files: File[]) { await waitFor(() => expect(screen.getByLabel
 afterEach(() => vi.unstubAllGlobals());
 it("uploads sequentially, continues after failure, and retries only the failed file", async () => {
   let finish!: (value: Response) => void, retained = library();
+  const onSaved = vi.fn();
   const submitted: string[] = [];
   vi.stubGlobal("fetch", vi.fn(async (_url: string, options: RequestInit) => {
     if (options.method !== "POST") return ok(retained);
     const name = (options.body as FormData).get("file") as File; submitted.push(name.name);
     if (submitted.length === 1) return new Promise<Response>(resolve => { finish = resolve; });
+    expect(onSaved).not.toHaveBeenCalled();
     if (submitted.length === 2) return { ok: false, json: async () => ({ error: { message: "Invalid video content." } }) } as Response;
     retained = library(retained.clips.length + 1); return ok(retained);
   }));
-  render(<ClipLibrary projectId="one" sourceKey="1" onSaved={vi.fn()} />);
+  render(<ClipLibrary projectId="one" sourceKey="1" onSaved={onSaved} />);
   await add([file("first.mp4"), file("bad.mov"), file("third.mp4"), file("remove.mp4")]);
   fireEvent.click(screen.getByRole("button", { name: "Upload queued files" }));
   await waitFor(() => expect(submitted).toEqual(["first.mp4"]));
@@ -30,6 +32,8 @@ it("uploads sequentially, continues after failure, and retries only the failed f
   await screen.findByText("third.mp4 · Succeeded");
   expect(submitted).toEqual(["first.mp4", "bad.mov", "third.mp4"]);
   expect(screen.getByText(/Invalid video content/)).toBeInTheDocument();
+  expect(onSaved).toHaveBeenCalledTimes(1);
+  onSaved.mockClear();
   fireEvent.click(screen.getByRole("button", { name: "Retry bad.mov" }));
   await screen.findByText("bad.mov · Succeeded");
   expect(submitted).toEqual(["first.mp4", "bad.mov", "third.mp4", "bad.mov"]);
@@ -77,4 +81,24 @@ it("refreshes server budgets before uploading and leaves successful uploads unto
   await add([file("first.mp4"), file("second.mp4")]); fireEvent.click(screen.getByRole("button", { name: "Upload queued files" }));
   await screen.findByText(/This project allows 10 clips/);
   expect(posts).toEqual(["first.mp4"]); expect(screen.getByText("first.mp4 · Succeeded")).toBeInTheDocument();
+});
+
+
+it("routes every file from both actual picker inputs into one queue", async () => {
+  const posts: string[] = []; let retained = library();
+  vi.stubGlobal("fetch", vi.fn(async (_url: string, options: RequestInit) => {
+    if (options.method !== "POST") return ok(retained);
+    posts.push(((options.body as FormData).get("file") as File).name);
+    retained = library(retained.clips.length + 1); return ok(retained);
+  }));
+  render(<ClipLibrary projectId="one" sourceKey="1" onSaved={vi.fn()} />);
+  await waitFor(() => expect(screen.getByLabelText("Video clip")).toBeEnabled());
+  expect(screen.getByLabelText("Video clip")).toHaveAttribute("multiple");
+  expect(screen.getByLabelText("Add footage")).toHaveAttribute("multiple");
+  fireEvent.change(screen.getByLabelText("Video clip"), { target: { files: [file("first.mp4"), file("second.mov")] } });
+  await add([file("third.mp4"), file("fourth.mov")]);
+  for (const name of ["first.mp4", "second.mov", "third.mp4", "fourth.mov"]) expect(screen.getByText(`${name} · Pending`)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Upload queued files" }));
+  await screen.findByText("fourth.mov · Succeeded");
+  expect(posts).toEqual(["first.mp4", "second.mov", "third.mp4", "fourth.mov"]);
 });
