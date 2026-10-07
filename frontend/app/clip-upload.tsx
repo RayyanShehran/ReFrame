@@ -51,6 +51,18 @@ export function parseClipDetails(data: unknown, retained = false): ClipDetails {
   return data as ClipDetails;
 }
 
+export function FootagePicker({ label, disabled, onFilesSelected }: { label: string; disabled: boolean; onFilesSelected: (files: File[]) => void }) {
+  const input = useRef<HTMLInputElement>(null);
+  return <div className="footage-drop" role="group" aria-label={`${label} files`}
+    onDragOver={event => event.preventDefault()} onDrop={event => { event.preventDefault(); if (!disabled) onFilesSelected(Array.from(event.dataTransfer.files)); }}>
+    <input ref={input} className="footage-file-input" aria-label={label} type="file" multiple disabled={disabled}
+      accept=".mp4,.mov,video/mp4,video/quicktime" tabIndex={-1}
+      onChange={event => { onFilesSelected(Array.from(event.target.files ?? [])); event.target.value = ""; }} />
+    <button type="button" disabled={disabled} onClick={() => input.current?.click()}>Choose videos</button>
+    <p className="hint">Select several MP4 or MOV files, or drop them here. Review the queue below, then choose Upload queued files. Uploads run one at a time.</p>
+  </div>;
+}
+
 export function ClipUpload({ projectId, initialDetails = null, onSaved, onFilesSelected, selectionDisabled = false }: { projectId?: string; initialDetails?: ClipDetails | null; onSaved?: () => void; onFilesSelected?: (files: File[]) => void; selectionDisabled?: boolean }) {
   const [file, setFile] = useState<File | null>(null);
   const [details, setDetails] = useState<ClipDetails | null>(initialDetails);
@@ -105,12 +117,7 @@ export function ClipUpload({ projectId, initialDetails = null, onSaved, onFilesS
     <p className="eyebrow">Your footage</p>
     <h2 id="footage-title">{onFilesSelected ? "Choose footage" : projectId ? "Save original clip" : "Inspect one clip"}</h2>
     <p className="reference-help">MP4 or MOV, up to 100 MiB, 120 seconds, and 4096 pixels in either dimension. Audio is optional.</p>
-    {!(projectId && details) && (onFilesSelected ? <div className="reference-form-row">
-      <label htmlFor="clip-file">Video clip</label>
-      <input id="clip-file" type="file" multiple disabled={selectionDisabled} accept=".mp4,.mov,video/mp4,video/quicktime"
-        onChange={event => { onFilesSelected(Array.from(event.target.files ?? [])); event.target.value = ""; }} />
-      <p className="hint">Select one or more videos. Review the shared queue below, then choose Upload queued files. The first successful upload becomes your original clip.</p>
-    </div> : <form onSubmit={check}>
+    {!(projectId && details) && (onFilesSelected ? <FootagePicker label="Video clip" disabled={selectionDisabled} onFilesSelected={onFilesSelected} /> : <form onSubmit={check}>
       <label htmlFor="clip-file">Video clip</label>
       <div className="reference-form-row">
         <input id="clip-file" ref={input} type="file" accept=".mp4,.mov,video/mp4,video/quicktime"

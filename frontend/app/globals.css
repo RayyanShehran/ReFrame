@@ -166,3 +166,7 @@ input:focus-visible, select:focus-visible, textarea:focus-visible, a:focus-visib
 .upload-queue li { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; border-bottom: 1px solid #334155; padding-block: 10px; }
 .upload-queue li > span { flex: 1 1 200px; min-width: 0; overflow-wrap: anywhere; }
 .upload-queue button { min-height: 44px; }
+
+.footage-file-input { position: absolute; width: 1px !important; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.footage-drop button { min-height: 44px; }
+.footage-drop .hint { margin-bottom: 0; }

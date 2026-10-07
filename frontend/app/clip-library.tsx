@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ClipUpload, parseClipDetails, type ClipDetails } from "./clip-upload";
+import { ClipUpload, FootagePicker, parseClipDetails, type ClipDetails } from "./clip-upload";
 
 export const apiBase = (process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000").replace(/\/$/, "");
 export type SourceClip = { id: string; name: string; primary: boolean; available: boolean; metadata: ClipDetails; sha256: string };
@@ -133,10 +133,7 @@ function LibraryContents({ projectId, sourceKey, onSaved, initialDetails, showOr
     <section className="reference-section" aria-label="Footage library">
     <h3>Footage library</h3><p>Up to 10 clips · 100 MiB per file · 500 MiB total. The original clip remains the source for color measurements, whole-clip output and legacy cuts.</p>
     {library && <p role="status">{library.clips.length}/10 clips · {(library.total_bytes / 1024 / 1024).toFixed(1)}/500 MiB retained</p>}
-    <div className="footage-drop" role="group" aria-label="Add footage files" onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); enqueue(Array.from(e.dataTransfer.files)); }}>
-      <label>Add footage <input type="file" multiple accept="video/mp4,video/quicktime,.mp4,.mov" disabled={busy || !library} onChange={e => { enqueue(Array.from(e.target.files ?? [])); e.target.value = ""; }} /></label>
-      <p className="hint">Select one or more files, or drop them here. Uploads run one at a time. The first saved clip becomes the original. Duration, dimensions and media validity are checked by the server.</p>
-    </div>
+    <FootagePicker label="Add footage" disabled={busy || !library} onFilesSelected={enqueue} />
     <button disabled={busy || !library || !queue.some(item => item.status === "pending")} onClick={() => void uploadQueue()}>{busy ? "Working…" : "Upload queued files"}</button>
     <ul className="upload-queue" aria-label="Upload queue" aria-live="polite">
       {queue.map(item => <li key={item.id}>

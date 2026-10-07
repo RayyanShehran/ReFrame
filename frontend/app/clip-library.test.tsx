@@ -22,13 +22,14 @@ it("uploads sequentially, continues after failure, and retries only the failed f
     if (submitted.length === 2) return { ok: false, json: async () => ({ error: { message: "Invalid video content." } }) } as Response;
     retained = library(retained.clips.length + 1); return ok(retained);
   }));
-  render(<ClipLibrary projectId="one" sourceKey="1" onSaved={onSaved} />);
+  const view = render(<ClipLibrary projectId="one" sourceKey="1" onSaved={onSaved} />);
   await add([file("first.mp4"), file("bad.mov"), file("third.mp4"), file("remove.mp4")]);
   fireEvent.click(screen.getByRole("button", { name: "Upload queued files" }));
   await waitFor(() => expect(submitted).toEqual(["first.mp4"]));
   expect(screen.getByText("first.mp4 · Uploading")).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Remove pending remove.mp4" }));
   retained = library(1); await act(async () => finish(ok(retained)));
+  view.rerender(<ClipLibrary projectId="one" sourceKey="after-first-success" initialDetails={metadata as never} onSaved={onSaved} />);
   await screen.findByText("third.mp4 · Succeeded");
   expect(submitted).toEqual(["first.mp4", "bad.mov", "third.mp4"]);
   expect(screen.getByText(/Invalid video content/)).toBeInTheDocument();
