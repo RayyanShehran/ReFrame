@@ -5,10 +5,10 @@ import { apiBase, clipRequest, readLibrary, type SourceClip } from "./clip-libra
 import { AssemblyReview, type Assignment } from "./assembly-review";
 import { useWorkspaceReport } from "./guided-workspace";
 
-type Slot = { id: string; clip_id: string | null; duration_frames: number; source_start_frame: number; source_end_frame: number; output_start_frame: number; output_end_frame: number; source_hash: string | null };
+type Slot = Assignment & { source_end_frame: number; output_start_frame: number; output_end_frame: number; source_hash: string | null };
 type Sequence = { schema_version: 1; revision: number; slots: Slot[]; output_frames: number };
 type Result = { status: "empty" | "incomplete" | "ready" | "stale"; sequence: Sequence | null; message: string | null };
-type Draft = { id: string; clip_id: string | null; start: string; duration: string };
+type Draft = { id: string; clip_id: string | null; start: string; duration: string; reference_start_frame?: number | null; reference_end_frame?: number | null };
 export type SequenceState = { revision: number | null; ready: boolean; dirty: boolean; busy: boolean; duration?: number };
 export const emptySequence: SequenceState = { revision: null, ready: false, dirty: false, busy: false };
 const integer = (n: unknown, min: number, max: number) => Number.isSafeInteger(n) && Number(n) >= min && Number(n) <= max;
@@ -18,7 +18,7 @@ function parse(data: unknown): Result {
   if (s && (s.schema_version !== 1 || !integer(s.revision, 1, Number.MAX_SAFE_INTEGER) || !integer(s.output_frames, 1, 3600) || !Array.isArray(s.slots) || !s.slots.length || s.slots.length > 60 || s.slots.some(v => !/^[0-9a-f-]{36}$/.test(v.id) || !integer(v.duration_frames, 1, 3600) || !integer(v.source_start_frame, 0, 3600)))) throw new Error("Invalid sequence response.");
   return r;
 }
-const drafts = (slots: Slot[]): Draft[] => slots.map(s => ({ id: s.id, clip_id: s.clip_id, start: String(s.source_start_frame / 30), duration: String(s.duration_frames / 30) }));
+const drafts = (slots: Slot[]): Draft[] => slots.map(s => ({ id: s.id, clip_id: s.clip_id, start: String(s.source_start_frame / 30), duration: String(s.duration_frames / 30), reference_start_frame: s.reference_start_frame, reference_end_frame: s.reference_end_frame }));
 export function SequenceEditor({ projectId, onState }: { projectId: string; onState: (state: SequenceState) => void }) {
   const [result, setResult] = useState<Result | null>(null), [slots, setSlots] = useState<Draft[]>([]);
   const [clips, setClips] = useState<SourceClip[]>([]), [selected, setSelected] = useState("");
@@ -63,7 +63,7 @@ export function SequenceEditor({ projectId, onState }: { projectId: string; onSt
     const timer = setTimeout(() => controller.abort(), 15000);
     try {
       const body = kind === "generate" ? { expected_revision: revision ?? 0, replace: !!sequence }
-        : kind === "save" ? { expected_revision: revision, slots: slots.map(s => ({ id: s.id, clip_id: s.clip_id, duration_frames: Math.round(Number(s.duration) * 30), source_start_frame: Math.round(Number(s.start) * 30) })) } : undefined;
+        : kind === "save" ? { expected_revision: revision, slots: slots.map(s => ({ id: s.id, clip_id: s.clip_id, duration_frames: Math.round(Number(s.duration) * 30), source_start_frame: Math.round(Number(s.start) * 30), reference_start_frame: s.reference_start_frame, reference_end_frame: s.reference_end_frame })) } : undefined;
       const data = await clipRequest(projectId, `/sequence${kind === "generate" ? "/generate" : ""}`, body, controller.signal);
       if (!controller.signal.aborted) restore(data);
     } catch (e) { if (!controller.signal.aborted) setError(e instanceof Error ? e.message : "Sequence request failed."); else setError("Request interrupted. Reload saved slots before retrying."); }
@@ -74,7 +74,7 @@ export function SequenceEditor({ projectId, onState }: { projectId: string; onSt
     <button disabled={busy || !result} onClick={() => sequence || dirty ? setConfirm(true) : void run("generate")}>{sequence ? "Regenerate slots from reference pacing" : "Create slots from reference pacing"}</button>
     {confirm && <div role="group" aria-label="Confirm slot replacement"><p>Replace the saved slots and unsaved edits? This clears assignments and can make captions and transcription stale.</p><button disabled={busy} onClick={() => void run("generate")}>Confirm replace slots</button><button onClick={() => setConfirm(false)}>Keep slots</button></div>}
     {sequence && <>
-      <AssemblyReview projectId={projectId} revision={sequence.revision} savedSlots={sequence.slots} clips={clips} dirty={dirty} disabled={busy} onApply={v => { setReview(null); setSlots(v.map(s => ({ id:s.id, clip_id:s.clip_id, start:String(s.source_start_frame/30), duration:String(s.duration_frames/30) }))); setSelected(v[0]?.id ?? ""); }} onPreview={v => { player.current?.pause(); setPlayingRange(false); setSelected(v.id); setReview(v); }} />
+      <AssemblyReview projectId={projectId} revision={sequence.revision} savedSlots={sequence.slots} clips={clips} dirty={dirty} disabled={busy} onApply={v => { setReview(null); setSlots(v.map(s => ({ id:s.id, clip_id:s.clip_id, start:String(s.source_start_frame/30), duration:String(s.duration_frames/30), reference_start_frame:s.reference_start_frame, reference_end_frame:s.reference_end_frame }))); setSelected(v[0]?.id ?? ""); }} onPreview={v => { player.current?.pause(); setPlayingRange(false); setSelected(v.id); setReview(v); }} />
       <p>Saved revision {sequence.revision} · {sequence.output_frames / 30} seconds · 30 fps · at most 60 slots / 120 seconds</p>
       {result?.message && <p role="status">{result.message}</p>}
       <div className="sequence-editor">
@@ -85,6 +85,7 @@ export function SequenceEditor({ projectId, onState }: { projectId: string; onSt
         </li>)}</ol><button disabled={busy || slots.length >= 60} onClick={() => { const id = crypto.randomUUID(); setSlots(v => [...v, { id, clip_id: null, start: "0", duration: "1" }]); select(id); }}>Add slot</button></div>
         {slot && <div className="sequence-trim" role="group" aria-label="Selected source range">
           <h4>Slot {slots.findIndex(s => s.id === slot.id) + 1}</h4>
+          <p className="hint">{slot.reference_start_frame != null && slot.reference_end_frame != null ? `Associated reference ${(slot.reference_start_frame/30).toFixed(3)}–${(slot.reference_end_frame/30).toFixed(3)} s. This interval stays with the slot when reordered or resized.` : "No reference interval: automatic selection uses measurements for this slot. Regenerate slots from reference pacing to establish shot associations."}</p>
           {review && <p>Reviewing proposed range; the draft is unchanged. <button onClick={() => setReview(null)}>Return to draft range</button></p>}
           <label>Source clip <select value={slot.clip_id ?? ""} disabled={busy || !!review} onChange={e => patch({ clip_id: e.target.value || null, start: "0" })}><option value="">Choose footage</option>{clips.map(c => <option key={c.id} value={c.id} disabled={!c.available}>{c.name}{!c.available ? " (unavailable)" : ""}</option>)}</select></label>
           <label>Slot duration (seconds) <input type="number" min={1/30} max={120} step={1/30} value={slot.duration} disabled={busy || !!review} onChange={e => patch({ duration: e.target.value })} /></label>

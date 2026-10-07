@@ -4,7 +4,7 @@ import { AssemblyReview } from "./assembly-review";
 import type { SourceClip } from "./clip-library";
 
 const slot = { id: "11111111-1111-4111-8111-111111111111", clip_id: "22222222-2222-4222-8222-222222222222", duration_frames: 30, source_start_frame: 30 };
-const settings = { expected_sequence_revision: 2, allow_reused_ranges: false, locked_slot_ids: [slot.id] };
+const settings = { matching_mode: "measurements", expected_sequence_revision: 2, allow_reused_ranges: false, locked_slot_ids: [slot.id] };
 const proposal = { id: "33333333-3333-4333-8333-333333333333", settings, sequence: { revision: 2 }, choices: [{ ...slot, explanation: "Locked saved assignment; unchanged.", warnings: [] }], warnings: ["No subject recognition."], cached_sources: 1 };
 const status = { status: "ready", proposal, proposal_stale: false, completed_sources: 2, total_sources: 2, message: null, failure_code: null };
 const ok = (data: unknown) => ({ ok: true, json: async () => data } as Response);
@@ -50,4 +50,25 @@ it("ignores an apply response after the project panel is unmounted", async () =>
   view.unmount();
   await act(async () => release(ok({ expected_revision: 2, slots: [slot] })));
   expect(props.onApply).not.toHaveBeenCalled();
+});
+
+it("restores subject-aware review images and binds mode changes to a new proposal", async () => {
+  const visualProposal = { ...proposal, settings: { ...settings, matching_mode: "subject_aware" }, model_repository: "fixture-model", model_revision: "pinned", choices: [{ ...proposal.choices[0], visual_similarity: 0.72, reference_image: "AAAA", footage_image: "BBBB", reference_sample_frames: [0,15], footage_sample_frames: [30,45] }] };
+  vi.stubGlobal("fetch", vi.fn(async (url: string) => url.endsWith("/visual-model") ? ok({ ready: true, setup: "Explicit setup only" }) : ok({ ...status, proposal: visualProposal })));
+  render(<AssemblyReview {...props} />);
+  await screen.findByText(/fixture-model/);
+  expect(screen.getByRole("combobox", { name: "Matching mode" })).toHaveValue("subject_aware");
+  expect(screen.getByRole("img", { name: "Reference sample for slot 1" })).toBeVisible();
+  expect(screen.getByRole("img", { name: "Selected footage sample for slot 1" })).toBeVisible();
+  expect(screen.getByRole("button", { name: "Apply proposal to draft" })).toBeEnabled();
+  fireEvent.change(screen.getByRole("combobox", { name: "Matching mode" }), { target: { value: "measurements" } });
+  expect(screen.getByRole("button", { name: "Apply proposal to draft" })).toBeDisabled();
+});
+
+it("keeps measurements available with explicit model setup guidance", async () => {
+  vi.stubGlobal("fetch", vi.fn(async (url: string) => url.endsWith("/visual-model") ? ok({ ready: false, setup: "Run explicit model setup" }) : ok(status)));
+  render(<AssemblyReview {...props} />);
+  await screen.findByText(/Run explicit model setup/);
+  expect(screen.getByRole("option", { name: /Subject-aware/ })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Suggest an assembly" })).toBeEnabled();
 });

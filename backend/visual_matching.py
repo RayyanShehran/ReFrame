@@ -16,6 +16,7 @@ from importlib.metadata import version
 from pathlib import Path
 
 import color_analysis as color
+import framing
 import projects
 import reference_engine as engine
 
@@ -99,7 +100,11 @@ class Analysis(color.Schema):
 
 def validate(data, digest, frames):
     try:
-        result = Analysis.model_validate(data)
+        result = (
+            Analysis.model_validate_json(data)
+            if isinstance(data, str)
+            else Analysis.model_validate(data)
+        )
         if (
             result.source_hash != digest
             or result.revision != REVISION
@@ -148,10 +153,15 @@ def analyze(project_id, items, directory, stop, deadline, progress):
                 (project_id, digest, ALGORITHM),
             ).fetchone()
         if row:
-            analyses[digest] = validate(json.loads(row[0]), digest, frames)
+            analyses[digest] = validate(row[0], digest, frames)
             progress(len(analyses))
             continue
         ffmpeg, _, video, duration, _ = color.inspect_video(path, directory, deadline)
+        width, height = framing.display_dimensions(video)
+        ratio = 224 / min(width, height)
+        scaled = (math.ceil(width * ratio), math.ceil(height * ratio))
+        if max(scaled) > 8192:
+            raise engine.RetrievalFailure("dimension_limit", "Visual resize exceeds 8,192 pixels.")
         result = engine.run_command(
             [
                 ffmpeg,
@@ -174,7 +184,7 @@ def analyze(project_id, items, directory, stop, deadline, progress):
                 "-dn",
                 "-vf",
                 "setpts=PTS-STARTPTS,fps=2:start_time=0:round=near:eof_action=pass,"
-                "scale=224:224:force_original_aspect_ratio=increase:flags=bicubic,"
+                f"scale={scaled[0]}:{scaled[1]}:flags=bicubic,"
                 "crop=224:224,setsar=1,format=rgb24",
                 "-t",
                 str(duration),
