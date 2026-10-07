@@ -22,6 +22,19 @@ class Assignment(color.Schema):
     duration_frames: int = Field(ge=1, le=3600, strict=True)
     clip_id: uuid.UUID | None = None
     source_start_frame: int = Field(default=0, ge=0, le=3600, strict=True)
+    reference_start_frame: int | None = Field(default=None, ge=0, le=3599, strict=True)
+    reference_end_frame: int | None = Field(default=None, ge=1, le=3600, strict=True)
+
+    @model_validator(mode="after")
+    def reference_interval(self):
+        if (self.reference_start_frame is None) != (self.reference_end_frame is None):
+            raise ValueError("Provide both reference interval boundaries, or neither.")
+        if (
+            self.reference_start_frame is not None
+            and self.reference_start_frame >= self.reference_end_frame
+        ):
+            raise ValueError("Reference interval must have positive duration.")
+        return self
 
 
 class Slot(Assignment):
@@ -105,13 +118,21 @@ def pacing_binding(project_id):
 
 
 def validate(project_id, sequence, *, stop=None, deadline=None):
-    _, binding = pacing_binding(project_id)
+    blueprint, binding = pacing_binding(project_id)
     if binding != sequence.pacing:
         raise ReferenceError(
             409, "sequence_stale", "Reference pacing changed. Regenerate slots explicitly."
         )
     sources = {}
     for slot in sequence.slots:
+        if slot.reference_end_frame is not None and slot.reference_end_frame > edit_plan.frames(
+            blueprint.duration_seconds
+        ):
+            raise ReferenceError(
+                422,
+                "reference_interval_invalid",
+                "Reference interval exceeds retained reference duration.",
+            )
         if slot.clip_id is None:
             continue
         if slot.clip_id not in sources:
@@ -202,6 +223,8 @@ def generate(project_id, request):
                 id=uuid.uuid4(),
                 duration_frames=s.output_end_frame - s.output_start_frame,
                 source_start_frame=0,
+                reference_start_frame=s.output_start_frame,
+                reference_end_frame=s.output_end_frame,
                 source_end_frame=s.output_end_frame - s.output_start_frame,
                 output_start_frame=s.output_start_frame,
                 output_end_frame=s.output_end_frame,
@@ -234,6 +257,18 @@ def save(project_id, request):
     slots, cursor = [], 0
     sources = {}
     for assignment in request.slots:
+        # Legacy clients omit these fields; preserve provenance by stable slot ID, never index.
+        old = next((s for s in previous.slots if s.id == assignment.id), None)
+        if (
+            old
+            and not {"reference_start_frame", "reference_end_frame"} & assignment.model_fields_set
+        ):
+            assignment = assignment.model_copy(
+                update={
+                    "reference_start_frame": old.reference_start_frame,
+                    "reference_end_frame": old.reference_end_frame,
+                }
+            )
         source_hash = None
         if assignment.clip_id:
             if assignment.clip_id not in sources:

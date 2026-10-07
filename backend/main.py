@@ -34,6 +34,7 @@ import reference_motion
 import sequence
 import transcription
 import video_render
+import visual_matching
 import workflow_capabilities
 from clips import ClipDetails, cleanup_stale_files, inspect_clip
 from references import ReferenceDetails, ReferenceError, ReferenceRequest, inspect_reference
@@ -573,6 +574,11 @@ async def generate_sequence(project_id: str, request: sequence.Generate):
 async def save_sequence(project_id: str, request: sequence.Save):
     async with projects.operation_lock:
         return await projects.storage_call(sequence.save, project_id, request)
+
+
+@app.get("/api/visual-model")
+async def visual_model_status():
+    return await projects.storage_call(visual_matching.readiness)
 
 
 @app.get("/api/projects/{project_id}/assembly", response_model=assembly.Operation)

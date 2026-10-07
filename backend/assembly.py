@@ -17,9 +17,10 @@ import color_analysis as color
 import projects
 import reference_engine as engine
 import sequence
+import visual_matching as visual
 from references import ReferenceError
 
-ALGORITHM = "measured-ranges-v1"
+ALGORITHM = "visual-ranges-v2"
 TABLE = "assembly_operations"
 STAGING = "assembly-staging"
 TOTAL_SECONDS = 120
@@ -27,6 +28,7 @@ TOTAL_SECONDS = 120
 
 class Settings(color.Schema):
     expected_sequence_revision: int = Field(ge=1, strict=True)
+    matching_mode: Literal["measurements", "subject_aware"] = "measurements"
     allow_reused_ranges: bool = False
     locked_slot_ids: list[uuid.UUID] = Field(default_factory=list, max_length=60)
 
@@ -38,11 +40,16 @@ class Apply(Settings):
 class Choice(sequence.Assignment):
     explanation: str
     warnings: list[str] = Field(default_factory=list)
+    visual_similarity: float | None = Field(default=None, ge=-1, le=1, allow_inf_nan=False)
+    reference_image: str | None = Field(default=None, max_length=44000)
+    footage_image: str | None = Field(default=None, max_length=44000)
+    reference_sample_frames: list[int] = Field(default_factory=list, max_length=3)
+    footage_sample_frames: list[int] = Field(default_factory=list, max_length=3)
 
 
 class Proposal(color.Schema):
     schema_version: Literal[1] = 1
-    algorithm_version: Literal["measured-ranges-v1"] = ALGORITHM
+    algorithm_version: Literal["measured-ranges-v1", "visual-ranges-v2"] = ALGORITHM
     analysis_version: Literal["rgb-motion-2fps-64-v1"] = candidates.ALGORITHM
     id: uuid.UUID
     input_hash: str
@@ -53,6 +60,9 @@ class Proposal(color.Schema):
     warnings: list[str]
     analyzed_at: str
     cached_sources: int
+    model_repository: str | None = None
+    model_revision: str | None = None
+    visual_analysis_version: str | None = None
 
 
 class Operation(color.Operation):
@@ -105,6 +115,9 @@ def inputs(project_id, settings, stop=None, deadline=None):
         "reference": ref["identity"].model_dump(mode="json"),
         "algorithm": ALGORITHM,
         "analysis": candidates.ALGORITHM,
+        "visual": [visual.REPOSITORY, visual.REVISION, visual.ALGORITHM]
+        if settings.matching_mode == "subject_aware"
+        else None,
     }
     signature = hashlib.sha256(json.dumps(raw, sort_keys=True).encode()).hexdigest()
     return {
@@ -168,6 +181,8 @@ def reusable(project_id, request):
 
 def begin_operation(project_id, request):
     data = inputs(project_id, request)
+    if request.matching_mode == "subject_aware" and not visual.readiness()["ready"]:
+        raise ReferenceError(409, "model_unavailable", visual.SETUP)
     old = get_operation(project_id, True)
     if old.operation_id:
         prepare_delete(project_id)
@@ -178,6 +193,11 @@ def begin_operation(project_id, request):
             "DELETE FROM candidate_cache WHERE project_id=? AND (algorithm!=? OR "
             "source_hash NOT IN (" + ",".join("?" for _ in hashes) + "))",
             (project_id, candidates.ALGORITHM, *hashes),
+        )
+        db.execute(
+            "DELETE FROM visual_cache WHERE project_id=? AND (algorithm!=? OR "
+            "source_hash NOT IN (" + ",".join("?" for _ in hashes) + "))",
+            (project_id, visual.ALGORITHM, *hashes),
         )
         db.execute("DELETE FROM assembly_operations WHERE project_id=?", (project_id,))
         db.execute(
@@ -203,7 +223,7 @@ def overlaps(start, end, ranges):
     return any(start < b and a < end for a, b in ranges)
 
 
-def select(data, measured, reference, stop=None, deadline=None):
+def select(data, measured, reference, stop=None, deadline=None, embeddings=None):
     # ponytail: greedy slot-order packing; revisit only if manual corrections prove insufficient.
     seq, settings = data["sequence"], data["settings"]
     occupied = {id: [] for id in measured}
@@ -229,10 +249,15 @@ def select(data, measured, reference, stop=None, deadline=None):
                 )
             )
             continue
-        scale = reference.duration_frames / seq.output_frames
-        target = stats(
-            reference, int(slot.output_start_frame * scale), int(slot.output_end_frame * scale)
-        )[0]
+        associated = slot.reference_start_frame is not None
+        start_ref = slot.reference_start_frame if associated else 0
+        end_ref = slot.reference_end_frame if associated else reference.duration_frames
+        target = stats(reference, start_ref, end_ref)[0]
+        reference_samples = (
+            visual.range_samples(embeddings["reference"], start_ref, end_ref)
+            if embeddings and associated
+            else []
+        )
         ranked = []
         for id, analysis in measured.items():
             if deadline is not None:
@@ -264,24 +289,72 @@ def select(data, measured, reference, stop=None, deadline=None):
                     - 0.08 * uses[id]
                     - (1 if reuse else 0)
                 )
+                footage_samples = (
+                    visual.range_samples(embeddings[id], start, end) if embeddings else []
+                )
+                similarity = (
+                    visual.similarity(reference_samples, footage_samples)
+                    if reference_samples and footage_samples
+                    else None
+                )
+                if similarity is not None:
+                    score += 4 * similarity
                 ranked.append(
-                    (-round(score, 9), id, start, motion, brightness, sharpness, cuts, reuse)
+                    (
+                        -round(score, 9),
+                        id,
+                        start,
+                        motion,
+                        brightness,
+                        sharpness,
+                        cuts,
+                        reuse,
+                        similarity,
+                    )
                 )
         if not ranked:
             choices.append(
                 Choice(
                     id=slot.id,
                     duration_frames=slot.duration_frames,
+                    reference_start_frame=slot.reference_start_frame,
+                    reference_end_frame=slot.reference_end_frame,
                     explanation="No full permitted range remains. Shorten or upload; "
                     "unlock assignments, or explicitly allow reused ranges.",
                     warnings=["Unfilled; no footage will be shortened or stretched."],
                 )
             )
             continue
-        _, id, start, motion, brightness, sharpness, cuts, reuse = min(ranked)
+        _, id, start, motion, brightness, sharpness, cuts, reuse, similarity = min(ranked)
         occupied[id].append((start, start + slot.duration_frames))
         uses[id] += 1
         warnings = []
+        samples = (
+            visual.range_samples(embeddings[id], start, start + slot.duration_frames)
+            if embeddings
+            else []
+        )
+        if settings.matching_mode == "subject_aware":
+            if not associated:
+                warnings.append(
+                    "No reference interval associated: measurement-based selection using "
+                    "whole-reference motion. Regenerate slots to associate reference shots."
+                )
+            elif similarity is None:
+                warnings.append(
+                    "Fewer than two 2 fps samples inside the reference or selected range: "
+                    "measurement-based selection for this slot."
+                )
+            else:
+                others = [r[-1] for r in ranked if r[1] != id and r[-1] is not None]
+                if similarity < 0.65:
+                    warnings.append(
+                        "Weak visual similarity; the subject may be absent. Review the images."
+                    )
+                if others and similarity - max(others) < 0.05:
+                    warnings.append(
+                        "Ambiguous visual similarity across clips; review alternatives manually."
+                    )
         if reuse:
             warnings.append("Overlapping source range reused by explicit permission.")
         if cuts:
@@ -294,7 +367,21 @@ def select(data, measured, reference, stop=None, deadline=None):
                 clip_id=id,
                 duration_frames=slot.duration_frames,
                 source_start_frame=start,
-                explanation=f"Sample motion {motion:.3f} vs reference {target:.3f}; "
+                reference_start_frame=slot.reference_start_frame,
+                reference_end_frame=slot.reference_end_frame,
+                visual_similarity=similarity,
+                reference_image=reference_samples[len(reference_samples) // 2].image
+                if reference_samples
+                else None,
+                footage_image=samples[len(samples) // 2].image if samples else None,
+                reference_sample_frames=[s.frame for s in reference_samples],
+                footage_sample_frames=[s.frame for s in samples],
+                explanation=(
+                    f"Visual cosine similarity {similarity:.3f} (not a probability). "
+                    if similarity is not None
+                    else ""
+                )
+                + f"Sample motion {motion:.3f} vs reference {target:.3f}; "
                 f"brightness {brightness:.3f}, sharpness {sharpness:.3f}; "
                 f"{cuts} sampled scene changes.",
                 warnings=warnings,
@@ -336,7 +423,43 @@ def pipeline(data, directory, stop, deadline):
                     "operation_id=? AND state='running'",
                     (index + 1, data["project_id"], data["operation_id"]),
                 )
-        choices = select(data, measured, reference, stop, deadline)
+        embeddings = None
+        if data["settings"].matching_mode == "subject_aware":
+
+            def progress(completed):
+                color.guard(stop, deadline)
+                with projects.database() as db:
+                    db.execute(
+                        "UPDATE assembly_operations SET completed=? WHERE project_id=? "
+                        "AND operation_id=? AND state='running'",
+                        (completed, data["project_id"], data["operation_id"]),
+                    )
+
+            with projects.database() as db:
+                db.execute(
+                    "UPDATE assembly_operations SET completed=0,message=? "
+                    "WHERE project_id=? AND operation_id=?",
+                    (
+                        "Loading local model and comparing visual samples; "
+                        "120-second overall deadline.",
+                        data["project_id"],
+                        data["operation_id"],
+                    ),
+                )
+            unique = {
+                digest: (path, reference if id == "reference" else measured[id])
+                for id, path, digest in items
+            }
+            analyzed = visual.analyze(
+                data["project_id"],
+                [(digest, path, measurement) for digest, (path, measurement) in unique.items()],
+                directory,
+                stop,
+                deadline,
+                progress,
+            )
+            embeddings = {id: analyzed[digest] for id, _, digest in items}
+        choices = select(data, measured, reference, stop, deadline, embeddings)
         color.guard(stop, deadline)
         proposal = Proposal(
             id=uuid.UUID(data["operation_id"]),
@@ -347,10 +470,19 @@ def pipeline(data, directory, stop, deadline):
             choices=choices,
             cached_sources=cached,
             analyzed_at=projects.now(),
+            model_repository=visual.REPOSITORY if embeddings else None,
+            model_revision=visual.REVISION if embeddings else None,
+            visual_analysis_version=visual.ALGORITHM if embeddings else None,
             warnings=[
-                "Automatic selection based on motion, scene boundaries and image measurements.",
+                "Experimental frame-based visual similarity plus motion/scene measurements."
+                if embeddings
+                else "Automatic selection based on motion, scene boundaries "
+                "and image measurements.",
                 "2 fps sampling can miss brief cuts. Dark/quiet/soft images can be intentional.",
-                "Unchanged inputs produce the same ranges. No subject recognition.",
+                "Similarity is not a probability, action/story/identity recognition "
+                "or artistic intent. Review images."
+                if embeddings
+                else "Unchanged inputs produce the same ranges. No subject recognition.",
             ],
         )
         return data, proposal
@@ -398,7 +530,8 @@ def commit(project_id, operation_id, data, proposal, stop, deadline):
             (project_id, proposal.model_dump_json()),
         )
         db.execute(
-            "UPDATE assembly_operations SET state='ready',finished_at=? WHERE project_id=?",
+            "UPDATE assembly_operations SET state='ready',message=NULL,finished_at=? "
+            "WHERE project_id=?",
             (projects.now(), project_id),
         )
 
