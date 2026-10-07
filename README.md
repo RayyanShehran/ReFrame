@@ -12,7 +12,7 @@ Manual assembly: upload/rename clips in **Footage**, create reference-paced slot
 
 - Node.js 22 LTS and npm 10 (developed with Node 22.16.0, npm 10.9.2)
 - Python 3.12 and uv 0.12.20 (developed with Python 3.12.14)
-- FFprobe on `PATH` for clip inspection; FFmpeg and FFprobe for reference retrieval and generated-media tests. Install the [FFmpeg Windows build linked by FFmpeg.org](https://ffmpeg.org/download.html#build-windows) and add its `bin` directory to `PATH`, or use `winget install "FFmpeg (Essentials Build)"` where WinGet is available. On Ubuntu: `sudo apt-get update && sudo apt-get install -y ffmpeg`.
+- FFmpeg and FFprobe for media operations and generated-media tests. The local launcher accepts both on `PATH` or an existing complete build under `.tools/ffmpeg-bin/<build>/bin`. Manual server/test commands use `PATH`. Install the [FFmpeg Windows build linked by FFmpeg.org](https://ffmpeg.org/download.html#build-windows) and add its `bin` directory to `PATH`, or use `winget install "FFmpeg (Essentials Build)"` where WinGet is available. On Ubuntu: `sudo apt-get update && sudo apt-get install -y ffmpeg`.
 - PowerShell
 
 Dependency versions are pinned in `frontend/package-lock.json` and `backend/uv.lock`. No Docker, external database server, cloud credential, or AI key is required. SQLite is provided by Python. The health and reference metadata endpoints work without FFprobe; the clip endpoint returns a safe unavailable error when it is missing.
@@ -34,7 +34,7 @@ uv sync --locked
 cd ..
 ```
 
-No optional recognition dependencies/assets are needed for basic editing. To enable visual matching and transcription together, replace the base sync above with `uv sync --locked --extra visual --extra transcription`; include both extras in later syncs. The launcher uses installed dependencies directly; it does not run installation, model setup or downloads. FFmpeg/FFprobe must be on `PATH` in this window. If Node/uv were just installed, reopen PowerShell. `frontend/.env.local` is public browser configuration; never put secrets in `NEXT_PUBLIC_` variables.
+No optional recognition dependencies/assets are needed for basic editing. To enable visual matching and transcription together, replace the base sync above with `uv sync --locked --extra visual --extra transcription`; include both extras in later syncs. The launcher uses installed dependencies directly; it does not run installation, model setup or downloads. The launcher uses FFmpeg/FFprobe on `PATH`, or automatically discovers an existing complete build in `.tools/ffmpeg-bin/<build>/bin` (also `.tools/ffmpeg-bin`). It verifies both executables and adds that directory only to its own process and child-server environment. No machine/user PATH change or reinstall is needed. The verified local installation is `.tools/ffmpeg-bin/ffmpeg-9.0.2-essentials_build/bin`; binaries remain ignored by Git. Manual server commands still require both tools on `PATH`. If Node/uv were just installed, reopen PowerShell. `frontend/.env.local` is public browser configuration; never put secrets in `NEXT_PUBLIC_` variables.
 
 ## Start and stop (Windows)
 

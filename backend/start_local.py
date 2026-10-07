@@ -17,6 +17,26 @@ import reference_engine as engine
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def resolve_media_tools(root=ROOT):
+    tools = ("ffmpeg", "ffprobe")
+    if not all(shutil.which(tool) for tool in tools):
+        local = root / ".tools/ffmpeg-bin"
+        for directory in [local, *sorted(local.glob("*/bin"), reverse=True)]:
+            suffix = ".exe" if os.name == "nt" else ""
+            if all((directory / f"{tool}{suffix}").is_file() for tool in tools):
+                os.environ["PATH"] = str(directory) + os.pathsep + os.environ.get("PATH", "")
+                break
+    for tool in tools:
+        executable = shutil.which(tool)
+        if not executable:
+            raise RuntimeError(
+                f"{tool} is missing. Add FFmpeg's bin directory to PATH, or extract a "
+                "build containing both tools into .tools/ffmpeg-bin/<build>/bin."
+            )
+        subprocess.run([executable, "-version"], capture_output=True, timeout=5, check=True)
+        print(f"{tool}: {executable}", flush=True)
+
+
 def check(root=ROOT, production=False):
     if sys.version_info[:2] != (3, 12):
         raise RuntimeError("Use Python 3.12: in backend, run uv sync --locked.")
@@ -26,9 +46,7 @@ def check(root=ROOT, production=False):
     version = subprocess.run([node, "--version"], capture_output=True, timeout=5, check=True)
     if not version.stdout.startswith(b"v22."):
         raise RuntimeError("Use Node.js 22 LTS (the tested runtime).")
-    for tool in ("ffmpeg", "ffprobe"):
-        if not shutil.which(tool):
-            raise RuntimeError(f"{tool} is missing. Add FFmpeg's bin directory to PATH.")
+    resolve_media_tools(root)
     for module in ("uvicorn", "fastapi", "multipart", "fontTools", "yt_dlp"):
         if importlib.util.find_spec(module) is None:
             raise RuntimeError("Backend dependencies are missing: run uv sync --locked in backend.")

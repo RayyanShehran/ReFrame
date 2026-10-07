@@ -2,6 +2,7 @@ import os
 import socket
 import sys
 import time
+from pathlib import Path
 
 import pytest
 
@@ -64,3 +65,31 @@ def test_owned_launch_uses_directory_and_stop_does_not_touch_other_process(tmp_p
             if owned is not None:
                 launcher.stop([owned])
             launcher.stop([unrelated])
+
+
+def test_media_tools_fallback_is_complete_and_inherited(tmp_path, monkeypatch):
+    monkeypatch.setenv("PATH", "")
+    suffix = ".exe" if os.name == "nt" else ""
+    directory = tmp_path / ".tools/ffmpeg-bin/existing-build/bin"
+    directory.mkdir(parents=True)
+    for tool in ("ffmpeg", "ffprobe"):
+        path = directory / (tool + suffix)
+        path.touch()
+        path.chmod(0o755)
+    calls = []
+    monkeypatch.setattr(launcher.subprocess, "run", lambda args, **kwargs: calls.append(args))
+    launcher.resolve_media_tools(tmp_path)
+    assert [(Path(args[0]), args[1]) for args in calls] == [
+        (directory / (tool + suffix), "-version") for tool in ("ffmpeg", "ffprobe")
+    ]
+    assert os.environ["PATH"].split(os.pathsep)[0] == str(directory)
+    # Available tools retain precedence; a second call does not prepend the path again.
+    saved = os.environ["PATH"]
+    launcher.resolve_media_tools(tmp_path)
+    assert os.environ["PATH"] == saved
+    # Never select a local build containing only one tool.
+    monkeypatch.setenv("PATH", "")
+    (directory / ("ffprobe" + suffix)).unlink()
+    with pytest.raises(RuntimeError, match="missing"):
+        launcher.resolve_media_tools(tmp_path)
+    assert os.environ["PATH"] == ""
