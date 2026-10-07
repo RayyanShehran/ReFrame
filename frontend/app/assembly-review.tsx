@@ -32,7 +32,7 @@ export function AssemblyReview({ projectId, revision, savedSlots, clips, dirty, 
   const proposal = operation?.proposal;
   const running = starting || operation?.status === "running";
   const savedSettings = proposal?.settings.expected_sequence_revision === revision ? proposal.settings : null;
-  const mode = modeDraft ?? savedSettings?.matching_mode ?? "measurements";
+  const mode = modeDraft ?? proposal?.settings.matching_mode ?? "measurements";
   const reuse = reuseDraft ?? savedSettings?.allow_reused_ranges ?? false;
   const locks = (locksDraft ?? savedSettings?.locked_slot_ids ?? []).filter(id => savedSlots.some(s => s.id === id && s.clip_id));
   useEffect(() => () => { action.current?.abort(); }, [projectId]);
@@ -68,7 +68,7 @@ export function AssemblyReview({ projectId, revision, savedSlots, clips, dirty, 
       {proposal.model_repository && <p className="hint">{proposal.model_repository} · model revision {proposal.model_revision}</p>}
       {(operation?.proposal_stale || changed) && <p role="alert">Proposal is outdated or selection options changed. Save the current slots and suggest explicitly again.</p>}
       <ol>{proposal.choices.map((c,i) => <li key={c.id}><strong>Slot {i+1}: {clips.find(v => v.id === c.clip_id)?.name ?? "Unfilled"}</strong>{c.clip_id && <p>{(c.source_start_frame/30).toFixed(3)}–{((c.source_start_frame+c.duration_frames)/30).toFixed(3)} s · {c.duration_frames/30} s</p>}<p>{c.explanation}</p>
-        {c.reference_image && c.footage_image && <div className="frame-preview-images"><figure><figcaption>Reference sample · {((c.reference_sample_frames?.[Math.floor((c.reference_sample_frames?.length ?? 0)/2)] ?? 0)/30).toFixed(3)}s</figcaption><Image unoptimized src={`data:image/jpeg;base64,${c.reference_image}`} width={128} height={128} alt={`Reference sample for slot ${i+1}`} /></figure><figure><figcaption>Selected footage sample · {((c.footage_sample_frames?.[Math.floor((c.footage_sample_frames?.length ?? 0)/2)] ?? 0)/30).toFixed(3)}s</figcaption><Image unoptimized src={`data:image/jpeg;base64,${c.footage_image}`} width={128} height={128} alt={`Selected footage sample for slot ${i+1}`} /></figure></div>}
+        {c.reference_image && c.footage_image && <div className="frame-preview-images assembly-samples"><figure><figcaption>Reference sample · {((c.reference_sample_frames?.[Math.floor((c.reference_sample_frames?.length ?? 0)/2)] ?? 0)/30).toFixed(3)}s</figcaption><Image unoptimized src={`data:image/jpeg;base64,${c.reference_image}`} width={128} height={128} alt={`Reference sample for slot ${i+1}`} /></figure><figure><figcaption>Selected footage sample · {((c.footage_sample_frames?.[Math.floor((c.footage_sample_frames?.length ?? 0)/2)] ?? 0)/30).toFixed(3)}s</figcaption><Image unoptimized src={`data:image/jpeg;base64,${c.footage_image}`} width={128} height={128} alt={`Selected footage sample for slot ${i+1}`} /></figure></div>}
         {c.warnings.map(w => <p role="note" key={w}>{w}</p>)}<button disabled={!c.clip_id || disabled || running || operation?.proposal_stale || changed} onClick={() => onPreview(c)}>Review proposed range {i+1}</button></li>)}</ol>
       {proposal.warnings.map(w => <p className="hint" key={w}>{w}</p>)}
       <button disabled={disabled || running || applying || operation?.proposal_stale || changed} onClick={() => dirty ? setConfirm(true) : void command("apply")}>Apply proposal to draft</button>

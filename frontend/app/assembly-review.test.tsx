@@ -55,12 +55,12 @@ it("ignores an apply response after the project panel is unmounted", async () =>
 it("restores subject-aware review images and binds mode changes to a new proposal", async () => {
   const visualProposal = { ...proposal, settings: { ...settings, matching_mode: "subject_aware" }, model_repository: "fixture-model", model_revision: "pinned", choices: [{ ...proposal.choices[0], visual_similarity: 0.72, reference_image: "AAAA", footage_image: "BBBB", reference_sample_frames: [0,15], footage_sample_frames: [30,45] }] };
   vi.stubGlobal("fetch", vi.fn(async (url: string) => url.endsWith("/visual-model") ? ok({ ready: true, setup: "Explicit setup only" }) : ok({ ...status, proposal: visualProposal })));
-  render(<AssemblyReview {...props} />);
+  render(<AssemblyReview {...props} revision={3} />);
   await screen.findByText(/fixture-model/);
   expect(screen.getByRole("combobox", { name: "Matching mode" })).toHaveValue("subject_aware");
   expect(screen.getByRole("img", { name: "Reference sample for slot 1" })).toBeVisible();
   expect(screen.getByRole("img", { name: "Selected footage sample for slot 1" })).toBeVisible();
-  expect(screen.getByRole("button", { name: "Apply proposal to draft" })).toBeEnabled();
+  expect(screen.getByRole("button", { name: "Apply proposal to draft" })).toBeDisabled();
   fireEvent.change(screen.getByRole("combobox", { name: "Matching mode" }), { target: { value: "measurements" } });
   expect(screen.getByRole("button", { name: "Apply proposal to draft" })).toBeDisabled();
 });

@@ -432,7 +432,7 @@ def inspect_colors(stream):
     )
 
 
-def inspect_video(path, directory, deadline):
+def inspect_video(path, directory, deadline, *, temp_budget=TEMP_BUDGET):
     ffmpeg, ffprobe = shutil.which("ffmpeg"), shutil.which("ffprobe")
     if not ffmpeg or not ffprobe:
         raise engine.RetrievalFailure("missing_tools", "Color analysis needs FFmpeg and FFprobe.")
@@ -445,7 +445,7 @@ def inspect_video(path, directory, deadline):
             deadline,
             5,
             output_limit=8192,
-            temp_budget=TEMP_BUDGET,
+            temp_budget=temp_budget,
         )
         match = re.match(r"\w+ version ([\w.+-]{1,80})", result.stdout.decode().splitlines()[0])
         if result.returncode or not match:
@@ -469,7 +469,7 @@ def inspect_video(path, directory, deadline):
         deadline,
         10,
         output_limit=65536,
-        temp_budget=TEMP_BUDGET,
+        temp_budget=temp_budget,
     )
     if result.returncode:
         raise engine.RetrievalFailure(

@@ -273,6 +273,8 @@ def select(data, measured, reference, stop=None, deadline=None, embeddings=None)
                 *(b for _, b in occupied[id]),
             }
             for start in sorted(starts):
+                if deadline is not None:
+                    color.guard(stop, deadline)
                 end = start + length
                 if end > analysis.duration_frames:
                     continue

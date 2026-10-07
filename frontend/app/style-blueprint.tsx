@@ -72,7 +72,7 @@ export function StyleBlueprint({ projectId, footage = false, onChange }: { proje
       {b.color_metadata.warnings.map(w => <p role="note" className="error" key={w}>{w}</p>)}
       <p className="hint">{b.color_metadata.assumption}</p>
       <ul className="hint">{b.interpretation_limits.map(limit => <li key={limit}>{limit}</li>)}</ul>
-      <p>These measurements are read-only. Saved color settings, cut planning and rendering are separate below. Semantic footage matching is not implemented.</p>
+      <p>These measurements are read-only. Saved color settings, cut planning and rendering are separate below. Experimental visual matching is available in Automatic assembly; review its images and limitations.</p>
     </>}
   </section>;
 }

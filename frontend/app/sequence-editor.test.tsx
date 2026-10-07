@@ -8,7 +8,7 @@ vi.mock("./assembly-review", () => ({ AssemblyReview: () => null }));
 const a = "11111111-1111-4111-8111-111111111111", b = "22222222-2222-4222-8222-222222222222";
 const clip = (id: string, name: string) => ({ id, name, primary: id === a, available: true, sha256: "a".repeat(64), metadata: { filename: `${name}.mp4`, size_bytes: 1000, duration_seconds: 5, width: 320, height: 180, video_codec: "h264", has_audio: id === a, audio_codec: id === a ? "aac" : null, frame_rate: 30, validation_status: "accepted", storage_status: "not_retained" } });
 const library = { clips: [clip(a, "Camera A"), clip(b, "Camera B")], total_bytes: 2000, max_clips: 10, max_bytes: 500 * 1024 * 1024 };
-const slots = [a,b,a].map((id,i) => ({ id: `00000000-0000-4000-8000-00000000000${i}`, clip_id: id, duration_frames: 30, source_start_frame: 0, source_end_frame: 30, output_start_frame: i*30, output_end_frame: (i+1)*30, source_hash: "a".repeat(64) }));
+const slots = [a,b,a].map((id,i) => ({ id: `00000000-0000-4000-8000-00000000000${i}`, clip_id: id, duration_frames: 30, source_start_frame: 0, source_end_frame: 30, output_start_frame: i*30, output_end_frame: (i+1)*30, reference_start_frame: i*30, reference_end_frame: (i+1)*30, source_hash: "a".repeat(64) }));
 const saved = { status: "ready", message: null, sequence: { schema_version: 1, revision: 1, slots, output_frames: 90 } };
 const ok = (data: unknown) => ({ ok: true, json: async () => data } as Response);
 vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
@@ -22,7 +22,7 @@ it("keeps trimmed drafts across slots, rejects short ranges, saves frames and re
     if (options.method === "POST") {
       const body = JSON.parse(options.body as string);
       expect(body.expected_revision).toBe(1);
-      expect(body.slots[0]).toEqual({ id: slots[0].id, clip_id: a, duration_frames: 30, source_start_frame: 60 });
+      expect(body.slots[0]).toEqual({ id: slots[0].id, clip_id: a, duration_frames: 30, source_start_frame: 60, reference_start_frame: 0, reference_end_frame: 30 });
       expect(body.slots[2].clip_id).toBe(a);
       result = { ...saved, sequence: { ...saved.sequence, revision: 2, slots: slots.map((s,i) => i === 0 ? { ...s, source_start_frame: 60, source_end_frame: 90 } : s) } };
     }
@@ -66,4 +66,21 @@ it("sends the saved sequence revision and blocks unsaved edits", async () => {
   await waitFor(() => expect(fetch.mock.calls.some(call => JSON.stringify(call).includes("expected_sequence_revision"))).toBe(true));
   view.rerender(<RenderVideo projectId="project" revision={1} recipeReady dirty={false} busy={false} sequenceState={{ ...state, dirty: true }} />);
   expect(screen.getByRole("button", { name: "Render video" })).toBeDisabled();
+});
+
+it("keeps the actual reference association when slots are reordered", async () => {
+  const fetcher = vi.fn(async (url: string, options: RequestInit) => {
+    if (url.endsWith("/clips")) return ok(library);
+    if (options.method === "POST") {
+      const body = JSON.parse(options.body as string);
+      expect(body.slots.map((s: { reference_start_frame: number }) => s.reference_start_frame)).toEqual([30,0,60]);
+      expect(body.slots[0].id).toBe(slots[1].id);
+    }
+    return ok(saved);
+  });
+  vi.stubGlobal("fetch", fetcher);
+  render(<SequenceEditor projectId="project" onState={vi.fn()} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Move slot 1 later" }));
+  fireEvent.click(screen.getByRole("button", { name: "Save sequence" }));
+  await waitFor(() => expect(fetcher.mock.calls.some(c => c[1].method === "POST")).toBe(true));
 });

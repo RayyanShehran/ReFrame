@@ -18,7 +18,7 @@ function parse(data: unknown): Result {
   if (s && (s.schema_version !== 1 || !integer(s.revision, 1, Number.MAX_SAFE_INTEGER) || !integer(s.output_frames, 1, 3600) || !Array.isArray(s.slots) || !s.slots.length || s.slots.length > 60 || s.slots.some(v => !/^[0-9a-f-]{36}$/.test(v.id) || !integer(v.duration_frames, 1, 3600) || !integer(v.source_start_frame, 0, 3600)))) throw new Error("Invalid sequence response.");
   return r;
 }
-const drafts = (slots: Slot[]): Draft[] => slots.map(s => ({ id: s.id, clip_id: s.clip_id, start: String(s.source_start_frame / 30), duration: String(s.duration_frames / 30), reference_start_frame: s.reference_start_frame, reference_end_frame: s.reference_end_frame }));
+const drafts = (slots: Assignment[]): Draft[] => slots.map(s => ({ id: s.id, clip_id: s.clip_id, start: String(s.source_start_frame / 30), duration: String(s.duration_frames / 30), reference_start_frame: s.reference_start_frame, reference_end_frame: s.reference_end_frame }));
 export function SequenceEditor({ projectId, onState }: { projectId: string; onState: (state: SequenceState) => void }) {
   const [result, setResult] = useState<Result | null>(null), [slots, setSlots] = useState<Draft[]>([]);
   const [clips, setClips] = useState<SourceClip[]>([]), [selected, setSelected] = useState("");
@@ -42,7 +42,7 @@ export function SequenceEditor({ projectId, onState }: { projectId: string; onSt
     window.addEventListener("reframe-clips", refresh);
     return () => { controller.abort(); window.removeEventListener("reframe-clips", refresh); action.current?.abort(); };
   }, [projectId]);
-  const slot = review ? { id: review.id, clip_id: review.clip_id, start: String(review.source_start_frame/30), duration: String(review.duration_frames/30) } : slots.find(s => s.id === selected), source = clips.find(c => c.id === slot?.clip_id);
+  const slot = review ? drafts([review])[0] : slots.find(s => s.id === selected), source = clips.find(c => c.id === slot?.clip_id);
   const start = Number(slot?.start), duration = Number(slot?.duration), end = start + duration;
   const available = source ? Math.floor(source.metadata.duration_seconds * 30) / 30 : 0;
   function problem(s: Draft) {
@@ -74,7 +74,7 @@ export function SequenceEditor({ projectId, onState }: { projectId: string; onSt
     <button disabled={busy || !result} onClick={() => sequence || dirty ? setConfirm(true) : void run("generate")}>{sequence ? "Regenerate slots from reference pacing" : "Create slots from reference pacing"}</button>
     {confirm && <div role="group" aria-label="Confirm slot replacement"><p>Replace the saved slots and unsaved edits? This clears assignments and can make captions and transcription stale.</p><button disabled={busy} onClick={() => void run("generate")}>Confirm replace slots</button><button onClick={() => setConfirm(false)}>Keep slots</button></div>}
     {sequence && <>
-      <AssemblyReview projectId={projectId} revision={sequence.revision} savedSlots={sequence.slots} clips={clips} dirty={dirty} disabled={busy} onApply={v => { setReview(null); setSlots(v.map(s => ({ id:s.id, clip_id:s.clip_id, start:String(s.source_start_frame/30), duration:String(s.duration_frames/30), reference_start_frame:s.reference_start_frame, reference_end_frame:s.reference_end_frame }))); setSelected(v[0]?.id ?? ""); }} onPreview={v => { player.current?.pause(); setPlayingRange(false); setSelected(v.id); setReview(v); }} />
+      <AssemblyReview projectId={projectId} revision={sequence.revision} savedSlots={sequence.slots} clips={clips} dirty={dirty} disabled={busy} onApply={v => { setReview(null); setSlots(drafts(v)); setSelected(v[0]?.id ?? ""); }} onPreview={v => { player.current?.pause(); setPlayingRange(false); setSelected(v.id); setReview(v); }} />
       <p>Saved revision {sequence.revision} · {sequence.output_frames / 30} seconds · 30 fps · at most 60 slots / 120 seconds</p>
       {result?.message && <p role="status">{result.message}</p>}
       <div className="sequence-editor">

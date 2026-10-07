@@ -15,6 +15,8 @@ from tests.test_video_render import local as local  # noqa: F401
 def record(digest, frames):
     return {
         "source_hash": digest,
+        "revision": visual.REVISION,
+        "algorithm": visual.ALGORITHM,
         "samples": [
             {
                 "frame": f,
@@ -199,3 +201,79 @@ def test_association_persistence_and_visual_failure_preserves_prior(local, monke
     changed = [slots[0] | {"reference_start_frame": 0, "reference_end_frame": 30}, *slots[1:]]
     assert client.post(seq_url, json={"expected_revision": 2, "slots": changed}).status_code == 200
     assert client.get(url).json()["proposal_stale"]
+
+    def deterministic_adapter(project_id, items, directory, stop, deadline, progress):
+        return {
+            digest: visual.validate(
+                record(digest, [s.frame for s in measured.samples]),
+                digest,
+                [s.frame for s in measured.samples],
+            )
+            for digest, path, measured in items
+        }
+
+    monkeypatch.setattr(visual, "analyze", deterministic_adapter)
+    request = settings | {"expected_sequence_revision": 3, "matching_mode": "subject_aware"}
+    assert client.post(url, json=request).status_code == 202
+    ready = finish(client, url)
+    assert ready["status"] == "ready", ready
+    proposal = ready["proposal"]
+    assert proposal["model_revision"] == visual.REVISION
+    assert proposal["settings"]["matching_mode"] == "subject_aware"
+    assert proposal["choices"][1]["visual_similarity"] == 1
+    assert proposal["choices"][1]["reference_image"]
+    assert client.get(url).json()["proposal"] == proposal
+    applied = client.post(url + "/apply", json=request | {"proposal_id": proposal["id"]})
+    assert applied.status_code == 200, applied.text
+    assert applied.json()["slots"][0]["reference_start_frame"] == 0
+    assert client.get(seq_url).json()["sequence"]["revision"] == 3
+
+
+def test_real_decode_one_adapter_call_across_large_staging(local, monkeypatch, tmp_path):
+    import hashlib
+    import subprocess
+
+    import candidate_analysis as candidates
+    from tests.test_color_analysis import generated
+    from tests.test_sequence import setup
+
+    client, directory, _ = local
+    pid, _, _, _ = setup(client, directory)
+    stage = tmp_path / "visual-stage"
+    stage.mkdir()
+    # Shared inspector's default remains 2 MiB; visual caller must pass its own budget.
+    (stage / "prior.rgb").write_bytes(b"x" * (3 * 1024 * 1024))
+    path = tmp_path / "sample.mp4"
+    generated(path, ((10, 20, 30),), 36)
+    measurement = synthetic(90)
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    monkeypatch.setattr(visual, "verify_model", lambda: None)
+    original = engine.run_command
+    calls = []
+
+    def adapter(args, directory, name, *rest, **kwargs):
+        if name != "visual-inference":
+            return original(args, directory, name, *rest, **kwargs)
+        requests = json.loads((directory / "visual-request.json").read_text())
+        calls.append(requests)
+        return subprocess.CompletedProcess(
+            args,
+            0,
+            json.dumps(
+                {"analyses": [record(r["source_hash"], r["frames"]) for r in requests]}
+            ).encode(),
+            "",
+        )
+
+    monkeypatch.setattr(engine, "run_command", adapter)
+    result = visual.analyze(
+        pid,
+        [(digest, path, measurement)],
+        stage,
+        threading.Event(),
+        time.monotonic() + 15,
+        lambda n: None,
+    )
+    assert len(calls) == 1 and len(result[digest].samples) == 6
+    assert not list(stage.glob("*.json")) and not list(stage.glob(digest + "*"))
+    assert candidates.TEMP_BUDGET < visual.TEMP_BUDGET

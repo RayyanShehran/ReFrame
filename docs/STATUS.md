@@ -383,3 +383,12 @@ Windows focused checks verified migration, streamed/count/concurrent upload boun
 Implemented **100%**, subject to final CI and architect acceptance. Users can suggest measured source ranges for saved reference slots, lock assignments, explicitly allow reuse, review/preview, apply to draft, adjust/save and export. Proposals/cache are separate from sequences; cancellation preserves prior results. Sequence caption still/motion previews now reuse export assembly and preserve animation phase across boundaries.
 
 Generated fixtures and one desktop/phone browser session verified selection, adjustment, real export/play/download and refresh. Method, scoring, actual evidence and limits: [Automatic assembly](AUTOMATIC_ASSEMBLY.md). No semantic subject-aware AI matching, model downloads or live TikTok calls. Expanded video baseline remains **88% pending architect reassessment**; image mode **0%**. Automatic measured range selection is complete; subject-aware matching remains pending. Earlier percentages are historical.
+
+
+## Milestone 30: subject-aware visual matching
+
+**100% implemented and locally verified, subject to exact-final-commit CI and architect acceptance.** Explicitly installed/pinned local CLIP image embeddings extend automatic assembly; measurement mode stays available without a model. Saved reference intervals survive slot reorder/resize. Deterministic scoring, bounded cached samples, weak/ambiguous review images, explicit apply/Save and existing cancellation/stale-source safeguards remain.
+
+One 42-frame real benchmark completed in 10.095 seconds: reframed cat/coffee/rocket candidates ranked correctly; absent astronaut selected rocket at 0.567 and was flagged weak. Same-photo derivatives are limited evidence, not independent-photo generalization. One desktop/phone browser session verified draft retention, adjust/save, actual 6-second / 180-frame export/play/download and refresh. No live TikTok/transcription inference. [Model/setup/licenses, exact scoring/bounds, measured evidence and limits](AUTOMATIC_ASSEMBLY.md#subject-aware-visual-matching--milestone-30).
+
+Expanded video baseline remains **94%, pending architect reassessment**. Image mode **0%**. No universal subject/action recognition or exact TikTok recreation claim. Stop after Milestone 30.

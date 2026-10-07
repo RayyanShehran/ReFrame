@@ -3,7 +3,6 @@
 import argparse
 import base64
 import hashlib
-import importlib.util
 import io
 import json
 import math
@@ -12,7 +11,7 @@ import sys
 import threading
 import time
 import urllib.request
-from importlib.metadata import version
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
 import color_analysis as color
@@ -38,10 +37,19 @@ SETUP = (
 
 
 def readiness():
-    ready = MODEL.is_file() and MODEL.stat().st_size == MODEL_BYTES
-    ready = ready and all(
-        importlib.util.find_spec(n) for n in ("onnxruntime", "numpy", "PIL", "psutil")
-    )
+    try:
+        ready = MODEL.is_file() and MODEL.stat().st_size == MODEL_BYTES
+        ready = ready and all(
+            version(name) == expected
+            for name, expected in {
+                "onnxruntime": "1.30.0",
+                "numpy": "2.5.3",
+                "Pillow": "12.3.0",
+                "psutil": "7.2.2",
+            }.items()
+        )
+    except (OSError, PackageNotFoundError):
+        ready = False
     return {
         "ready": bool(ready),
         "repository": REPOSITORY,
@@ -93,8 +101,8 @@ class Sample(color.Schema):
 
 class Analysis(color.Schema):
     source_hash: str = color.Field(pattern=r"^[0-9a-f]{64}$")
-    revision: str = REVISION
-    algorithm: str = ALGORITHM
+    revision: str
+    algorithm: str
     samples: list[Sample] = color.Field(min_length=1, max_length=240)
 
 
@@ -139,6 +147,13 @@ def analyze(project_id, items, directory, stop, deadline, progress):
     analyses, pending, total = {}, [], 0
     for digest, path, measurement in items:
         frames = [s.frame for s in measurement.samples]
+        if (
+            frames != list(range(0, len(frames) * 15, 15))
+            or frames[-1] >= measurement.duration_frames
+        ):
+            raise engine.RetrievalFailure(
+                "cache_invalid", "Measured sample timestamps are invalid."
+            )
         total += len(frames)
         if total > MAX_SAMPLES:
             raise engine.RetrievalFailure(
@@ -156,7 +171,9 @@ def analyze(project_id, items, directory, stop, deadline, progress):
             analyses[digest] = validate(row[0], digest, frames)
             progress(len(analyses))
             continue
-        ffmpeg, _, video, duration, _ = color.inspect_video(path, directory, deadline)
+        ffmpeg, _, video, duration, _ = color.inspect_video(
+            path, directory, deadline, temp_budget=TEMP_BUDGET
+        )
         width, height = framing.display_dimensions(video)
         ratio = 224 / min(width, height)
         scaled = (math.ceil(width * ratio), math.ceil(height * ratio))
