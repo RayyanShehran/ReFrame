@@ -382,7 +382,7 @@ def test_real_retained_fixture_restart_and_delete(local, monkeypatch):
 
 def test_schema_version_and_foreign_keys(local):
     with projects.database() as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 17
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 18
         assert connection.execute("PRAGMA foreign_keys").fetchone()[0] == 1
         with pytest.raises(sqlite3.IntegrityError):
             connection.execute(
