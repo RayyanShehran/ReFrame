@@ -45,11 +45,12 @@ Local Windows FFmpeg **9.0.2 essentials**, Python 3.12.14; generated 320 × 180 
 | Separate source/assigned-shot fits | Two project clip models plus one assigned-shot model; different balances produce distinct models; repeated slots reuse their clip route |
 | Strength 0 / 50 / 100%, decoded frame difference from original | **0.000 / 2.441 / 3.243** mean RGB levels out of 255 |
 | Preview versus independently encoded whole export | **1.349/255** mean absolute RGB error; test permits <5 for lossy encoding |
+| All three actual sequence routes versus their independently decoded previews | **1.669 / 1.961 / 2.034 RGB levels** MAE: first clip, assigned-shot second clip, repeated first clip; outside caption intervals, <6 tolerance for two H.264 passes |
 | Moving footage, same static patch at 0.2 / 0.4 / 0.7 s | **RGB (94,8,0)** at all three inspected moments; fixed transform, no adaptive refitting |
 | Whole / legacy cut / multi-clip output | Ready; legacy 2 s / 60 frames; sequence 3 s / 90 frames with original audio and saved caption 1.1–1.9 s |
 | Assigned-shot range edit | Only assigned-shot match stale, two project matches valid, old output retained/outdated, new stale render rejected |
 
-One isolated desktop/390 × 844 browser session used actual **Choose videos** controls: first chooser `multiple=true`, two selected MP4s sequentially succeeded across first-upload readiness; add-more chooser `multiple=true`, third file succeeded. Saved transfer at 51% produced a 3.000 s / 320 × 180 MP4, native player entered playing state and download completed. Refresh restored all three clips, prepared models, mode/strength and saved output. Phone document width 375 px: no overflow.
+One isolated desktop/390 × 844 browser session used actual **Choose videos** controls: first chooser `multiple=true`, two selected MP4s sequentially succeeded across first-upload readiness; add-more chooser `multiple=true`, third file succeeded. Saved transfer at 51% produced a 3.000 s / 320 × 180 MP4, native player entered playing state and download completed. Refresh restored all three clips, prepared models, mode/strength and saved output. Phone document widths 375 px during export and 390 px in the restored library: no overflow.
 
 A different-content pair used the warm moving test pattern as reference and a coffee photograph clip: [Cup Coffee](https://commons.wikimedia.org/wiki/File:Cup_Coffee.jpg), ProjectManhattan, CC0 1.0 (author/rights on source page). Inspecting its reference/original/graded frames demonstrates routing across different content, **not** reliable style matching. All verification media, generated LUTs, databases and caches remain outside Git. No TikTok, transcription or model download was used.
 

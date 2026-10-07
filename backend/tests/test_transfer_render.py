@@ -249,6 +249,32 @@ def test_real_transfer_perclip_slot_preview_export_and_timing(local, monkeypatch
     assert output["output"]["decoded_frames"] == 90 and output["output"]["has_audio"]
     assert output["output"]["duration_seconds"] == pytest.approx(3, abs=1 / 30)
     assert output["output"]["spec"]["grading"]["settings"]["mode"] == "transfer"
+    # Compare each real exported slot with that route's independently decoded preview.
+    sequence_video = render.destination(pid, output["output"]["output_id"])
+    route_errors = []
+    for index, clip, source_time, output_time in (
+        (0, first, 0.5, 0.5),
+        (1, second, 1.0, 1.0),
+        (2, first, 2.5, 2.5),
+    ):
+        response = client.post(
+            base + "/frame-preview",
+            json=preview_request
+            | dict(
+                clip_id=str(clip.id),
+                slot_id=slots[index]["id"],
+                expected_sequence_revision=2,
+                timestamp_seconds=source_time,
+            ),
+        )
+        assert response.status_code == 200, response.text
+        expected_pixels = png_pixels(response.json()["edited"]["png_base64"], directory)
+        exported_pixels = decoded(sequence_video, output_time)
+        route_error = sum(abs(a - b) for a, b in zip(expected_pixels, exported_pixels)) / len(
+            expected_pixels
+        )
+        route_errors.append(route_error)
+        assert route_error < 6  # Two H.264 passes in assembly, outside the caption interval.
     # A range change invalidates its shot match, preserving project clip matches.
     slots[1]["source_start_frame"] = 0
     assert (
@@ -304,6 +330,7 @@ def test_real_transfer_perclip_slot_preview_export_and_timing(local, monkeypatch
         json.dumps(
             dict(
                 preview_encode_mae=error,
+                sequence_route_mae=route_errors,
                 strength_mae=strengths,
                 temporal_patch_rgb=patches,
                 models=models,
