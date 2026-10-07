@@ -34,7 +34,7 @@ uv sync --locked
 cd ..
 ```
 
-No optional recognition dependencies/assets are needed for basic editing. The launcher uses installed dependencies directly; it does not run installation, model setup or downloads. FFmpeg/FFprobe must be on `PATH` in this window. If Node/uv were just installed, reopen PowerShell. `frontend/.env.local` is public browser configuration; never put secrets in `NEXT_PUBLIC_` variables.
+No optional recognition dependencies/assets are needed for basic editing. To enable visual matching and transcription together, replace the base sync above with `uv sync --locked --extra visual --extra transcription`; include both extras in later syncs. The launcher uses installed dependencies directly; it does not run installation, model setup or downloads. FFmpeg/FFprobe must be on `PATH` in this window. If Node/uv were just installed, reopen PowerShell. `frontend/.env.local` is public browser configuration; never put secrets in `NEXT_PUBLIC_` variables.
 
 ## Start and stop (Windows)
 
@@ -64,7 +64,7 @@ For custom ports, use two PowerShell windows instead:
 # Window 1
 cd C:\Projects\Reframe\backend
 $env:REFRAME_ALLOWED_ORIGINS='http://127.0.0.1:3001'
-uv run --locked uvicorn main:app --host 127.0.0.1 --port 8001
+uv run --no-sync uvicorn main:app --host 127.0.0.1 --port 8001
 # Window 2
 cd C:\Projects\Reframe\frontend
 $env:NEXT_PUBLIC_API_BASE_URL='http://127.0.0.1:8001'
@@ -286,4 +286,4 @@ After saving a project and uploading footage, **Prepare reference and footage** 
 Automatic assembly can propose source ranges from sampled motion, scene boundaries and image measurements. Lock saved choices, review the separate proposal, explicitly apply it to the draft, then Save and render. Choose Measurements without a model, or explicitly set up the local Subject-aware visual matching mode. Compare saved reference/footage images; weak or ambiguous matches require review. No action/story/identity recognition is claimed. Saved sequence caption still/motion previews are supported. [Method and limits](docs/AUTOMATIC_ASSEMBLY.md).
 
 
-For optional visual matching, in `backend` run `uv sync --locked --extra visual`, then `uv run --locked --extra visual python visual_matching.py setup` (85 MiB pinned image model). `python visual_matching.py ready` checks readiness without downloads. Include `--extra transcription` when also retaining automatic captions. [Model, license, bounds and actual benchmark](docs/AUTOMATIC_ASSEMBLY.md#subject-aware-visual-matching--milestone-30).
+For optional visual matching, in `backend` run `uv sync --locked --extra visual`, then `uv run --locked --extra visual python visual_matching.py setup` (85 MiB pinned image model). `python visual_matching.py ready` checks readiness without downloads. To install both optional features together, run `uv sync --locked --extra visual --extra transcription` in `backend`. Subsequent syncs must name both extras; a base-only exact sync removes them. Start with `Start-ReFrame.ps1` or `uv run --no-sync uvicorn main:app --host 127.0.0.1 --port 8000` to use the installed environment unchanged. The installed uv also retains extras with ordinary `uv run --locked` (inexact by default), but `--locked` alone does not disable syncing. Each model still requires its separate explicit setup; do not repeat setup for ready caches. [Model, license, bounds and actual benchmark](docs/AUTOMATIC_ASSEMBLY.md#subject-aware-visual-matching--milestone-30).

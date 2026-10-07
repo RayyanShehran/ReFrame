@@ -48,7 +48,17 @@ uv run --locked --extra visual python visual_matching.py setup
 uv run --locked --extra visual python visual_matching.py ready
 ```
 
-Include `--extra transcription` as well when retaining automatic-caption dependencies. Setup is the only network path. No model download/load occurs at startup, project opening or readiness checks. Weights live in ignored `data/visual-models/<revision>/vision.onnx`. Readiness checks file size and exact installed dependency versions; analysis also verifies the weight SHA-256 before use. GET `/api/visual-model` supplies readiness/setup guidance. Missing/corrupt assets or inference failure never silently switch matching modes or replace the previous proposal.
+For **both visual matching and transcription**, in `backend` install with:
+
+```powershell
+uv sync --locked --extra visual --extra transcription
+```
+
+Use `uv run --no-sync python visual_matching.py ready` and the normal `Start-ReFrame.ps1` launcher (or `uv run --no-sync uvicorn main:app --host 127.0.0.1 --port 8000`) after installation. Both use the installed environment without syncing. Explicit model setup can likewise use `uv run --no-sync python visual_matching.py setup` / `transcribe_local.py setup`; run only for missing assets. Always include both extras in later syncs. [uv documents](https://docs.astral.sh/uv/concepts/projects/sync/) exact `sync`, inexact ordinary `run`, and `--no-sync`; `--locked` protects the lockfile, not the installed extra selection.
+
+Windows checks with installed uv 0.12.20: combined locked sync dry-run **no changes**; both sets imported/versions resolved; ordinary `uv run --locked` retained both; base-only sync dry-run would remove **16 packages**, including both inference stacks. No removal was applied. Launcher prerequisite/port check passed and its commands invoke `.venv` Python directly. Visual readiness and transcription asset readiness both true; no speech inference or new model download.
+
+Setup is the only network path. No model download/load occurs at startup, project opening or readiness checks. Weights live in ignored `data/visual-models/<revision>/vision.onnx`. Readiness checks file size and exact installed dependency versions; analysis also verifies the weight SHA-256 before use. GET `/api/visual-model` supplies readiness/setup guidance. Missing/corrupt assets or inference failure never silently switch matching modes or replace the previous proposal.
 
 [CLIP ViT-B/32](https://github.com/openai/CLIP), [Xenova ONNX conversion](https://huggingface.co/Xenova/clip-vit-base-patch32/tree/d15189d7028b43f1d3e65039190477f6af591c2a/onnx), quantized **image encoder only**. Exact revision **d15189d7028b43f1d3e65039190477f6af591c2a**, SHA-256 **583fd1110a514667812fee7d684952aaf82a99b959760c8d7dca7e0ab9839299**, **89,117,001 bytes (85 MiB)** download/storage plus optional dependencies. CLIP's upstream repository is [MIT licensed](https://github.com/openai/CLIP/blob/main/LICENSE); the converted-weight repository points to the upstream model and supplies no separate license. The upstream [model card](https://huggingface.co/openai/clip-vit-base-patch32) cautions against untested deployment; this is experimental local, user-reviewed matching, not deployment validation. No remote Python/custom model code, pickle, text encoder, object classifier or invented labels.
 
@@ -64,7 +74,7 @@ Same shared worker, **120-second total monotonic deadline**, cancellation, stale
 
 Inference's own RSS watchdog checks every **100 ms**, exits above **1 GiB**; staging checks also poll every 100 ms. Both can overshoot between checks; neither is a strict allocation/filesystem quota. Parent memory is bounded by raw/captured/cache sample sizes, not an RSS quota. Failed/oversized/malformed output fails explicitly, preserving the previous proposal. The metadata inspector accepts this caller's larger staging budget while ordinary color analysis retains its 2 MiB default.
 
-### Real evidence — 2026-10-07
+### Historical same-photo evidence — 2026-10-07
 
 Windows, Python 3.12.14, FFmpeg 9.0.2, ONNX Runtime 1.30.0. Intel **i5-12450H**, 8 cores/12 logical processors, **15.68 GiB** usable RAM. One real inference benchmark: **42 frames**, embedding cache cold / M29 measurement cache warm, **10.095 seconds** for the complete operation including decode/model load/scoring/hash checks. Survived the 1 GiB RSS watchdog; exact peak RSS was not retained. Valid saved visual cache: **629,738 bytes**. No inference/model downloads in CI, TikTok calls or transcription rerun.
 
@@ -77,8 +87,34 @@ Licensed source photographs from [scikit-image v0.18.3](https://github.com/sciki
 | Rocket | 0.480 | 0.418 | 0.977 | Correct rocket |
 | Astronaut, absent | 0.408 | 0.374 | 0.567 | Incorrect best available rocket, visibly flagged weak |
 
-Scores are highest eligible-range cosines per clip, calculated from saved real embeddings without another inference run. Unavailable subjects still need manual replacement/removal; a weak match does not become a valid recreation. Generalization across independent images, occlusion, small edge subjects, actions and longer libraries is unverified.
+Scores are highest eligible-range cosines per clip, calculated from saved real embeddings without another inference run. Unavailable subjects still need manual replacement/removal; a weak match does not become a valid recreation. This run does not test generalization across independent images. The small independent-photo check below is separate; occlusion, small edge subjects, actions and longer libraries remain unverified.
 
 One browser session: select subject-aware → suggest → compare images/native range playback → apply → adjust first start **3.5 to 3.0 s** → switch sections (draft retained) → Save revision **2** → sequence render → actual playback/download → refresh. Saved source ranges: cat **3–4.5 s**, coffee **0.5–2 s**, rocket **0.5–2 s** then **2–3.5 s**, preserving the weak-match warning. Export: **320 × 240, 6.000 s, 180 decoded frames, 288,000 decoded audio samples, 147,331 bytes**. Selected midpoint frames agree with their saved source frames within **2.919 / 5.205 / 1.552 / 1.553 RGB levels** mean error after separate lossy encodes. Static photo clips verify source correspondence; they do not independently disambiguate every possible source start. Existing moving/range rendering fixtures provide unchanged timing coverage. Native player readyState 4, paused false, no error. Refresh restored saved ranges/output and prior proposal/images/model identity, correctly stale after sequence Save.
 
 Desktop **1280 × 900**, phone **390 × 844**: compact comparisons stack, document width **375 px**, no horizontal overflow. Physical-phone behavior is unverified. Reference color/pacing/recipe bindings were fixture-seeded offline; actual visual inference and export used retained real media. Runtime assets, databases, model weights, downloads and screenshots remain outside Git. Focused tests cover deterministic adapter validation/bounds, wrong/nonfinite cache data, reference reorder/resize/legacy preservation, weak/ambiguous/fallback matches, failed inference retaining prior proposals, mode restoration/draft behavior and real decode with larger staging. Final CI exercises the full existing lifecycle/rendering suite without optional weights or expensive inference.
+
+
+### Independent-source acceptance check — 2026-10-07
+
+Three reference categories use the original scikit-image photos above, with the absent NASA astronaut as a fourth reference. The candidates below are **different original photographs**, not derivatives of those reference photos. References/candidates have different framing, backgrounds and captures; rocket compares a stationary SpaceX launchpad with a NASA shuttle launch. Each category is checked against all three candidates; the other two are unrelated. The brown coffee/wood candidate also serves as the similar-color, different-subject distractor for the brown cat reference. No threshold, weights or scoring was tuned.
+
+| Candidate source (original file linked on page) | Author / rights | Independence |
+| --- | --- | --- |
+| [Cat on table at a cat cafe](https://commons.wikimedia.org/wiki/File:Cat_on_table_at_a_cat_cafe.jpg) | Emma Neru, CC0 1.0 | Separate 2026 cafe photograph; not Chelsea |
+| [Cup Coffee](https://commons.wikimedia.org/wiki/File:Cup_Coffee.jpg) | ProjectManhattan, CC0 1.0 | Separate 2013 capture, white cup/wood; not Rachel Michetti's cup |
+| [STS120LaunchHiRes-edit1](https://commons.wikimedia.org/wiki/File:STS120LaunchHiRes-edit1.jpg) | NASA, US public domain; jjron tilt correction | STS-120 on 2007-10-23; different mission/photograph from SpaceX reference |
+
+Exact reference originals: [Chelsea](https://raw.githubusercontent.com/scikit-image/scikit-image/v0.18.3/skimage/data/chelsea.png), [coffee](https://raw.githubusercontent.com/scikit-image/scikit-image/v0.18.3/skimage/data/coffee.png), [rocket](https://raw.githubusercontent.com/scikit-image/scikit-image/v0.18.3/skimage/data/rocket.jpg), [astronaut](https://raw.githubusercontent.com/scikit-image/scikit-image/v0.18.3/skimage/data/astronaut.png); authors/rights are recorded in the historical section. Commons pages document author, license, original download and capture provenance. Assets remain outside Git.
+
+Encode each candidate as a 1.5-second static 320 × 240 H.264 shot; reference concatenates four 1.5-second shots. Aspect fitting at encoding and the existing 224-square center preprocessing are applied **after selecting independent originals**, not used to create independence. Actual measurement analyzer, owned visual analyzer and unchanged assembly selector are used. **21 frames**, three samples per shot. Four independent one-slot selection checks use 45-frame ranges, no locks, reuse or previous occupancy, isolating visual matching from greedy packing. This is not a new complete workflow demonstration.
+
+| Reference | Raw cosine rank (descending) | Final assembly score rank (descending) | Selected / flags |
+| --- | --- | --- | --- |
+| Cat | Cat **0.764**, coffee 0.600, rocket 0.492 | Cat **3.255**, coffee 2.559, rocket 2.168 | Cat; neither weak nor ambiguous |
+| Coffee | Coffee **0.899**, cat 0.576, rocket 0.500 | Coffee **3.604**, cat 2.353, rocket 2.049 | Coffee; neither weak nor ambiguous |
+| Rocket | Rocket **0.744**, coffee 0.412, cat 0.348 | Rocket **2.968**, coffee 1.599, cat 1.382 | Rocket; neither weak nor ambiguous |
+| Astronaut (absent) | Rocket **0.629**, coffee 0.394, cat 0.377 | Rocket **2.495**, coffee 1.516, cat 1.488 | Incorrect rocket; **weak**, not ambiguous |
+
+Raw cosine is the mean of all sample-pair dot products. Final scores also include actual motion/brightness/sharpness/scene terms; the rank happens to agree here. Neither scale is a probability. Windows / Python 3.12.14 / FFmpeg 9.0.2 / ONNX Runtime 1.30.0 CPU provider; i5-12450H, 8 cores/12 logical, 15.68 GiB RAM. Measurement cache warm / embedding cache cold: **4.344 seconds** including hash reads, visual decode, model load/inference, validation/cache writes and selection; **4.328 seconds** before selection. Child peak sampled RSS **198,283,264 bytes (189.10 MiB)**. Encoding/downloads and storage setup are excluded. First inference completed but the standalone scoring harness used non-UUID clip keys and failed validation; scoring was corrected using saved embeddings, then one focused inference repeat captured missing timing/RSS. No production change or model download was needed.
+
+**Absence is not reliably detected.** This absent example was weak, only 0.021 below the fixed heuristic threshold. A wrong candidate with cosine >=0.65 and a >=0.05 margin can be unflagged; this follows directly from the warning rules and is not prevented by these examples. This set did not produce an unflagged absent-subject match; it cannot establish that such matches are rare or impossible. The UI's “subject-aware” label means approximate image similarity, not verified category/identity recognition. Shared backgrounds, occlusion, edge cropping and different poses can confuse it. Frame embeddings do not establish actions or story understanding, and these four checks do not calibrate confidence or universal subject matching. Manual review remains necessary. Prior browser/export/lifecycle evidence is reused unchanged; no rendering/browser/full local suite, TikTok or transcription inference was repeated for this docs-only follow-up.
