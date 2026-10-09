@@ -103,7 +103,7 @@ export function ReferenceSelection({ onSelectedChange = () => {} }: { onSelected
       <div className="reference-form-row">
         <input id="tiktok-url" ref={input} type="url" value={url} onChange={(event) => { invalidate(); setUrl(event.target.value); }}
           placeholder="https://www.tiktok.com/@creator/video/123456789" autoComplete="url" aria-describedby="reference-hint reference-error" />
-        <button type="submit" disabled={phase === "checking"}>{phase === "checking" ? "Checking…" : "Check reference"}</button>
+        <button className="button-primary" type="submit" disabled={phase === "checking"}>{phase === "checking" ? "Checking…" : "Check reference"}</button>
       </div>
       <p id="reference-hint" className="hint">Full video links only. Short links are not supported yet.</p>
     </form>}
@@ -116,7 +116,7 @@ export function ReferenceSelection({ onSelectedChange = () => {} }: { onSelected
       <a href={reference.canonical_url} target="_blank" rel="noopener noreferrer">View on TikTok</a>
       <p className="analysis-note">Reference details loaded. Save a project and upload footage, then prepare its analyses.</p>
       <div className="reference-actions">
-        {phase === "ready" && <button type="button" onClick={() => { setPhase("selected"); onSelectedChange(reference.video_id, reference.canonical_url); }}>Use this reference</button>}
+        {phase === "ready" && <button className="button-primary" type="button" onClick={() => { setPhase("selected"); onSelectedChange(reference.video_id, reference.canonical_url); }}>Use this reference</button>}
         {phase === "selected" && <button type="button" onClick={changeReference}>Change reference</button>}
         <button type="button" onClick={() => { invalidate(); setUrl(""); }}>Clear</button>
       </div>

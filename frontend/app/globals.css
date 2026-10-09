@@ -31,7 +31,7 @@ body { margin: 0; background: var(--canvas); color: var(--body); font-family: va
 .shell button:hover:not(:disabled), .download-link:hover { background: var(--hover); border-color: var(--secondary); }
 .shell button:disabled { color: var(--secondary); border-color: var(--hover); background: transparent; cursor: not-allowed; }
 .shell .button-primary, .shell .download-link { background: var(--accent); border-color: var(--accent); color: var(--deep); font-weight: 600; }
-.shell .button-primary:hover:not(:disabled), .shell .download-link:hover { background: var(--accent); border-color: var(--accent); box-shadow: 0 0 8px #c5ff4a30; }
+.shell .button-primary:hover:not(:disabled), .shell .download-link:hover { background: var(--accent); border-color: var(--accent); box-shadow: none; }
 .shell .button-primary:disabled { background: var(--raised); border-color: var(--border); color: var(--secondary); box-shadow: none; }
 .shell :is(button,input,select,textarea,a,summary,h2):focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
 .topbar { min-height: 72px; display: flex; align-items: center; gap: 24px; position: sticky; top: 0; z-index: 20; background: var(--deep); border-bottom: 1px solid var(--hover); margin-inline: calc(-1 * clamp(16px, 3vw, 48px)); padding-inline: clamp(16px, 3vw, 48px); }
@@ -44,7 +44,7 @@ body { margin: 0; background: var(--canvas); color: var(--body); font-family: va
 .status-dot.unavailable { border-radius: 0; background: var(--secondary); }
 .hero { max-width: 820px; padding: 64px 0 48px; }
 .shell .eyebrow { font-size: 11px; letter-spacing: .18em; text-transform: uppercase; color: var(--secondary); font-weight: 500; margin: 0 0 16px; }
-.hero em { color: var(--accent); font-style: italic; }
+.hero em { color: var(--text); font-style: italic; }
 .hero .intro { font-size: 16px; color: var(--secondary); max-width: 55ch; margin: 20px 0 0; }
 .project-switcher { margin: 24px 0; border: 1px solid var(--border); }
 .project-switcher > summary { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 20px; background: var(--panel); }
@@ -205,3 +205,12 @@ footer { color: var(--secondary); padding-top: 40px; font-size: 12px; }
   .color-workbench .frame-preview-images { grid-template-columns: repeat(3,minmax(0,1fr)); }
   .export-workbench { grid-template-columns: minmax(0,1.7fr) minmax(320px,.8fr); }
 }
+
+.preparation-steps { list-style: none; padding: 0; display: grid; gap: 0; }
+.preparation-steps li { padding: 12px 0; border-bottom: 1px solid var(--border); }
+.assembly-options { max-width: 44rem; }
+.shell .recipe-controls > button, .shell .reference-section > button { margin: 4px 6px 4px 0; }
+
+.caption-cue > :is(p,div,details) { grid-column: 1 / -1; }
+.recipe-controls > label:has(input[type="range"]) { display: block; }
+.recipe-controls > label:has(input[type="range"]) input { display: block; margin-top: 8px; }

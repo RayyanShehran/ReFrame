@@ -94,7 +94,7 @@ export function FramingControls({ projectId, onState }: { projectId: string; onS
           <p className="hint">An axis is disabled when there is no crop movement, or footage geometry is unavailable.</p>
         </>}
         <p>Draft canvas: {dimensions(draft, geometry) || "Inspect footage to see Original dimensions"}</p>
-        <button disabled={!dirty} onClick={() => void run(true)}>Save framing</button>
+        <button className="button-primary" disabled={!dirty} onClick={() => void run(true)}>Save framing</button>
         <button onClick={() => setDraft({ ...defaults })}>Reset framing</button>
       </fieldset>
       <p className="hint">Reset changes the draft to Original. Save to persist it. Captions stay on the final canvas; audio and cut timing stay unchanged.</p>

@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useContext, useEffect, useRef, useState, useCallback, useMemo, type ReactNode } from "react";
-import { useWorkspaceNavigation } from "./guided-workspace";
+import { WorkspaceSection, useWorkspaceNavigation } from "./guided-workspace";
 import type { MediaOperation } from "./use-media-operation";
 
 const steps = [
@@ -81,19 +81,19 @@ export function Preparation({ hasFootage, children }: { hasFootage: boolean; chi
   }
   const allReady = selected.every(([key]) => !operations[key]?.error && operations[key]?.operation?.status === "ready");
   return <Context.Provider value={register}>
-    <section id="prepare-workflow" tabIndex={-1} className="reference-section" aria-label="Coordinated preparation">
+    <WorkspaceSection section="reference"><section id="prepare-workflow" tabIndex={-1} className="reference-section" aria-label="Coordinated preparation">
       <h3>Prepare reference and footage</h3>
       <p>One explicit action prepares the listed analyses in order. Valid saved results are reused.</p>
-      <ol>{selected.map(([key, label]) => <li key={key}>{label} — {completed[key] || (current === key && active ? operations[key]?.operation?.status === "running" ? "Working" : "Checking / starting" : operations[key]?.operation?.status === "ready" && !operations[key]?.error ? "Ready to reuse" : operations[key]?.operation?.status === "running" ? "Already running; Continue to follow it" : operations[key]?.error || operations[key]?.operation?.status === "failed" ? "Needs explicit retry / recovery" : "If needed")}</li>)}</ol>
+      <ol className="preparation-steps">{selected.map(([key, label]) => <li key={key}>{label} — {completed[key] || (current === key && active ? operations[key]?.operation?.status === "running" ? "Working" : "Checking / starting" : operations[key]?.operation?.status === "ready" && !operations[key]?.error ? "Ready to reuse" : operations[key]?.operation?.status === "running" ? "Already running; Continue to follow it" : operations[key]?.error || operations[key]?.operation?.status === "failed" ? "Needs explicit retry / recovery" : "If needed")}</li>)}</ol>
       <label><input type="checkbox" checked={pacing} disabled={active} onChange={e => setPacing(e.target.checked)} /> Include optional reference pacing for cuts</label>
       {!hasFootage && <p>Upload footage first. <button onClick={() => navigation?.open("footage")}>Open Footage</button></p>}
-      <button disabled={active || !hasFootage} onClick={begin}>{active ? "Preparing…" : failed ? "Retry preparation" : message || selected.some(([key]) => operations[key]?.operation?.status === "running" || operations[key]?.operation?.status === "ready") ? "Continue preparation" : "Prepare reference and footage"}</button>
+      <button className="button-primary" disabled={active || !hasFootage} onClick={begin}>{active ? "Preparing…" : failed ? "Retry preparation" : message || selected.some(([key]) => operations[key]?.operation?.status === "running" || operations[key]?.operation?.status === "ready") ? "Continue preparation" : "Prepare reference and footage"}</button>
       {active && <button disabled={stopRequested} onClick={() => { stop.current = true; setStopRequested(true); setMessage("Stop requested: the current backend step continues. No subsequent step will launch."); }}>Stop after current step</button>}
       {message && <p role={failed ? "alert" : "status"}>{message}</p>}
       {(allReady || (!active && Object.keys(completed).length >= 3)) && <button onClick={() => navigation?.open("style")}>Generate or review color recipe</button>}
       {failed && <button onClick={() => navigation?.open(current === "reference-media" ? "reference" : "style")}>Open failed step</button>}
-      <p className="hint">Leaving or reloading stops automatic continuation. The current backend operation follows its existing lifecycle; reopen and Continue explicitly. This does not generate recipes/plans, replace captions, accept suggestions, run OCR/transcription or render video.</p>
-    </section>
+      <details><summary>Preparation details</summary><p className="hint">Leaving or reloading stops automatic continuation. The current backend operation follows its existing lifecycle; reopen and Continue explicitly. This does not generate recipes/plans, replace captions, accept suggestions, run OCR/transcription or render video.</p></details>
+    </section></WorkspaceSection>
     {children}
   </Context.Provider>;
 }

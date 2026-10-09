@@ -100,7 +100,7 @@ export function RenderVideo({ grading, savedStrength, savedValues, projectId, re
       {(dirty || audioState.dirty || captionState.dirty || framingState.dirty || (cuts && planState?.dirty) || (sequence && sequenceState.dirty)) && <p role="status">Unsaved drafts are not included. Save the changes below before rendering.</p>}
     </div>
     {blockers.map(({ section, message }) => <p key={message} role="status">{message}{navigation && <> <button onClick={() => navigation.open(section)}>Open {sections[section]}</button></>}</p>)}
-    <button disabled={!!blockers.length || starting || running || current}
+    <button className="button-primary" disabled={!!blockers.length || starting || running || current}
       onClick={() => void start({ ...(grading ? { expected_grading_revision: grading.revision } : {}), expected_revision: revision, expected_audio_revision: audioState.revision, expected_caption_revision: captionState.revision, expected_framing_revision: framingState.revision, ...(cuts ? { expected_plan_revision: planState?.revision } : sequence ? { expected_sequence_revision: sequenceState.revision } : {}) })}>{operation?.status === "failed" ? "Retry render" : "Render video"}</button>
     {running && <p role="status">Rendering saved color settings{operation.spec?.edit_plan ? ` and cut plan revision ${operation.spec.edit_plan.revision}` : ""}… This can take up to five minutes.</p>}
     {error && <p role="alert">{error}</p>}

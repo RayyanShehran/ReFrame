@@ -127,7 +127,7 @@ export function AudioChoices({ projectId, onState, sourceKey = "" }: { projectId
           <label>Reference start offset (seconds)<input type="number" min="0" max={result.availability.reference_duration_seconds ?? 120} step="any" value={offset} onChange={e => { setOffset(e.target.value); if (finite(Number(e.target.value), 120)) setDraft(v => ({ ...v, reference_offset_seconds: Number(e.target.value) })); }} /></label>
           <p className="hint">Offset is inside the reference video’s timeline. Reference audio plays continuously from output time zero, including across cuts. Short tracks are padded with silence; they are not looped or stretched.</p>
         </>}
-        <button disabled={!valid || (!dirty && result.status !== "stale")} onClick={() => void run(true)}>{result.status === "stale" ? "Save with current sources" : "Save audio"}</button>
+        <button className="button-primary" disabled={!valid || (!dirty && result.status !== "stale")} onClick={() => void run(true)}>{result.status === "stale" ? "Save with current sources" : "Save audio"}</button>
       </fieldset>
     </>}
     <button disabled={busy} onClick={() => void run(false)}>{dirty ? "Discard audio changes and reload" : "Reload audio choices"}</button>

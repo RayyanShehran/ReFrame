@@ -70,8 +70,8 @@ export function StyleBlueprint({ projectId, footage = false, onChange }: { proje
         <dt>Tools</dt><dd>{Object.entries(b.tool_versions).map(([name, version]) => `${name}: ${version}`).join(" · ")}</dd>
       </dl></details>
       {b.color_metadata.warnings.map(w => <p role="note" className="error" key={w}>{w}</p>)}
-      <p className="hint">{b.color_metadata.assumption}</p>
-      <ul className="hint">{b.interpretation_limits.map(limit => <li key={limit}>{limit}</li>)}</ul>
+      <details><summary>Measurement interpretation</summary><p className="hint">{b.color_metadata.assumption}</p>
+      <ul className="hint">{b.interpretation_limits.map(limit => <li key={limit}>{limit}</li>)}</ul></details>
       <p>These measurements are read-only. Saved color settings, cut planning and rendering are separate below. Experimental visual matching is available in Automatic assembly; review its images and limitations.</p>
     </>}
   </section>;
