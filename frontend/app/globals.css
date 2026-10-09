@@ -101,7 +101,7 @@ body { margin: 0; background: var(--canvas); color: var(--body); font-family: va
 .shell input[type="checkbox"], .shell input[type="radio"] { width: 22px; height: 22px; flex: none; accent-color: var(--accent); }
 .shell label:has(input[type="checkbox"]), .shell label:has(input[type="radio"]) { display: flex; align-items: center; gap: 10px; min-height: 44px; }
 .shell input[type="color"] { min-height: 44px; width: 64px; border: 1px solid var(--border); border-radius: 4px; background: var(--raised); }
-.shell input[type="file"]:not(.footage-file-input) { display: block; width: 100%; min-width: 0; margin-top: 8px; font-size: 14px; }
+.shell input[type="file"]:not(.footage-file-input) { display: block; width: 100%; min-width: 0; margin-top: 8px; font-size: 16px; }
 .shell input[type="file"]::file-selector-button { min-height: 44px; padding: 10px 16px; margin-right: 12px; border: 1px solid var(--border); border-radius: 4px; background: var(--raised); color: var(--text); font: inherit; cursor: pointer; }
 .shell details { margin-block: 16px; }
 .shell summary { cursor: pointer; min-height: 44px; padding-block: 12px; font-weight: 500; }

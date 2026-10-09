@@ -424,3 +424,12 @@ Upload repair **100%**, grading workflow **100%**, advanced per-clip statistical
 Focused real moving fixtures verified distinct routes, exact strength-zero bypass, increasing effect, whole preview/export MAE **1.349/255** and three actual sequence-route MAEs **1.669 / 1.961 / 2.034**, stable static patch across moving frames, and 3 s / 90-frame multi-clip audio/caption output. One desktop/390 px browser session verified first two-file upload, add third, match/save/preview/render/native playback/download and refresh restoration. Different-content coffee/reference frames demonstrate content-bias limitations. [Full method, compatibility, controls, bounds and evidence](COLOR_TRANSFER.md). No live TikTok, model download, transcription or broad unrelated workflow repeat.
 
 This remains approximate SDR statistical look transfer, not a recovered LUT, white-balance estimate, calibrated perceptual match or universal camera matching. Expanded video scope remains **97% pending architect reassessment**; image mode **0%**. No claim of whole-project 100%.
+
+
+### Editing interface redesign - 2026-10-09
+
+**UI redesign 100% implemented, pending architect acceptance.** Near-black shared tokens, locally licensed Source Serif 4/Inter Tight, compact entry/project header, five mounted sections, desktop editing/comparison/export workbenches and phone navigation. Preparation stays in Reference; optional caption assistance, setup and advanced measurement details are expandable. Upload pickers/queue, saved modes and revisions, Arabic drafts, media colors and all existing processing remain intact.
+
+Affected frontend checks and production build passed. One isolated browser session checked 1440/768/390 px, both multiple-file picker entry points, two successes around one malformed MOV, failed retry/pending removal, draft navigation, real frame/source playback, saved 99% strength and Arabic captions, sequence render/play/download and refresh. Actual export: 320 x 180, 3.000 seconds, video/audio, 154543 bytes. Final CI is checked for the exact commit at handoff. [Design, verification and limitations](INTERFACE_DESIGN.md).
+
+Expanded video functional baseline remains **97%, pending architect acceptance**; image mode **0%**. No media algorithms, APIs, model/transcription benchmarks or TikTok retrieval changed. Stop after this redesign.

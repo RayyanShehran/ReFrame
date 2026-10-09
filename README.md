@@ -291,3 +291,8 @@ Automatic assembly can propose source ranges from sampled motion, scene boundari
 
 
 For optional visual matching, in `backend` run `uv sync --locked --extra visual`, then `uv run --locked --extra visual python visual_matching.py setup` (85 MiB pinned image model). `python visual_matching.py ready` checks readiness without downloads. To install both optional features together, run `uv sync --locked --extra visual --extra transcription` in `backend`. Subsequent syncs must name both extras; a base-only exact sync removes them. Start with `Start-ReFrame.ps1` or `uv run --no-sync uvicorn main:app --host 127.0.0.1 --port 8000` to use the installed environment unchanged. The installed uv also retains extras with ordinary `uv run --locked` (inexact by default), but `--locked` alone does not disable syncing. Each model still requires its separate explicit setup; do not repeat setup for ready caches. [Model, license, bounds and actual benchmark](docs/AUTOMATIC_ASSEMBLY.md#subject-aware-visual-matching--milestone-30).
+
+
+### Editing interface
+
+ReFrame uses a compact five-section workspace with locally bundled editorial/UI fonts, shared dark surfaces, desktop comparison workbenches and stacked phone controls. Existing uploads, drafts, saved settings and video processing remain unchanged. See [interface design and focused browser verification](docs/INTERFACE_DESIGN.md).
