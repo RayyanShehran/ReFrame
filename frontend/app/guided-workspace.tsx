@@ -15,7 +15,7 @@ export function useWorkspaceReport(key: string, section: Section, state: Report[
 }
 export function WorkspaceSection({ section, children }: { section: Section; children: ReactNode }) {
   const workspace = useContext(Context);
-  return <div hidden={!!workspace && workspace.active !== section}>{children}</div>;
+  return <div className="workspace-pane" hidden={!!workspace && workspace.active !== section}>{children}</div>;
 }
 export function GuidedWorkspace({ hasFootage, footageUnavailable = false, children }: { hasFootage: boolean; footageUnavailable?: boolean; children: ReactNode }) {
   const [active, setActive] = useState<Section>("reference");
@@ -45,10 +45,10 @@ export function GuidedWorkspace({ hasFootage, footageUnavailable = false, childr
   }
   return <Context.Provider value={{ active, open, report, next: setAction }}>
     <div className="guided-workspace">
-      <div className="workspace-guidance"><p>Next step</p><button onClick={() => open(next.section, next.focusId)}>{next.label}</button><p className="hint">Open a section to continue. Switching sections keeps unsaved edits; refresh restores saved settings only. Cuts and captions are optional.</p></div>
+      <div className="workspace-guidance"><p>Next step</p><button className="button-primary" onClick={() => open(next.section, next.focusId)}>{next.label}</button><p className="hint">Open a section to continue. Switching sections keeps unsaved edits; refresh restores saved settings only. Cuts and captions are optional.</p></div>
       {Object.entries(reports).filter(([, value]) => value.state === "Working").map(([key, value]) => <p className="workspace-job" role="status" key={key}>{value.message || "Processing…"} <button onClick={() => open(value.section)}>View {sections[value.section]}</button></p>)}
-      <nav className="workspace-nav" aria-label="Editing sections"><label className="workspace-section-picker">Editing section<select value={active} onChange={e => open(e.target.value as Section)}>{Object.entries(sections).map(([key, label]) => <option key={key} value={key}>{label} · {state(key as Section)}</option>)}</select></label><div className="workspace-section-buttons">{Object.entries(sections).map(([key, label]) => <button key={key} aria-label={label} aria-describedby={`section-state-${key}`} aria-current={active === key ? "step" : undefined} onClick={() => open(key as Section)}>{label}<small id={`section-state-${key}`}>{state(key as Section)}</small></button>)}</div></nav>
-      <h2 ref={heading} tabIndex={-1}>{sections[active]}</h2>
+      <nav className="workspace-nav" aria-label="Editing sections"><label className="workspace-section-picker">Editing section<select value={active} onChange={e => open(e.target.value as Section)}>{Object.entries(sections).map(([key, label]) => <option key={key} value={key}>{label} · {state(key as Section)}</option>)}</select></label><div className="workspace-section-buttons">{Object.entries(sections).map(([key, label]) => <button key={key} aria-label={label} aria-describedby={`section-state-${key}`} data-state={state(key as Section)} aria-current={active === key ? "step" : undefined} onClick={() => open(key as Section)}>{label}<small id={`section-state-${key}`}>{state(key as Section)}</small></button>)}</div></nav>
+      <h2 className="workspace-section-title" ref={heading} tabIndex={-1}>{sections[active]}</h2>
       {children}
     </div>
   </Context.Provider>;

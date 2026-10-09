@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
+import { Connectivity } from "./connectivity";
 import { ClipLibrary } from "./clip-library";
 import { parseClipDetails, type ClipDetails } from "./clip-upload";
 import { ReferenceSelection } from "./reference-selection";
@@ -128,10 +129,22 @@ export function Workspace() {
   }
 
   return <>
+    <header className="topbar">
+      <span className="brand">ReFrame<span className="brand-dot">.</span></span>
+      <span className="header-project">{current?.name ?? (projectId ? "Opening project…" : "Local video workspace")}</span>
+      <Connectivity />
+    </header>
+    {!projectId && <section className="hero" aria-labelledby="hero-title">
+      <p className="eyebrow">[ Your reference. Your footage. ]</p>
+      <h1 id="hero-title">Make the edit <em>your own.</em></h1>
+      <p className="intro">Bring a reference look to your footage. Shape the colors, cuts and captions, then export your video.</p>
+    </section>}
+    <details className="project-switcher" open={!projectId}>
+    <summary><span>Saved projects</span><span className="project-count">{projects.length} / 10</span></summary>
     <section className="reference-section" aria-labelledby="projects-title">
       <h2 id="projects-title">Saved projects</h2>
       <p className="hint">Single-user local storage · Up to 10 projects · One reference and up to 10 footage clips each</p>
-      <button className="clear-clip" onClick={() => open(null)}>New project</button>
+      <button className="clear-clip button-primary" onClick={() => open(null)}>New project</button>
       <ul className="project-list">{projects.map((saved) => <li key={saved.id}>
         <span>{saved.name}{saved.status === "deleting" ? " — deletion incomplete" : ""}</span>
         <button onClick={() => open(saved.id)}>Open {saved.name}</button>
@@ -145,7 +158,7 @@ export function Workspace() {
         <div className="reference-actions"><button disabled={busy} onClick={() => void mutate(`/${deleting.id}`, { method: "DELETE" }, () => { if (projectId === deleting.id) open(null); setDeleting(null); })}>Confirm delete</button>
           <button disabled={busy} onClick={() => setDeleting(null)}>Cancel deletion</button></div>
       </div>}
-    </section>
+    </section></details>
     {!projectId && <>
       <ReferenceSelection key={newVersion} onSelectedChange={(id, url) => {
         if (mutation.current) { generation.current++; mutation.current.abort(); mutation.current = null; setBusy(false); }
@@ -154,11 +167,11 @@ export function Workspace() {
       {referenceUrl && <form className="reference-section" onSubmit={create}>
         <label htmlFor="project-name">Project name</label>
         <div className="reference-form-row"><input id="project-name" value={name} onChange={(event) => setName(event.target.value)} minLength={1} maxLength={80} required />
-          <button disabled={busy || !name.trim()} type="submit">{busy ? "Creating…" : "Create project"}</button></div>
+          <button className="button-primary" disabled={busy || !name.trim()} type="submit">{busy ? "Creating…" : "Create project"}</button></div>
       </form>}
     </>}
     {current && <section className="footage-section" aria-label="Saved project workspace">
-      <h2>{current.name}</h2>
+      <div className="project-heading"><p className="eyebrow">[ Editing workspace ]</p><h1>{current.name}</h1></div>
       <GuidedWorkspace key={current.id} hasFootage={current.clip_status === "ready"} footageUnavailable={!["empty", "ready"].includes(current.clip_status)}>
       <WorkspaceSection section="reference"><div className="reference-card"><h3>{current.reference.title || "TikTok reference"}</h3>
         <p>Creator: {current.reference.author_name || "Unavailable"}</p>

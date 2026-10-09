@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, expect, it, vi } from "vitest";
 import { Workspace } from "./workspace";
 
+vi.mock("./connectivity", () => ({ Connectivity: () => null }));
 vi.mock("./sequence-editor", () => ({ SequenceEditor: () => null, emptySequence: { revision: null, ready: false, dirty: false, busy: false } }));
 
 const reference = { provider: "tiktok", video_id: "123", canonical_url: "https://www.tiktok.com/@a/video/123", title: "Reference", author_name: "A", metadata_status: "available", analysis_status: "not_started" };
@@ -26,6 +27,7 @@ it("creates, uploads, restores on refresh, and confirms deletion by name", async
   });
   vi.stubGlobal("fetch", fetchMock);
   const view = render(<Workspace />);
+  expect(screen.getByRole("heading", { name: "Make the edit your own." })).toBeVisible();
   fireEvent.change(screen.getByLabelText("TikTok video URL"), { target: { value: reference.canonical_url } });
   fireEvent.click(screen.getByRole("button", { name: "Check reference" }));
   await screen.findByText("Reference", { selector: "h3" });
@@ -34,6 +36,8 @@ it("creates, uploads, restores on refresh, and confirms deletion by name", async
   const form = screen.getByRole("button", { name: "Create project" }).closest("form")!;
   fireEvent.submit(form); fireEvent.submit(form);
   await screen.findByLabelText("Video clip");
+  expect(screen.queryByRole("heading", { name: "Make the edit your own." })).not.toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "First" })).toBeVisible();
   expect(fetchMock.mock.calls.filter(([, options]) => options?.method === "POST" && !(options.body instanceof FormData))).toHaveLength(2); // reference + creation
   expect(window.location.search).toContain(first.id);
   await waitFor(() => expect(screen.getByLabelText("Video clip")).toBeEnabled());
@@ -137,10 +141,12 @@ it("reopens the same project and restores repeated history entries", async () =>
   expect(screen.getByLabelText("Video clip")).toBeInTheDocument();
 });
 
-it("clears project request timers when a stalled fetch ignores abort", () => {
+it("clears project request timers when a stalled fetch ignores abort", async () => {
   vi.useFakeTimers();
   vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>(() => {})));
   const view = render(<Workspace />);
+  // Flush the native details toggle event; only project-owned deadlines remain.
+  await act(async () => { await vi.advanceTimersByTimeAsync(0); });
   expect(vi.getTimerCount()).toBeGreaterThan(0);
   view.unmount();
   expect(vi.getTimerCount()).toBe(0);
