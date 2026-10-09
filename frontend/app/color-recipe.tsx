@@ -111,7 +111,10 @@ export function ColorRecipe({ projectId, analysesReady, footageDuration = null, 
   const activeDirty = grading.dirty || (grading.mode === "basic" && dirty);
   const activeBusy = grading.busy || (grading.mode === "basic" && busy);
   return <><WorkspaceSection section="style">
+    <div className="color-workbench">
     <GradingControls projectId={projectId} sourceKey={sourceKey} analysesReady={analysesReady} sequence={sequenceState} onState={setGrading} />
+    <FramePreview key={`preview-${projectId}`} projectId={projectId} duration={footageDuration} grading={grading} revision={activeRevision} recipeReady={activeReady} recipeDirty={activeDirty} recipeBusy={activeBusy} framing={framingState} />
+    </div>
     <details open={grading.mode === "basic"}><summary>Basic adjustment recipe</summary><section className="reference-section" aria-label="Color recipe">
     <h3>Color recipe</h3>
     <p className="hint">Experimental creative settings, not exposure stops, recovered LUTs or a guarantee of matching appearance. White balance is not inferred. Changing these controls does not produce a live video preview. Save, then render to see the result.</p>
@@ -145,13 +148,13 @@ export function ColorRecipe({ projectId, analysesReady, footageDuration = null, 
     <button disabled={busy} onClick={() => void run("reload")}>{dirty ? "Discard changes and reload" : "Reload saved recipe"}</button>
     {busy && <p role="status">Saving or loading recipe…</p>}
     </section></details>
-    <FramePreview key={`preview-${projectId}`} projectId={projectId} duration={footageDuration} grading={grading} revision={activeRevision} recipeReady={activeReady} recipeDirty={activeDirty} recipeBusy={activeBusy} framing={framingState} />
+
     <EditPlan key={`plan-${projectId}`} projectId={projectId} recipeReady={activeReady && !activeDirty && !activeBusy} onState={setPlanState} /><SequenceEditor projectId={projectId} onState={setSequenceState} /></WorkspaceSection>
     <WorkspaceSection section="audio">
     <AudioChoices sourceKey={sourceKey} key={`audio-${projectId}`} projectId={projectId} onState={setAudioState} />
     <CaptionEditor sourceKey={sourceKey} key={`captions-${projectId}`} projectId={projectId} planState={planState} sequenceState={sequenceState} onState={setCaptionState} appearance={{ gradingRevision: grading.revision, recipeRevision: activeRevision, recipeReady: activeReady, recipeDirty: activeDirty, recipeBusy: activeBusy, framing: framingState }} />
     </WorkspaceSection><WorkspaceSection section="export">
-    <RenderVideo grading={grading} savedStrength={grading.mode === "basic" ? recipe?.strength : undefined} savedValues={grading.mode === "basic" ? recipe?.selected : undefined} framingState={framingState} projectId={projectId} revision={activeRevision} recipeReady={activeReady} dirty={activeDirty} busy={activeBusy} planState={planState} sequenceState={sequenceState} audioState={audioState} captionState={captionState} />
-    <FramingControls key={`framing-${projectId}`} projectId={projectId} onState={setFramingState} />
+    <div className="export-workbench"><RenderVideo grading={grading} savedStrength={grading.mode === "basic" ? recipe?.strength : undefined} savedValues={grading.mode === "basic" ? recipe?.selected : undefined} framingState={framingState} projectId={projectId} revision={activeRevision} recipeReady={activeReady} dirty={activeDirty} busy={activeBusy} planState={planState} sequenceState={sequenceState} audioState={audioState} captionState={captionState} />
+    <FramingControls key={`framing-${projectId}`} projectId={projectId} onState={setFramingState} /></div>
   </WorkspaceSection></>;
 }

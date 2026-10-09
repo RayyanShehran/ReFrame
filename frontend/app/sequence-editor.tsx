@@ -91,7 +91,7 @@ export function SequenceEditor({ projectId, onState }: { projectId: string; onSt
           <label>Slot duration (seconds) <input type="number" min={1/30} max={120} step={1/30} value={slot.duration} disabled={busy || !!review} onChange={e => patch({ duration: e.target.value })} /></label>
           {source && <><video key={`${slot.id}-${source.id}`} ref={player} className="rendered-video" controls preload="metadata" src={`${apiBase}/api/projects/${encodeURIComponent(projectId)}/clips/${source.id}/video`} aria-label="Selected source video" onTimeUpdate={() => { const video = player.current; if (playingRange && video && video.currentTime >= end) { video.pause(); video.currentTime = end; setPlayingRange(false); } }} onEnded={() => setPlayingRange(false)} />
             <p>Target {duration.toFixed(3)} s · Available source {available.toFixed(3)} s · Selected {Number.isFinite(start) ? start.toFixed(3) : "?"}–{Number.isFinite(end) ? end.toFixed(3) : "?"} s</p>
-            <div className="source-range" aria-label="Selected section" style={{ background: `linear-gradient(to right, #334155 ${Math.max(0, start/available*100)}%, #d0f75b ${Math.max(0, start/available*100)}%, #d0f75b ${Math.min(100, end/available*100)}%, #334155 ${Math.min(100, end/available*100)}%)` }} />
+            <div className="source-range" aria-label="Selected section" ><span style={{ left: `${Math.max(0, start/available*100)}%`, right: `${Math.max(0, 100-end/available*100)}%` }} /></div>
             <label>Range start <input type="range" min={0} max={Math.max(0, available-duration)} step={1/30} value={Number.isFinite(start) ? Math.max(0, start) : 0} disabled={busy || !!review || duration > available} onChange={e => patch({ start: e.target.value })} /></label>
             <label>Start (seconds) <input type="number" min={0} max={available} step={1/30} value={slot.start} disabled={busy || !!review} onChange={e => patch({ start: e.target.value })} /></label>
             <label>End (seconds) <input type="number" min={duration} max={available} step={1/30} value={Number.isFinite(end) ? end : ""} disabled={busy || !!review} onChange={e => patch({ start: e.target.value ? String(Number(e.target.value) - duration) : "" })} /></label>
@@ -105,7 +105,7 @@ export function SequenceEditor({ projectId, onState }: { projectId: string; onSt
       {!bounded && <p role="alert">Keep 1–60 slots totaling at most 120 seconds.</p>}
       {invalid >= 0 && <p role="alert">Slot {invalid + 1}: {problem(slots[invalid])}</p>}
       {slots.some(s => !s.clip_id) && <p role="status">Assign every slot before rendering. You can save unassigned slots as a draft.</p>}
-      <button disabled={busy || !dirty || invalid >= 0 || !bounded} onClick={() => void run("save")}>Save sequence</button>
+      <button className="button-primary" disabled={busy || !dirty || invalid >= 0 || !bounded} onClick={() => void run("save")}>Save sequence</button>
       <button disabled={busy} onClick={() => void run("reload")}>Reload saved sequence (discard draft)</button>
       <p role="status">{busy ? "Working…" : dirty ? "Unsaved sequence changes" : "Saved sequence restored"}</p>
     </>}

@@ -197,3 +197,11 @@ footer { color: var(--secondary); padding-top: 40px; font-size: 12px; }
   .palette-swatch { width: 48px; height: 32px; }
   .color-comparison :is(th,td), .cut-table :is(th,td) { padding: 8px; }
 }
+
+.color-workbench, .export-workbench { display: grid; grid-template-columns: minmax(0,1fr); gap: 24px; align-items: start; }
+.color-workbench > *, .export-workbench > * { min-width: 0; margin: 0; }
+@media (min-width: 1100px) {
+  .color-workbench { grid-template-columns: minmax(320px,.8fr) minmax(0,1.7fr); }
+  .color-workbench .frame-preview-images { grid-template-columns: repeat(3,minmax(0,1fr)); }
+  .export-workbench { grid-template-columns: minmax(0,1.7fr) minmax(320px,.8fr); }
+}

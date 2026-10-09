@@ -134,9 +134,9 @@ function LibraryContents({ projectId, sourceKey, onSaved, initialDetails, showOr
     <h3>Footage library</h3><p>Up to 10 clips · 100 MiB per file · 500 MiB total. The original clip remains the source for color measurements, whole-clip output and legacy cuts.</p>
     {library && <p role="status">{library.clips.length}/10 clips · {(library.total_bytes / 1024 / 1024).toFixed(1)}/500 MiB retained</p>}
     <FootagePicker label="Add footage" disabled={busy || !library} onFilesSelected={enqueue} />
-    <button disabled={busy || !library || !queue.some(item => item.status === "pending")} onClick={() => void uploadQueue()}>{busy ? "Working…" : "Upload queued files"}</button>
+    <button className="button-primary" disabled={busy || !library || !queue.some(item => item.status === "pending")} onClick={() => void uploadQueue()}>{busy ? "Working…" : "Upload queued files"}</button>
     <ul className="upload-queue" aria-label="Upload queue" aria-live="polite">
-      {queue.map(item => <li key={item.id}>
+      {queue.map(item => <li key={item.id} data-state={item.status}>
         <span>{item.file.name} · {({ pending: "Pending", uploading: "Uploading", succeeded: "Succeeded", failed: "Failed" })[item.status]}{item.error && <span className="error"> — {item.error}</span>}</span>
         {item.status === "pending" && <button aria-label={`Remove pending ${item.file.name}`} onClick={() => updateQueue(items.current.filter(other => other.id !== item.id))}>Remove pending</button>}
         {item.status === "failed" && <button disabled={busy || !library} aria-label={`Retry ${item.file.name}`} onClick={() => void uploadQueue(item.id)}>Retry</button>}

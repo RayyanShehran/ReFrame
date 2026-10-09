@@ -73,7 +73,7 @@ export function GradingControls({ projectId, sourceKey, analysesReady, sequence,
   }
   return <section className="reference-section" aria-label="Reference color matching"><h3>Match reference colors</h3>
     <p>Prepare the reference look, match each clip, save your choice, then preview and export. Analysis measurements alone do not activate a grade.</p>
-    <button disabled={!analysesReady || busy || dirty} onClick={() => operation?.entries.some(e => e.valid) ? setConfirm("project") : void prepare(false)}>Match reference colors</button>
+    <button className="button-primary" disabled={!analysesReady || busy || dirty} onClick={() => operation?.entries.some(e => e.valid) ? setConfirm("project") : void prepare(false)}>Match reference colors</button>
     {!analysesReady && <p>Prepare valid reference and original footage colors first. <button onClick={() => navigation?.open("reference", "prepare-workflow")}>Open preparation</button></p>}
     {confirm && <div role="group" aria-label="Confirm color rematching"><p>Re-estimate prepared transforms? Your saved per-clip strength and refinements remain. Review and save the mode explicitly.</p><button disabled={busy} onClick={() => void prepare(true, confirm === "shot")}>Re-estimate matches</button><button onClick={() => setConfirm(null)}>Keep matches</button></div>}
     {draft && <>
@@ -94,10 +94,10 @@ export function GradingControls({ projectId, sourceKey, analysesReady, sequence,
           <details><summary>Advanced tone and color refinements</summary>{refinements.map(([name, label, min, max]) => <label key={name} htmlFor={`grade-${projectId}-${key}-${name}`}>{label}: <span>{controls[name].toFixed(2)}</span><input id={`grade-${projectId}-${key}-${name}`} type="range" min={min} max={max} step=".01" value={controls[name]} onChange={e => adjust(name, Number(e.target.value))} /></label>)}</details>
           <button onClick={() => setDraft({ ...draft, controls: { ...draft.controls, [key]: defaultControls } })}>Reset selected match</button>
         </fieldset>
-        {entry && <><p className="hint">Look: {entry.match.reference.source.canonical_url} · Source {entry.match.source_hash.slice(0, 12)} · {entry.match.model.algorithm}</p>{entry.match.model.warnings.map(w => <p role="note" key={w}>{w}</p>)}</>}
+        {entry && <><p className="hint">Reference target: {entry.match.reference.source.canonical_url}</p><details><summary>Match method and source</summary><p className="hint">Source {entry.match.source_hash.slice(0, 12)} / {entry.match.model.algorithm}</p></details>{entry.match.model.warnings.map(w => <p role="note" key={w}>{w}</p>)}</>}
         <ul aria-label="Prepared footage colors">{clips.map(c => <li key={c.id}>{c.name}: {validKeys.has(`clip:${c.id}`) ? "prepared project look" : "match required"}</li>)}</ul>
       </>}
-      <button disabled={!dirty || busy || (draft.mode === "transfer" && !primary)} onClick={() => void save()}>Save color mode and matches</button>
+      <button className={dirty ? "button-primary" : undefined} disabled={!dirty || busy || (draft.mode === "transfer" && !primary)} onClick={() => void save()}>Save color mode and matches</button>
       <button disabled={busy} onClick={() => setDraft(saved ?? null)}>Reset unsaved color changes</button>
       <button disabled={busy} onClick={() => { initialized.current = false; refresh(); }}>Reload saved color settings</button>
     </>}
