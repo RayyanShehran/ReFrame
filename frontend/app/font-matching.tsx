@@ -30,7 +30,7 @@ function readSaved(value: unknown): Saved {
 }
 function readRanked(value: unknown, projectId: string): Ranked {
   const r = value as Ranked;
-  if (!r || r.project_id !== projectId || !Number.isSafeInteger(r.revision) || r.revision < 1 || !hash(r.token) || !validSelection(r.selection) || !validPicture(r.crop) || !Array.isArray(r.ranked) || r.ranked.length < 2 || r.ranked.length > 4 || r.ranked.some(c => !validFont(c.font) || !finite(c.visual_similarity, 0, 100) || !validPicture(c.image)) || ![r.skipped, r.warnings].every(list => Array.isArray(list) && list.length <= 12 && list.every(v => typeof v === "string" && v.length <= 2000))) throw new Error("Invalid font comparison.");
+  if (!r || r.project_id !== projectId || !Number.isSafeInteger(r.revision) || r.revision < 1 || !hash(r.token) || !validSelection(r.selection) || !validPicture(r.crop) || !Array.isArray(r.ranked) || r.ranked.length < 2 || r.ranked.length > 4 || r.ranked.some(c => !validFont(c.font) || !finite(c.visual_similarity, 0, 100) || !validPicture(c.image)) || ![r.skipped, r.warnings].every(list => Array.isArray(list) && list.length <= 20 && list.every(v => typeof v === "string" && v.length <= 2000))) throw new Error("Invalid font comparison.");
   return r;
 }
 

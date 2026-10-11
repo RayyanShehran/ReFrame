@@ -36,3 +36,15 @@ def test_catalog_structure_hashes_and_actual_faces(local):
         client.get(f"/api/projects/{pid}/caption-font").json()["candidates"][1]["candidate_id"]
         == "amiri-regular"
     )
+
+
+def test_expanded_variants_are_real_static_faces():
+    from fontTools.ttLib import TTFont
+
+    assert len(font_catalog.FACES) == 16
+    for choice, (name, _, style, _) in font_catalog.FACES.items():
+        with TTFont(font_catalog.ROOT / name) as face:
+            assert "fvar" not in face
+            flags = face["OS/2"].fsSelection
+            assert bool(flags & 32) == (style == "Bold (700)"), choice
+            assert bool(flags & 1) == (style == "Italic (400)"), choice

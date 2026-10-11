@@ -88,9 +88,12 @@ def inspect(project_id, _request=None):
             ),
             details={
                 **dependencies,
-                "setup_dependencies": "In backend: uv sync --locked --extra transcription",
+                "setup_dependencies": (
+                    "In backend: uv sync --locked --extra visual --extra transcription"
+                ),
                 "setup_model": (
-                    "uv run --locked --extra transcription python transcribe_local.py setup"
+                    "uv run --locked --extra visual --extra transcription "
+                    "python transcribe_local.py setup"
                 ),
                 "model_revision": transcribe_local.REVISION,
                 "check": "Manifest presence/sizes and versions only; no inference/download.",

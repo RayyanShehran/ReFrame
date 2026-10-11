@@ -28,7 +28,7 @@ BUNDLED_HASH = "7da195a74c55bef988d0d48f9508bd5d849425c1770dba5d7bfc6ce9ed848954
 
 class Binding(color.Schema):
     kind: Literal["default", "custom", "builtin"] = "default"
-    candidate_id: Literal["amiri-regular", "amiri-bold", "anton-regular"] | None = None
+    candidate_id: font_catalog.Choice | None = None
     font_id: UUID | None = None
     sha256: str = Field(default=BUNDLED_HASH, pattern=r"^[0-9a-f]{64}$")
     family: str = Field(default="DejaVu Sans", min_length=1, max_length=128)
@@ -114,7 +114,7 @@ def default_codepoints():
         return frozenset(font.getBestCmap())
 
 
-@lru_cache(maxsize=3)
+@lru_cache(maxsize=24)
 def builtin_codepoints(choice):
     from fontTools.ttLib import TTFont
 

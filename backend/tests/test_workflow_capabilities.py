@@ -36,6 +36,10 @@ def test_real_caption_readiness_missing_optional_setup_preserves_settings(local,
     assert response.status_code == 200, response.text
     assert response.json()["captions"]["available"]
     assert not response.json()["transcription"]["available"]
+    assert (
+        "--extra visual --extra transcription"
+        in response.json()["transcription"]["details"]["setup_dependencies"]
+    )
     assert not response.json()["ocr"]["available"]
     assert before == [client.get(f"{base}/{route}").json() for route in routes]
     assert not list((directory / "preview-staging").iterdir())

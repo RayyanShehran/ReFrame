@@ -13,6 +13,7 @@ import audio_settings
 import color_analysis as color
 import edit_plan
 import font_assets
+import font_catalog
 import footage_analysis as footage
 import projects
 from references import ReferenceError
@@ -47,7 +48,7 @@ class Style(color.Schema):
     color: str = Field(default="white", pattern=r"^(white|yellow|#[0-9a-fA-F]{6})$")
     size: Literal["small", "medium", "large"] = "medium"
     placement: Literal["bottom-center", "center"] = "bottom-center"
-    font: Literal["default", "custom", "amiri-regular", "amiri-bold", "anton-regular"] = "default"
+    font: Literal["default", "custom"] | font_catalog.Choice = "default"
     font_origin: Literal["manual", "assisted"] = "manual"
     size_percent: float | None = Field(default=None, ge=2, le=15, strict=True, allow_inf_nan=False)
     outline_color: str = Field(default="#000000", pattern=r"^#[0-9a-fA-F]{6}$")

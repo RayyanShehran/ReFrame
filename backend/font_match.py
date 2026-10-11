@@ -16,6 +16,7 @@ import caption_preview
 import captions
 import color_analysis as color
 import font_assets as fonts
+import font_catalog
 import frame_preview as preview
 import projects
 from references import ReferenceError
@@ -78,9 +79,9 @@ def candidates(project_id, deadline=None):
     custom = fonts.read(project_id)
     if custom.font and custom.available:
         result.append(custom.font)
-    if len(result) > 5:
+    if len(result) > 20:
         raise ReferenceError(
-            413, "candidate_limit", "At most five candidate faces can be compared."
+            413, "candidate_limit", "At most twenty candidate faces can be compared."
         )
     for font in result:
         fonts.validate(project_id, font, [], deadline=deadline)
@@ -364,6 +365,8 @@ def generate(project_id, request):
                     "image": sample_png(normalized, stage, deadline, "sample").model_dump(),
                 }
             )
+            # Only the bounded in-memory thumbnail survives each candidate comparison.
+            shutil.rmtree(stage)
         if len(ranked) < 2 or max(c["visual_similarity"] for c in ranked) < 35:
             no_ranking()
         current = color.source(project_id, deadline=deadline)
@@ -426,7 +429,7 @@ def generate(project_id, request):
 class Review(color.Schema):
     expected_revision: int = Field(ge=1, strict=True)
     token: str = Field(pattern=r"^[0-9a-f]{64}$")
-    choice: str = Field(pattern=r"^(default|custom|amiri-regular|amiri-bold|anton-regular)$")
+    choice: Literal["default", "custom"] | font_catalog.Choice
     expected_font_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 

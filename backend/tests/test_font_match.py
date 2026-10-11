@@ -87,7 +87,7 @@ def test_known_font_ranking_review_preview_export_and_restore(local, sources):
     custom = upload(client, pid, fonts.BUNDLED.read_bytes())
     assert custom.status_code == 200
     custom_before = custom.json()
-    assert len(match.candidates(pid)) == 5
+    assert len(match.candidates(pid)) == len(fonts.library()) + 1
     assert client.get(url).json()["status"] == "empty"
     result = client.post(url, json=request(client, pid))
     assert result.status_code == 200, result.text
