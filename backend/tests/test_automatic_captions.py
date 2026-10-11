@@ -116,6 +116,7 @@ def test_real_visible_text_timing_and_appearance(local):
         assert abs(cue.start - expected[0]) <= 1 / 30 + 0.001
         assert abs(cue.end - expected[1]) <= 1 / 30 + 0.001
     assert cues[0].appearance.style.color != cues[1].appearance.style.color
+    assert all(8 <= cue.appearance.style.size_percent <= 12 for cue in cues)
     assert evidence["reads"] <= automatic.MAX_READS
     assert any("Closest available" in note for note in notes)
 

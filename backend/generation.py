@@ -216,6 +216,25 @@ def guard(project_id, operation_id, bound, stop=None, deadline=None):
         )
 
 
+def stage_failure(project_id, module, operation):
+    table = (
+        "reference_operations"
+        if module is jobs
+        else "render_operations"
+        if module is render
+        else module.TABLE
+    )
+    with projects.database() as db:
+        row = db.execute(
+            f"SELECT cleanup_safe FROM {table} WHERE project_id=?", (project_id,)
+        ).fetchone()
+    return engine.RetrievalFailure(
+        operation.failure_code or "generation_stage_failed",
+        operation.message or "This stage failed. Retry explicitly.",
+        cleanup_safe=bool(row and row[0]),
+    )
+
+
 async def owned(function, stop, *args):
     task = asyncio.create_task(asyncio.to_thread(function, *args))
     try:
@@ -279,11 +298,7 @@ async def worker(project_id, operation_id, data, stop):
             )
         current = await projects.storage_call(module.get_operation, project_id)
         if current.status != "ready":
-            raise ReferenceError(
-                409,
-                current.failure_code or "generation_stage_failed",
-                current.message or "This stage failed. Retry explicitly.",
-            )
+            raise stage_failure(project_id, module, current)
         return current
 
     failure = None
@@ -541,6 +556,11 @@ def prepare_captions(project_id, mode, stop, deadline, operation):
             recognized = transcribe_local.run(
                 path, output.duration_seconds, "auto", speech, stop, deadline
             )
+            if not cues:
+                notices.append(
+                    "No reference caption appearance was readable; "
+                    "speech captions use the default supported style."
+                )
             style = cues[0].appearance if cues else None
             cues = [
                 captions.Cue.model_validate(cue).model_copy(update={"appearance": style})

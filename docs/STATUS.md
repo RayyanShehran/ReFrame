@@ -1,6 +1,6 @@
 # Implementation status
 
-Current scope includes Milestone 29 automatic range proposals and saved sequence caption previews; earlier sections record historical milestone boundaries. [Current method and limits](MULTI_CLIP_SEQUENCE.md).
+Current default is automatic reference-video generation; Customize retains the advanced editor. Earlier sections record historical milestone boundaries. [Current workflow, verification and limits](AUTOMATIC_GENERATION.md).
 
 ## Milestone 1: development foundation
 
@@ -433,3 +433,14 @@ This remains approximate SDR statistical look transfer, not a recovered LUT, whi
 Affected frontend checks and production build passed. One isolated browser session checked 1440/768/390 px, both multiple-file picker entry points, two successes around one malformed MOV, failed retry/pending removal, draft navigation, real frame/source playback, saved 99% strength and Arabic captions, sequence render/play/download and refresh. Actual export: 320 x 180, 3.000 seconds, video/audio, 154543 bytes. Final CI is checked for the exact commit at handoff. [Design, verification and limitations](INTERFACE_DESIGN.md).
 
 Expanded video functional baseline remains **97%, pending architect acceptance**; image mode **0%**. No media algorithms, APIs, model/transcription benchmarks or TikTok retrieval changed. Stop after this redesign.
+
+
+### Automatic reference-video maker — 2026-10-11 UTC / 2026-10-12 Dubai
+
+Task implementation: **simple creation/result UX 100%; automatic sequence/per-shot grading 100%; supported automatic reference-caption extraction/style application 100%; overall this task 100%, pending final CI and architect acceptance**. Image mode **0%**. These percentages cover the delivered bounded/approximate behavior, not universal reference reconstruction.
+
+The default screen accepts link + multiple clips before automatic project creation. Generate saves/upload-sequences, owns the existing shared worker and persists checkpoints/source/revision guards through retrieval, exact reference-associated slots, visual/measurement selection, 70% per-slot transfer, saved audio, real visible-caption OCR/style and atomic export. Retry/cancel/setup blockers and prior-output preservation are explicit. Caption-my-audio transcribes unpublished actual assembled audio. Legacy projects and per-cue caption schemas remain compatible; saved custom changes need replacement confirmation. Expanded licensed faces and combined optional setup are documented.
+
+One fixture browser session verified Generate without internal manual steps, desktop/390 px, cancel/switch/retry, saved draft retention, playback/download and refresh. Final **6.000 s / 180-frame / 640 × 360** export has cuts at **1 / 3 s**, distinct per-slot transforms including two nonoverlapping ranges from the same clip, and three real OCR-derived English/Arabic captions with different rendered appearances. The final downloaded hash, exact cues/fonts/times and focused tests are in [automatic generation](AUTOMATIC_GENERATION.md). Retrieval was explicitly an offline generated fixture, not live TikTok.
+
+Unmet universal capabilities are explicit: complex transition/text effects and shadow reconstruction; arbitrary font identity; reliable dark/low-contrast/ambiguous or discovery-missed text. Supported fonts/styles and cuts remain approximate. No hidden model download, speech inference rerun or whole-project 100% claim. Existing expanded video baseline remains 97% pending architect reassessment. Exact-final-commit CI and fresh local/remote equality are reported at handoff. Stop after this task.

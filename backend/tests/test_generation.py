@@ -296,3 +296,22 @@ def test_caption_my_audio_uses_actual_assembled_audio_without_publishing_scratch
     assert track.cues[0].start == 0.5 and track.cues[0].text == "Assembled speech"
     assert len(calls) == 1
     assert not generation.staging(done["operation_id"]).exists()
+
+
+@pytest.mark.parametrize("safe", [True, False])
+def test_nested_failure_preserves_confirmed_cleanup_state_for_retry(local, safe):
+    client, directory, _ = local
+    pid = seed(client, directory)
+    import color_analysis as color
+
+    with projects.database() as db:
+        row = db.execute(
+            "SELECT operation_id FROM color_operations WHERE project_id=?", (pid,)
+        ).fetchone()
+    color.fail_operation(
+        pid,
+        row[0],
+        engine.RetrievalFailure("cleanup_failure", "Fixture cleanup failure", cleanup_safe=safe),
+    )
+    failure = generation.stage_failure(pid, color, color.get_operation(pid))
+    assert failure.code == "cleanup_failure" and failure.cleanup_safe is safe

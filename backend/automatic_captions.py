@@ -35,6 +35,7 @@ class Detection:
     ink: str = "#FFFFFF"
     sample_text: str | None = None
     sample_rectangle: match.Rectangle | None = None
+    glyph_height: float | None = None
 
 
 def parse(raw, width, height):
@@ -391,6 +392,12 @@ def detect(project_id, source, directory, stop, deadline):
                     ]
                     if colors:
                         detected.ink = appearance.hex_color(Counter(colors).most_common(1)[0][0])
+                        glyph_rows = [
+                            i // 3 // min(w, width - x)
+                            for i in range(0, len(crop), 3)
+                            if max(crop[i : i + 3]) > 200
+                        ]
+                        detected.glyph_height = (max(glyph_rows) - min(glyph_rows) + 1) / height
             cache[index] = detections
             return detections
 
@@ -446,7 +453,7 @@ def detect(project_id, source, directory, stop, deadline):
         # Every cue gets its own placement, even when reusing a fitted static face.
         fitted.style.color = detected.ink
         fitted.style.horizontal = rectangle.x + rectangle.width / 2
-        fitted.style.vertical = rectangle.y + rectangle.height
+        # Retain the font-fit baseline; OCR box bottoms are not ASS anchors.
         cues.append(
             captions.Cue(start=start / 30, end=end / 30, text=detected.text, appearance=fitted)
         )
@@ -525,6 +532,45 @@ def infer(project_id, source, detected, timestamp, start, end, directory, stop, 
             ),
         )
         base.font = font.choice
+        calibration = stage / "height-calibration"
+        calibration.mkdir()
+        sample_text = detected.sample_text or detected.text.split("\n")[0][:80]
+        prepared_font = fonts.prepare(
+            project_id,
+            font,
+            [captions.Cue(start=0, end=1, text=sample_text)],
+            calibration,
+            deadline,
+        )
+        measured, _ = appearance.render_sample(
+            base.model_copy(
+                update={
+                    "size_percent": 10.0,
+                    "horizontal": 0.5,
+                    "vertical": 0.5,
+                    "color": "white",
+                    "outline_percent": 0.0,
+                }
+            ),
+            font,
+            sample_text,
+            640,
+            360,
+            calibration,
+            prepared_font,
+            deadline,
+        )
+        measured_size = min(
+            15.0, max(2.0, 10.0 * (detected.glyph_height or r.height) * 360 / measured[3])
+        )
+        base.size_percent = measured_size
+        base.vertical = min(
+            1.0,
+            max(
+                0.0,
+                r.y + r.height + (0.5 - (measured[1] + measured[3]) / 360) * (measured_size / 10),
+            ),
+        )
         revision, _, token = appearance.current(project_id, deadline)
         fit_stage = stage / "appearance"
         fit_stage.mkdir()
@@ -538,6 +584,11 @@ def infer(project_id, source, detected, timestamp, start, end, directory, stop, 
         fitted = appearance.generate(project_id, request, stage=(fit_stage, deadline))
         suggestion = appearance.Suggestion.model_validate(fitted["suggestion"])
         base = base.model_copy(update=suggestion.values.model_dump(exclude_none=True))
+        if not 0.85 * measured_size <= base.size_percent <= 1.15 * measured_size:
+            base.size_percent = measured_size
+            messages.append(
+                "Caption size uses observed glyph height; closest font width can differ."
+            )
         if 0.4 <= end - start <= 4:
             motion_stage = stage / "motion"
             motion_stage.mkdir()

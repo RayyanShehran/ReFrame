@@ -1,12 +1,14 @@
 # ReFrame
 
+**Automatic local video maker.** Paste a TikTok reference link, select multiple user-owned clips and choose **Generate video**. ReFrame saves the project and runs reference analysis, automatic selection, per-shot color transfer, audio, visible captions and export sequentially. Playback/download and job status restore after refresh. **Customize** opens the existing editor; saved custom edits require confirmation before automatic replacement. [Method, setup, evidence and limits](docs/AUTOMATIC_GENERATION.md).
+
 **Local video MVP.** Single-user, loopback-only Windows editing/export; image mode is not implemented. [Release checklist, smoke evidence and remaining limits](docs/LOCAL_VIDEO_RELEASE.md).
 
 ReFrame takes a TikTok link as the reference edit and separately uploaded user-owned footage. Saved projects retain up to 10 validated clips, a fixed reference metadata snapshot and, on request, experimental reference media. Offline color comparisons, estimated pacing, editable color recipes, legacy cut plans, editable multi-clip sequences and saved audio choices and reviewed captions with manual entrance/exit animations drive local video rendering, playback and download. See [TikTok reference feasibility](docs/TIKTOK_REFERENCE_FEASIBILITY.md) for live evidence and limitations.
 
 Saved captions support None, Fade, Pop and Slide up. Save changes, explicitly **Preview caption motion**, then render the full video. The real silent preview uses saved footage/color/framing/font settings; use the separate assisted comparison below to estimate supported reference motion. See [caption animation and preview limits](docs/CAPTION_ANIMATION.md).
 
-Manual assembly: upload/rename clips in **Footage**, create reference-paced slots in **Style & cuts**, assign clips and trim ranges, Save sequence, then choose **Multi-clip sequence** in Export. Choose Original, Basic, or Reference color transfer; transfer uses separately prepared per-clip or explicit assigned-shot matches. [Limits, API and verification](docs/MULTI_CLIP_SEQUENCE.md).
+In **Customize**, manual assembly remains available: upload/rename clips in **Footage**, create reference-paced slots in **Style & cuts**, assign clips and trim ranges, Save sequence, then choose **Multi-clip sequence** in Export. Choose Original, Basic, or Reference color transfer; transfer uses separately prepared per-clip or explicit assigned-shot matches. [Limits, API and verification](docs/MULTI_CLIP_SEQUENCE.md).
 
 ## Prerequisites
 
