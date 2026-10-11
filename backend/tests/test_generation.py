@@ -429,3 +429,122 @@ def test_visual_failure_can_continue_with_measurements_and_retained_checkpoints(
     assert sequence.read(pid).sequence.revision == slot_revision + 1  # Assignment save only.
     assert any("subject-aware matching was not used" in n for n in ready["notices"])
     monkeypatch.setattr(generation.visual_matching, "analyze", original)
+
+
+@pytest.mark.parametrize("choice", ["off", "partial"])
+def test_partial_caption_review_requires_confirmation_and_resumes_only_caption_render(
+    local, monkeypatch, choice
+):
+    import captions
+
+    client, directory, _ = local
+    pid = seed(client, directory)
+    calls = []
+
+    def incomplete(project_id, source, *args):
+        calls.append(project_id)
+        return (
+            [captions.Cue(start=0.5, end=1.2, text="Reliable words")],
+            ["Some text remains unreadable"],
+            {
+                "unreadable_samples": 3,
+                "method": "visible-tsv-adaptive-v1",
+                "reads": 4,
+                "engine_version": "local-test",
+                "assets_commit": "a" * 40,
+                "source": source["identity"].model_dump(mode="json"),
+                "reference_operation_id": source["reference_operation_id"],
+            },
+        )
+
+    monkeypatch.setattr(generation.automatic_captions, "detect", incomplete)
+    url = f"/api/projects/{pid}/generation"
+    options = {
+        "captions": "reference",
+        "audio": "mute",
+        "replace_customized": True,
+        "matching_mode": "measurements",
+    }
+    assert client.post(url, json=options).status_code == 202
+    failed = wait(client, url)
+    assert failed["failure_code"] == "caption_partial", failed
+    assert failed["completed"] == ["slots", "sequence", "grading", "audio"]
+    assert failed["caption_review"]["cues"][0]["text"] == "Reliable words"
+    assert client.get(f"/api/projects/{pid}/render").json()["output"] is None
+    seq = sequence.read(pid).sequence.model_dump()
+    with projects.database() as db:
+        measured = [
+            tuple(r)
+            for r in db.execute("SELECT blueprint FROM color_operations WHERE project_id=?", (pid,))
+        ]
+    monkeypatch.setattr(
+        sequence, "generate", lambda *a, **k: pytest.fail("Do not recreate completed slots")
+    )
+
+    def retry_with_less_text(*args):
+        _, notes, evidence = incomplete(*args)
+        return [], notes, evidence
+
+    monkeypatch.setattr(generation.automatic_captions, "detect", retry_with_less_text)
+    assert client.post(url, json=options | {"expected_revision": 1}).status_code == 202
+    retried = wait(client, url)
+    assert retried["failure_code"] == "caption_partial"
+    assert retried["caption_review"]["cues"][0]["text"] == "Reliable words"
+    if choice == "off":
+        monkeypatch.setattr(
+            generation.automatic_captions,
+            "detect",
+            lambda *a, **k: pytest.fail("Off must not OCR again"),
+        )
+        retry = options | {"captions": "off", "expected_revision": 2}
+    else:
+        monkeypatch.setattr(
+            generation.automatic_captions,
+            "detect",
+            lambda *a, **k: pytest.fail("Use saved reviewed cues"),
+        )
+        retry = options | {"accept_partial_captions": True, "expected_revision": 2}
+    assert client.post(url, json=retry).status_code == 202
+    done = wait(client, url)
+    assert done["status"] == "ready", done
+    output = client.get(f"/api/projects/{pid}/render").json()["output"]
+    assert output["spec"]["captions"]["enabled"] is (choice == "partial")
+    assert sequence.read(pid).sequence.model_dump() == seq
+    assert done["caption_review"]["cues"][0]["text"] == "Reliable words"
+    with projects.database() as db:
+        assert [
+            tuple(r)
+            for r in db.execute("SELECT blueprint FROM color_operations WHERE project_id=?", (pid,))
+        ] == measured
+    assert len(calls) == 2
+
+
+def test_partial_caption_confirmation_rejects_changed_reference(local):
+    import captions
+
+    client, directory, _ = local
+    pid = seed(client, directory)
+    source = generation.color.source(pid)
+    review = generation.CaptionReview(
+        cues=[captions.Cue(start=0.5, end=1, text="Read words")],
+        notices=[],
+        unreadable_samples=1,
+        evidence=captions.VisibleBinding(
+            source=source["identity"].model_copy(update={"media_sha256": "b" * 64}),
+            reference_operation_id=source["reference_operation_id"],
+            method="visible-tsv-adaptive-v1",
+            reads=1,
+            engine_version="test",
+            assets_commit="a" * 40,
+        ),
+    )
+    operation = generation.Operation(
+        operation_id=str(__import__("uuid").uuid4()),
+        options=generation.Request(accept_partial_captions=True),
+        caption_review=review,
+    )
+    with pytest.raises(ReferenceError) as error:
+        generation.prepare_captions(
+            pid, "reference", threading.Event(), time.monotonic() + 20, operation
+        )
+    assert error.value.code == "caption_review_required"

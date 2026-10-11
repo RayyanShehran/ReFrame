@@ -4,6 +4,7 @@ import csv
 import io
 import math
 import shutil
+import time
 from collections import Counter
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
@@ -36,11 +37,14 @@ class Detection:
     sample_text: str | None = None
     sample_rectangle: match.Rectangle | None = None
     glyph_height: float | None = None
+    minimum_confidence: float = 100.0
 
 
-def parse(raw, width, height):
+def parse(raw, width, height, uncertain=None):
     try:
-        reader = csv.DictReader(io.StringIO(raw.decode("utf-8")), delimiter="\t")
+        reader = csv.DictReader(
+            io.StringIO(raw.decode("utf-8")), delimiter="\t", quoting=csv.QUOTE_NONE
+        )
         required = {
             "level",
             "page_num",
@@ -79,10 +83,6 @@ def parse(raw, width, height):
                 raise ValueError("Invalid word geometry")
             key = tuple(int(row[k]) for k in ("block_num", "par_num", "line_num"))
             groups.setdefault(key, []).append((row["text"].strip(), x, y, w, h, confidence))
-        if len(groups) > 32:
-            raise ReferenceError(
-                413, "caption_region_limit", "Too much visible text. Open Customize."
-            )
         detections = []
         for words in groups.values():
             text = " ".join(word[0] for word in words)
@@ -97,13 +97,25 @@ def parse(raw, width, height):
                     and (right - x) / width >= 0.15
                     and y / height > 0.2
                 ):
-                    raise ReferenceError(
-                        422,
-                        "caption_unreadable",
-                        "Likely caption text is unreadable. "
-                        "Retry, choose Off or correct it in Customize.",
+                    if uncertain is None:
+                        raise ReferenceError(
+                            422, "caption_unreadable", "Visible text needs review."
+                        )
+                    uncertain.append(
+                        match.Rectangle(
+                            x=x / width,
+                            y=y / height,
+                            width=(right - x) / width,
+                            height=(bottom - y) / height,
+                        )
                     )
                 continue
+            if (bottom - y) / height < 0.015 or (right - x) / width < 0.035:
+                continue
+            if len(detections) >= 32:
+                raise ReferenceError(
+                    413, "caption_region_limit", "Too much visible text needs review."
+                )
             captions.Cue(start=0.0, end=1.0, text=text)
             sample = max(
                 (word for word in words if 4 <= len(word[0]) <= 12),
@@ -120,6 +132,9 @@ def parse(raw, width, height):
                         height=(bottom - y) / height,
                     ),
                     confidence,
+                    minimum_confidence=min(
+                        word[5] for word in words if any(c.isalnum() for c in word[0])
+                    ),
                     sample_text=sample[0] if sample else None,
                     sample_rectangle=match.Rectangle(
                         x=sample[1] / width,
@@ -246,7 +261,76 @@ def temporary(stage):
                 ) from None
 
 
+def reliable_wording(detection):
+    # Ambiguous letter/digit readings are retained for review, never repaired by guessing.
+    tokens = [word.strip(".,!?;:") for word in detection.text.split()]
+    return detection.minimum_confidence >= 75 and not any(t in {"1", "0", "|"} for t in tokens)
+
+
+def retry_crops(image, uncertain):
+    """Two bounded native-resolution crops, retaining coordinates for timeline/style binding."""
+    from PIL import ImageChops, ImageOps
+
+    width, height = image.size
+    r, g, b = image.convert("RGB").split()
+    mask = ImageChops.subtract(ImageChops.darker(r, g), b).point(lambda v: 255 if v > 55 else 0)
+    bands, start, last = [], None, None
+    for y in range(height):
+        box = mask.crop((0, y, width, y + 1)).getbbox()
+        if box and box[2] - box[0] >= width * 0.04:
+            if start is None:
+                start = y
+            last = y
+        elif start is not None and y - last > 4:
+            bands.append((start, last + 1))
+            start = last = None
+    if start is not None:
+        bands.append((start, last + 1))
+    boxes = []
+    for top, bottom in bands:
+        if not 0.015 * height <= bottom - top <= 0.15 * height or top > 0.94 * height:
+            continue
+        box = mask.crop((0, top, width, bottom)).getbbox()
+        if box and 0.06 * width <= box[2] - box[0] <= 0.95 * width:
+            boxes.append((box[0], top, box[2], bottom))
+    crops = []
+    if boxes:
+        # Preserve all lines in the selected block; three-line results require review.
+        best = max(boxes, key=lambda r: r[2] - r[0])
+        near = [r for r in boxes if abs(r[1] - best[1]) < height * 0.15]
+        box = (
+            min(r[0] for r in near),
+            min(r[1] for r in near),
+            max(r[2] for r in near),
+            max(r[3] for r in near),
+        )
+        crops.append((ImageOps.invert(mask.crop(box)), box, "eng+ara"))
+    if uncertain:
+        r = max(uncertain, key=lambda r: r.width * r.height)
+        box = (
+            max(0, int((r.x - 0.02) * width)),
+            max(0, int((r.y - 0.02) * height)),
+            min(width, int((r.x + r.width + 0.02) * width)),
+            min(height, int((r.y + r.height + 0.02) * height)),
+        )
+        crops.append((ImageOps.autocontrast(image.crop(box).convert("L")), box, "eng+ara"))
+    return crops[:2]
+
+
+def frame_seek(video, index):
+    try:
+        start = float(video.get("start_time", "nan"))
+    except (TypeError, ValueError):
+        start = math.nan
+    if math.isfinite(start) and start >= 0:
+        # Absolute input timestamps avoid shifting the video when audio starts earlier.
+        return ["-ss", str(start + index / 30), "-seek_timestamp", "1"], "setpts=PTS-STARTPTS,"
+    return [], f"setpts=PTS-STARTPTS,select='gte(t,{index}/30)',trim=end_frame=1,"
+
+
 def detect(project_id, source, directory, stop, deadline):
+    overall_deadline = deadline
+    deadline = min(deadline, time.monotonic() + TOTAL_SECONDS)
     engine._control.stop = stop
     available = ocr.inspect_capability(directory, deadline)
     if not available["available"]:
@@ -266,20 +350,21 @@ def detect(project_id, source, directory, stop, deadline):
     frames = sorted(set([0, *range(15, total, 15), total - 1]))
     cache = {}
     reads = [0]
+    unresolved = {}
 
-    def read(index):
+    def read_frame(index):
         color.guard(stop, deadline)
         if index in cache:
             return cache[index]
-        if len(cache) >= MAX_READS:
-            raise ReferenceError(
-                413,
-                "caption_work_limit",
-                "Caption reading exceeded its work limit. Choose Off or Customize.",
-            )
+        if reads[0] >= MAX_READS or deadline - time.monotonic() < 20:
+            unresolved[index] = "OCR work budget reached"
+            cache[index] = []
+            return []
         stage = directory / f"read-{index}"
         with temporary(stage):
             ambiguous = False
+            uncertain = []
+            seek, timing_filter = frame_seek(video, index)
             for sampling in ("area", "bicubic") if factor > 1 else ("area",):
                 target = stage / f"frame-{sampling}.png"
                 render.tool(
@@ -293,11 +378,12 @@ def detect(project_id, source, directory, stop, deadline):
                         "2",
                         "-protocol_whitelist",
                         "file",
+                        *seek,
                         "-i",
                         str(source["path"]),
                         "-vf",
-                        f"setpts=PTS-STARTPTS,select='gte(t,{index}/30)',trim=end_frame=1,"
-                        f"{render.resize_filter(*scale, color.inspect_colors(video))},"
+                        timing_filter
+                        + f"{render.resize_filter(*scale, color.inspect_colors(video))},"
                         f"scale={width}:{height}:flags={sampling}",
                         "-frames:v",
                         "1",
@@ -318,11 +404,8 @@ def detect(project_id, source, directory, stop, deadline):
                 for language in ("eng", "ara"):
                     color.guard(stop, deadline)
                     if reads[0] >= MAX_READS:
-                        raise ReferenceError(
-                            413,
-                            "caption_work_limit",
-                            "Caption reading exceeded its work limit. Choose Off or Customize.",
-                        )
+                        unresolved[index] = "OCR work budget reached"
+                        break
                     reads[0] += 1
                     result = engine.run_command(
                         [
@@ -356,21 +439,136 @@ def detect(project_id, source, directory, stop, deadline):
                             "Reference text reading failed. Retry, choose Off or Customize.",
                         )
                     try:
-                        candidates = parse(result.stdout, width, height)
+                        candidates = parse(result.stdout, width, height, uncertain)
                     except ReferenceError as error:
-                        if error.code != "caption_unreadable":
+                        if error.code not in {
+                            "caption_unreadable",
+                            "caption_region_limit",
+                            "ocr_output_invalid",
+                        }:
                             raise
                         ambiguous = True
                         continue
                     detections = merge_readings(detections, candidates)
                 if detections:
                     break
-            if ambiguous and not detections:
-                raise ReferenceError(
-                    422,
-                    "caption_unreadable",
-                    "Likely caption text is unreadable. Choose Off or correct it in Customize.",
+            # Native-resolution, contrast-separated crops recover thin/colored text lost in gray.
+            from PIL import Image
+
+            with Image.open(target) as image:
+                native = image.convert("RGB")
+            if uncertain or not detections or any(not reliable_wording(d) for d in detections):
+                native_target = stage / "native.png"
+                native_width = min(1920, canvas[0])
+                native_height = max(2, round(canvas[1] * native_width / canvas[0]))
+                render.tool(
+                    [
+                        shutil.which("ffmpeg") or "ffmpeg",
+                        "-v",
+                        "error",
+                        "-nostdin",
+                        "-xerror",
+                        "-threads",
+                        "2",
+                        "-protocol_whitelist",
+                        "file",
+                        *seek,
+                        "-i",
+                        str(source["path"]),
+                        "-vf",
+                        timing_filter
+                        + f"{render.resize_filter(*scale, color.inspect_colors(video))},"
+                        f"scale={native_width}:{native_height}",
+                        "-frames:v",
+                        "1",
+                        str(native_target),
+                    ],
+                    stage,
+                    "caption-native-frame",
+                    deadline,
+                    15,
+                    temp_budget=16 * 1024 * 1024,
                 )
+                with Image.open(native_target) as image:
+                    native = image.convert("RGB")
+                for attempt, (crop, box, language) in enumerate(retry_crops(native, uncertain)):
+                    color.guard(stop, deadline)
+                    if reads[0] >= MAX_READS:
+                        unresolved[index] = "OCR work budget reached"
+                        break
+                    factor_crop = min(2, 1600 / max(crop.size))
+                    crop = crop.resize(
+                        (
+                            max(8, round(crop.width * factor_crop)),
+                            max(8, round(crop.height * factor_crop)),
+                        )
+                    )
+                    path = stage / f"retry-{attempt}.png"
+                    crop.save(path)
+                    reads[0] += 1
+                    result = engine.run_command(
+                        [
+                            str(ocr.executable()),
+                            str(path),
+                            "stdout",
+                            "--tessdata-dir",
+                            str(ocr.DATA),
+                            "-l",
+                            language,
+                            "--oem",
+                            "1",
+                            "--psm",
+                            "6",
+                            "--dpi",
+                            "300",
+                            "-c",
+                            "tessedit_create_tsv=1",
+                        ],
+                        stage,
+                        "caption-crop-retry",
+                        deadline,
+                        15,
+                        output_limit=128 * 1024,
+                        temp_budget=16 * 1024 * 1024,
+                    )
+                    if result.returncode:
+                        unresolved[index] = "OCR crop retry failed"
+                        continue
+                    low = []
+                    try:
+                        found = parse(result.stdout, crop.width, crop.height, low)
+                    except ReferenceError as error:
+                        if error.code not in {
+                            "caption_unreadable",
+                            "caption_region_limit",
+                            "ocr_output_invalid",
+                        }:
+                            raise
+                        unresolved[index] = "Detector output requires review"
+                        continue
+                    for d in found:
+                        r = d.rectangle
+                        d.rectangle = match.Rectangle(
+                            x=(box[0] + r.x * crop.width / factor_crop) / native.width,
+                            y=(box[1] + r.y * crop.height / factor_crop) / native.height,
+                            width=r.width * crop.width / factor_crop / native.width,
+                            height=r.height * crop.height / factor_crop / native.height,
+                        )
+                        d.sample_text = None
+                        d.sample_rectangle = None
+                    reliable = [d for d in found if reliable_wording(d)]
+                    if found or low:
+                        ambiguous = len(reliable) != len(found) or bool(low)
+                    if reliable:
+                        detections = reliable
+                        break
+            # Do not export isolated texture-like glyphs or low-confidence word fragments.
+            reliable = [d for d in detections if reliable_wording(d)]
+            if uncertain and not reliable or ambiguous:
+                unresolved[index] = "Text could not be read confidently"
+            if len(reliable) > 2:
+                unresolved[index] = "More than two visible lines require review"
+            detections = reliable
             if detections:
                 pixels = appearance.rgb(target, width, height, stage, deadline)
                 for detected in detections:
@@ -401,8 +599,27 @@ def detect(project_id, source, directory, stop, deadline):
             cache[index] = detections
             return detections
 
+    def read(index):
+        try:
+            return read_frame(index)
+        except engine.ProbeTimeout:
+            # The contained runner confirms termination before raising a timeout.
+            unresolved[index] = "Caption reading deadline reached"
+            cache[index] = []
+            return []
+
     counts = Counter(d.text for f in frames for d in read(f))
+    # Read nearby frames at their own timestamps; never assign recovered text to an earlier frame.
+    nearby = sorted({min(total - 1, f + 3) for f in list(unresolved)[:8]} - set(frames))
+    for f in nearby:
+        read(f)
+    frames = sorted(set(frames) | set(nearby))
     ignored = set()
+    creator = source["identity"].canonical_url.split("/@")[-1].split("/")[0].casefold()
+    for text in counts:
+        compact = "".join(c for c in text.casefold() if c.isalnum())
+        if creator and SequenceMatcher(None, compact, creator).ratio() >= 0.85:
+            ignored.add(text)
     for text, count in counts.items():
         representative = next(d for values in cache.values() for d in values if d.text == text)
         rect = representative.rectangle
@@ -429,26 +646,43 @@ def detect(project_id, source, directory, stop, deadline):
         # Similar text height/anchor share a fit; color is estimated separately for each cue.
         key = (round(rectangle.height * 50), round(rectangle.y * 20), detected.ink)
         if key not in styles:
-            if len(styles) >= MAX_APPEARANCES:
-                raise ReferenceError(
-                    413,
-                    "caption_style_limit",
-                    "More than eight caption appearances need review in Customize.",
+            if unresolved:
+                # Preserve partial text before spending time on font fitting.
+                font = (
+                    fonts.builtin("amiri-regular")
+                    if any("\u0600" <= c <= "\u06ff" for c in detected.text)
+                    else fonts.Binding()
                 )
-            fitted, messages = infer(
-                project_id,
-                source,
-                detected,
-                (start + end - 1) / 60,
-                start / 30,
-                end / 30,
-                directory,
-                stop,
-                deadline,
-                len(styles),
-            )
-            styles[key] = fitted
-            notes.extend(messages)
+                styles[key] = captions.Appearance(
+                    style=captions.Style(
+                        font=font.choice,
+                        color=detected.ink,
+                        horizontal=rectangle.x + rectangle.width / 2,
+                        vertical=min(1.0, rectangle.y + rectangle.height + 0.025),
+                        size_percent=min(15.0, max(2.0, 100 * rectangle.height * 1.5)),
+                    ),
+                    font_binding=font,
+                )
+                notes.append("Partial cues use a supported default font; appearance needs review.")
+            elif len(styles) >= MAX_APPEARANCES:
+                unresolved[start] = "Appearance budget reached; approximate style needs review"
+                nearest = min(styles, key=lambda k: abs(k[0] - key[0]) + abs(k[1] - key[1]))
+                styles[key] = styles[nearest]
+            else:
+                fitted, messages = infer(
+                    project_id,
+                    source,
+                    detected,
+                    (start + end - 1) / 60,
+                    start / 30,
+                    end / 30,
+                    directory,
+                    stop,
+                    deadline,
+                    len(styles),
+                )
+                styles[key] = fitted
+                notes.extend(messages)
         fitted = styles[key].model_copy(deep=True)
         # Every cue gets its own placement, even when reusing a fitted static face.
         fitted.style.color = detected.ink
@@ -457,8 +691,13 @@ def detect(project_id, source, directory, stop, deadline):
         cues.append(
             captions.Cue(start=start / 30, end=end / 30, text=detected.text, appearance=fitted)
         )
-    if not cues:
+    if not cues and not unresolved:
         notes.append("No readable changing reference captions were detected; none were invented.")
+    if unresolved:
+        notes.append(
+            f"Partial caption extraction: {len(unresolved)} sampled frames need review; "
+            "unreadable words were not supplied."
+        )
     notes.extend(
         [
             "Visible words/timing come from OCR. Check wording in Customize.",
@@ -468,12 +707,13 @@ def detect(project_id, source, directory, stop, deadline):
             "Complex effects and shadow are not reconstructed.",
         ]
     )
-    if color.source(project_id, stop, deadline) != source:
+    if color.source(project_id, stop, overall_deadline) != source:
         raise ReferenceError(409, "source_changed", "Reference changed during caption reading.")
     return (
         cues,
         list(dict.fromkeys(notes)),
         {
+            "unreadable_samples": len(unresolved),
             "method": METHOD,
             "reads": reads[0],
             "engine_version": available["engine_version"],

@@ -159,3 +159,32 @@ def test_partial_language_fragment_cannot_erase_a_complete_caption_line():
     fragment.rectangle = fragment.rectangle.model_copy(update={"width": 0.1})
     merged = automatic.merge_readings([full], [fragment])
     assert automatic.dominant(merged, set()).text == "FIRST VISIBLE WORDS"
+
+
+def test_tesseract_plain_quotes_do_not_merge_tsv_rows():
+    header = (
+        "level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\t"
+        "left\ttop\twidth\theight\tconf\ttext\n"
+    )
+    body = (
+        "1\t1\t0\t0\t0\t0\t0\t0\t640\t360\t-1\t\n"
+        '5\t1\t1\t1\t1\t1\t100\t100\t100\t30\t95\t"Hello\n'
+        "5\t1\t1\t1\t1\t2\t220\t100\t100\t30\t95\tworld\n"
+    )
+    result = automatic.parse((header + body).encode(), 640, 360)
+    assert len(result) == 1 and result[0].text == '"Hello world'
+
+
+def test_ambiguous_words_are_collected_without_erasing_reliable_lines():
+    header = (
+        "level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\t"
+        "left\ttop\twidth\theight\tconf\ttext\n"
+    )
+    body = (
+        "1\t1\t0\t0\t0\t0\t0\t0\t640\t360\t-1\t\n"
+        "5\t1\t1\t1\t1\t1\t100\t100\t300\t30\t20\tUnreadable\n"
+        "5\t1\t1\t1\t2\t1\t100\t150\t300\t30\t95\tReliable\n"
+    )
+    unknown = []
+    found = automatic.parse((header + body).encode(), 640, 360, unknown)
+    assert [d.text for d in found] == ["Reliable"] and len(unknown) == 1

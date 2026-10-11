@@ -57,6 +57,14 @@ class Request(color.Schema):
     allow_reused_ranges: bool = Field(default=False, strict=True)
     replace_customized: bool = Field(default=False, strict=True)
     matching_mode: Literal["subject_aware", "measurements"] = "subject_aware"
+    accept_partial_captions: bool = Field(default=False, strict=True)
+
+
+class CaptionReview(color.Schema):
+    cues: list[captions.Cue] = Field(max_length=200)
+    notices: list[str] = Field(max_length=30)
+    evidence: captions.VisibleBinding
+    unreadable_samples: int = Field(ge=1, le=3600)
 
 
 class Operation(color.Schema):
@@ -72,6 +80,7 @@ class Operation(color.Schema):
     failure_code: str | None = None
     message: str | None = None
     output_id: str | None = None
+    caption_review: CaptionReview | None = None
 
 
 def record(project_id):
@@ -173,10 +182,22 @@ def begin_operation(project_id, request):
         and prior.status == "failed"
         and (
             prior.options.model_dump(
-                exclude={"expected_revision", "replace_customized", "matching_mode"}
+                exclude={
+                    "expected_revision",
+                    "replace_customized",
+                    "matching_mode",
+                    "captions",
+                    "accept_partial_captions",
+                }
             )
             == request.model_dump(
-                exclude={"expected_revision", "replace_customized", "matching_mode"}
+                exclude={
+                    "expected_revision",
+                    "replace_customized",
+                    "matching_mode",
+                    "captions",
+                    "accept_partial_captions",
+                }
             )
         )
         else []
@@ -187,6 +208,8 @@ def begin_operation(project_id, request):
         and "sequence" in completed
     ):
         completed = []
+    if completed and prior.options.captions != request.captions:
+        completed = [stage for stage in completed if stage != "captions"]
     operation = Operation(
         project_id=project_id,
         revision=prior.revision + 1,
@@ -196,6 +219,7 @@ def begin_operation(project_id, request):
         options=request,
         completed=completed,
         notices=prior.notices if completed else [],
+        caption_review=prior.caption_review if old == bound else None,
     )
     with projects.database() as db:
         db.execute(
@@ -526,9 +550,50 @@ def prepare_captions(project_id, mode, stop, deadline, operation):
         cues, notices, evidence = [], [], None
         if mode != "off":
             source = color.source(project_id, stop, deadline)
-            cues, notices, evidence = automatic_captions.detect(
-                project_id, source, directory, stop, deadline
-            )
+            review = operation.caption_review
+            if mode == "reference" and operation.options.accept_partial_captions:
+                if (
+                    not review
+                    or not review.cues
+                    or review.evidence.source != source["identity"]
+                    or str(review.evidence.reference_operation_id)
+                    != str(source["reference_operation_id"])
+                ):
+                    raise ReferenceError(
+                        409, "caption_review_required", "Retry caption reading first."
+                    )
+                cues, notices = review.cues, list(review.notices)
+                evidence = review.evidence.model_dump(mode="json")
+                notices.append(
+                    "Incomplete captions exported by explicit confirmation; some words are missing."
+                )
+            else:
+                cues, notices, evidence = automatic_captions.detect(
+                    project_id, source, directory, stop, deadline
+                )
+                incomplete = evidence.pop("unreadable_samples", 0)
+                if mode == "reference" and incomplete:
+                    # Keep prior reliable cues when retrying an unchanged incomplete track.
+                    if review and review.evidence.source == source["identity"]:
+                        cues += [
+                            c
+                            for c in review.cues
+                            if not any(c.start < n.end and n.start < c.end for n in cues)
+                        ]
+                    cues = sorted(cues, key=lambda c: c.start)[:200]
+                    operation.caption_review = CaptionReview(
+                        cues=cues,
+                        notices=notices[:30],
+                        evidence=captions.VisibleBinding.model_validate(evidence),
+                        unreadable_samples=incomplete,
+                    )
+                    raise ReferenceError(
+                        422,
+                        "caption_partial",
+                        f"Caption reading is incomplete. {len(cues)} detected cues are saved; "
+                        "retry reading or continue without captions.",
+                    )
+                operation.caption_review = None
         selected_sequence = sequence.read(project_id).sequence
         values = dict(
             expected_revision=previous.revision,
@@ -594,6 +659,11 @@ def prepare_captions(project_id, mode, stop, deadline, operation):
                     audio=audio_settings.read(project_id).settings,
                 ),
                 output.sha256,
+            )
+        if mode == "off" and operation.caption_review:
+            operation.notices.append(
+                "Captions explicitly disabled for this generation; "
+                "unreadable text was not treated as absent."
             )
         result = captions.save(
             project_id,
