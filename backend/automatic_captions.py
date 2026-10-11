@@ -137,6 +137,26 @@ def parse(raw, width, height):
         ) from None
 
 
+def merge_readings(detections, candidates):
+    result = list(detections)
+    for candidate in candidates:
+        c = candidate.rectangle
+        overlaps = []
+        for i, found in enumerate(result):
+            r = found.rectangle
+            intersection = max(0.0, min(r.x + r.width, c.x + c.width) - max(r.x, c.x)) * max(
+                0.0, min(r.y + r.height, c.y + c.height) - max(r.y, c.y)
+            )
+            if intersection / (r.width * r.height + c.width * c.height - intersection) >= 0.5:
+                overlaps.append(i)
+        if not overlaps:
+            result.append(candidate)
+        elif candidate.confidence > max(result[i].confidence for i in overlaps):
+            result = [d for i, d in enumerate(result) if i not in overlaps]
+            result.append(candidate)
+    return result
+
+
 def same(a, b):
     if a is None or b is None:
         return a is b
@@ -244,6 +264,7 @@ def detect(project_id, source, directory, stop, deadline):
     total = max(1, math.floor(duration * 30 + 0.00001))
     frames = sorted(set([0, *range(15, total, 15), total - 1]))
     cache = {}
+    reads = [0]
 
     def read(index):
         color.guard(stop, deadline)
@@ -257,71 +278,98 @@ def detect(project_id, source, directory, stop, deadline):
             )
         stage = directory / f"read-{index}"
         with temporary(stage):
-            target = stage / "frame.png"
-            render.tool(
-                [
-                    shutil.which("ffmpeg") or "ffmpeg",
-                    "-v",
-                    "error",
-                    "-nostdin",
-                    "-xerror",
-                    "-threads",
-                    "2",
-                    "-protocol_whitelist",
-                    "file",
-                    "-i",
-                    str(source["path"]),
-                    "-vf",
-                    f"setpts=PTS-STARTPTS,select='gte(t,{index}/30)',trim=end_frame=1,"
-                    f"{render.resize_filter(*scale, color.inspect_colors(video))},"
-                    f"scale={width}:{height}:flags=area",
-                    "-frames:v",
-                    "1",
-                    str(target),
-                ],
-                stage,
-                "caption-frame",
-                deadline,
-                15,
-                temp_budget=16 * 1024 * 1024,
-            )
-            from PIL import Image
+            ambiguous = False
+            for sampling in ("area", "bicubic") if factor > 1 else ("area",):
+                target = stage / f"frame-{sampling}.png"
+                render.tool(
+                    [
+                        shutil.which("ffmpeg") or "ffmpeg",
+                        "-v",
+                        "error",
+                        "-nostdin",
+                        "-xerror",
+                        "-threads",
+                        "2",
+                        "-protocol_whitelist",
+                        "file",
+                        "-i",
+                        str(source["path"]),
+                        "-vf",
+                        f"setpts=PTS-STARTPTS,select='gte(t,{index}/30)',trim=end_frame=1,"
+                        f"{render.resize_filter(*scale, color.inspect_colors(video))},"
+                        f"scale={width}:{height}:flags={sampling}",
+                        "-frames:v",
+                        "1",
+                        str(target),
+                    ],
+                    stage,
+                    "caption-frame",
+                    deadline,
+                    15,
+                    temp_budget=16 * 1024 * 1024,
+                )
+                from PIL import Image
 
-            ocr_image = stage / "ocr-gray.png"
-            with Image.open(target) as image:
-                image.convert("L").save(ocr_image)
-            result = engine.run_command(
-                [
-                    str(ocr.executable()),
-                    str(ocr_image),
-                    "stdout",
-                    "--tessdata-dir",
-                    str(ocr.DATA),
-                    "-l",
-                    "eng+ara",
-                    "--oem",
-                    "1",
-                    "--psm",
-                    "11",
-                    "--dpi",
-                    "300",
-                    "-c",
-                    "tessedit_create_tsv=1",
-                ],
-                stage,
-                "caption-tsv",
-                deadline,
-                15,
-                output_limit=128 * 1024,
-                temp_budget=16 * 1024 * 1024,
-            )
-            if result.returncode:
+                ocr_image = stage / "ocr-gray.png"
+                with Image.open(target) as image:
+                    image.convert("L").save(ocr_image)
+                detections = []
+                for language in ("eng", "ara"):
+                    color.guard(stop, deadline)
+                    if reads[0] >= MAX_READS:
+                        raise ReferenceError(
+                            413,
+                            "caption_work_limit",
+                            "Caption reading exceeded its work limit. Choose Off or Customize.",
+                        )
+                    reads[0] += 1
+                    result = engine.run_command(
+                        [
+                            str(ocr.executable()),
+                            str(ocr_image),
+                            "stdout",
+                            "--tessdata-dir",
+                            str(ocr.DATA),
+                            "-l",
+                            language,
+                            "--oem",
+                            "1",
+                            "--psm",
+                            "11",
+                            "--dpi",
+                            "300",
+                            "-c",
+                            "tessedit_create_tsv=1",
+                        ],
+                        stage,
+                        f"caption-tsv-{language}",
+                        deadline,
+                        15,
+                        output_limit=128 * 1024,
+                        temp_budget=16 * 1024 * 1024,
+                    )
+                    if result.returncode:
+                        raise ReferenceError(
+                            422,
+                            "ocr_failed",
+                            "Reference text reading failed. Retry, choose Off or Customize.",
+                        )
+                    try:
+                        candidates = parse(result.stdout, width, height)
+                    except ReferenceError as error:
+                        if error.code != "caption_unreadable":
+                            raise
+                        ambiguous = True
+                        continue
+                    detections = merge_readings(detections, candidates)
+                if detections:
+                    break
+            if ambiguous and not detections:
                 raise ReferenceError(
                     422,
-                    "ocr_failed",
-                    "Reference text reading failed. Retry, choose Off or Customize.",
+                    "caption_unreadable",
+                    "Likely caption text is unreadable. Choose Off or correct it in Customize.",
                 )
-            detections = parse(result.stdout, width, height)
             if detections:
                 pixels = appearance.rgb(target, width, height, stage, deadline)
                 for detected in detections:
@@ -420,7 +468,7 @@ def detect(project_id, source, directory, stop, deadline):
         list(dict.fromkeys(notes)),
         {
             "method": METHOD,
-            "reads": len(cache),
+            "reads": reads[0],
             "engine_version": available["engine_version"],
             "assets_commit": available["assets_commit"],
             "source": source["identity"].model_dump(mode="json"),

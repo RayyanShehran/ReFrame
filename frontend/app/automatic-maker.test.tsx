@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { AutomaticMaker } from "./automatic-maker";
-vi.mock("./workspace", () => ({ Workspace: () => <div>Advanced editor</div> }));
+vi.mock("./workspace", () => ({ Workspace: () => <div>Advanced editor<input aria-label="Custom caption draft" defaultValue="Saved" /></div> }));
 const pid = "11111111-1111-4111-8111-111111111111";
 const metadata = { filename: "clip.mp4", size_bytes: 1000, duration_seconds: 3, width: 64, height: 64, video_codec: "h264", has_audio: false, audio_codec: null, frame_rate: 30, validation_status: "accepted", storage_status: "not_retained" };
 const library = (count: number) => ({ clips: Array.from({ length: count }, (_, i) => ({ id: `11111111-1111-4111-8111-${String(i).padStart(12,"0")}`, name: `Clip ${i}`, primary: i===0, available: true, sha256: "a".repeat(64), metadata })), total_bytes: count*1000, max_clips: 10, max_bytes: 500*1024*1024 });
@@ -55,4 +55,9 @@ it("restores the saved generation and playable output without opening Customize"
   expect(screen.queryByText("Advanced editor")).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("button",{name:"Customize"}));
   expect(screen.getByText("Advanced editor")).toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText("Custom caption draft"),{target:{value:"My unsaved correction"}});
+  fireEvent.click(screen.getByRole("button",{name:"Close Customize"}));
+  expect(screen.getByText("Advanced editor")).not.toBeVisible();
+  fireEvent.click(screen.getByRole("button",{name:"Customize"}));
+  expect(screen.getByLabelText("Custom caption draft")).toHaveValue("My unsaved correction");
 });

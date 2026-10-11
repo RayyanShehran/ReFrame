@@ -1,4 +1,6 @@
 import json
+import shutil
+import subprocess
 import threading
 import time
 
@@ -15,9 +17,10 @@ from tests.test_video_render import local as local  # noqa: F401
 from tests.test_video_render import prepared
 
 
-def seed(client, directory):
-    path = directory / "automatic-input.mp4"
-    generated(path, [(15, 15, 15), (230, 230, 230), (70, 70, 70)], frames_per_color=12)
+def seed(client, directory, source=None):
+    path = source or directory / "automatic-input.mp4"
+    if source is None:
+        generated(path, [(15, 15, 15), (230, 230, 230), (70, 70, 70)], frames_per_color=12)
     saved, _, _ = prepared(client, directory, path)
     pid = saved["id"]
     with projects.database() as db:
@@ -26,6 +29,8 @@ def seed(client, directory):
                 db.execute(f"SELECT metadata FROM {table} WHERE project_id=?", (pid,)).fetchone()[0]
             )
             data.update(duration_seconds=3.0, width=64, height=64)
+            if source is not None:
+                data.update(has_audio=True, audio_codec="aac")
             db.execute(f"UPDATE {table} SET metadata=? WHERE project_id=?", (json.dumps(data), pid))
     return pid
 
@@ -200,3 +205,94 @@ def test_missing_setup_fails_before_retrieval_without_network_or_hidden_download
     done = wait(client, url)
     assert done["status"] == "failed" and done["failure_code"] == "visual_setup"
     assert not done["completed"]
+
+
+def test_caption_my_audio_uses_actual_assembled_audio_without_publishing_scratch(
+    local, monkeypatch
+):
+    if not generation.visual_matching.readiness()["ready"]:
+        pytest.skip("Installed visual model needed for generated assembled-audio integration")
+    import numpy as np
+
+    import captions
+
+    client, directory, _ = local
+    silent = directory / "silent-input.mp4"
+    generated(silent, [(15, 15, 15), (230, 230, 230), (70, 70, 70)])
+    tone = directory / "tone-input.mp4"
+    subprocess.run(
+        [
+            shutil.which("ffmpeg"),
+            "-v",
+            "error",
+            "-i",
+            str(silent),
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=frequency=660:sample_rate=48000:duration=3",
+            "-c:v",
+            "copy",
+            "-c:a",
+            "aac",
+            "-t",
+            "3",
+            str(tone),
+        ],
+        check=True,
+        capture_output=True,
+        timeout=15,
+    )
+    pid = seed(client, directory, tone)
+    monkeypatch.setattr(generation, "capability", lambda *args: None)
+    monkeypatch.setattr(generation.automatic_captions, "detect", lambda *args: ([], [], {}))
+    calls = []
+
+    def speech(path, duration, language, stage, stop, deadline):
+        assert "assembled-audio-source" in str(path) and path.exists()
+        assert duration == pytest.approx(3, abs=1 / 30)
+        raw = subprocess.run(
+            [
+                shutil.which("ffmpeg"),
+                "-v",
+                "error",
+                "-i",
+                str(path),
+                "-map",
+                "0:a:0",
+                "-ac",
+                "1",
+                "-ar",
+                "16000",
+                "-f",
+                "s16le",
+                "-",
+            ],
+            capture_output=True,
+            check=True,
+            timeout=10,
+        ).stdout
+        samples = np.frombuffer(raw, dtype="<i2").astype(float)
+        frequencies = np.fft.rfftfreq(len(samples), 1 / 16000)
+        peak = frequencies[np.abs(np.fft.rfft(samples)).argmax()]
+        assert peak == pytest.approx(660, abs=2)
+        calls.append((duration, peak))
+        assert generation.render.get_operation(pid).output is None
+        return ([{"start": 0.5, "end": 1.5, "text": "Assembled speech"}], "en", {})
+
+    monkeypatch.setattr(generation.transcribe_local, "run", speech)
+    url = f"/api/projects/{pid}/generation"
+    assert (
+        client.post(
+            url, json={"audio": "original", "captions": "output_audio", "replace_customized": True}
+        ).status_code
+        == 202
+    )
+    done = wait(client, url)
+    assert done["status"] == "ready", done
+    track = captions.read(pid).track
+    assert track.provenance == "generated_output_audio" and track.generated_audio_sha256
+    assert track.automatic_binding.timeline.mode == "sequence"
+    assert track.cues[0].start == 0.5 and track.cues[0].text == "Assembled speech"
+    assert len(calls) == 1
+    assert not generation.staging(done["operation_id"]).exists()

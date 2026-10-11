@@ -41,6 +41,7 @@ export function AutomaticMaker() {
   const [library, setLibrary] = useState<Library | null>(null), [queue, setQueue] = useState<Item[]>([]);
   const [busy, setBusy] = useState(false), [error, setError] = useState(""), [customize, setCustomize] = useState(false);
   const [allowReuse, setAllowReuse] = useState(false), [replace, setReplace] = useState(false), [needsReplace, setNeedsReplace] = useState(false);
+  const [customizeMounted, setCustomizeMounted] = useState(false);
   const [outputId, setOutputId] = useState<string | null>(null);
   const items = useRef<Item[]>([]), action = useRef<AbortController | null>(null), currentId = useRef<string | null>(null);
   const urls = useRef(new Set<string>());
@@ -67,7 +68,7 @@ export function AutomaticMaker() {
       try { await request(`/${encodeURIComponent(old)}/generation/cancel`, AbortSignal.timeout(10000), {}); }
       catch { setError("Could not confirm cancellation. Retry before switching projects."); return; }
     }
-    currentId.current = id; setProjectId(id); setLibrary(null); setOutputId(null); setCustomize(false); setBusy(false); setError(""); setReplace(false); setNeedsReplace(false);
+    currentId.current = id; setProjectId(id); setLibrary(null); setOutputId(null); setCustomize(false); setCustomizeMounted(false); setBusy(false); setError(""); setReplace(false); setNeedsReplace(false);
     for (const url of urls.current) URL.revokeObjectURL(url); urls.current.clear(); update([]);
     if (changeHistory) { const url = new URL(window.location.href); if (id) url.searchParams.set("project", id); else url.searchParams.delete("project"); window.history.pushState(null, "", url); }
     if (!id) { setLink(""); setAudio("reference"); setCaptionMode("reference"); return; }
@@ -150,9 +151,9 @@ export function AutomaticMaker() {
       {(error || generation.error || operation?.message) && <p role="alert">{error || generation.error || operation?.message}</p>}
       {operation?.failure_code?.includes("setup") && <details><summary>Setup details</summary><p>Install both local feature sets in backend: <code>uv sync --locked --extra visual --extra transcription</code>. Follow the local visual, OCR and transcription setup guides in the repository’s docs. No assets download during Generate.</p></details>}
     </section>
-    {outputId && projectId && <section className="reference-section automatic-result" aria-label="Your video"><h2>Your video</h2><video controls playsInline preload="metadata" src={`${apiBase}/api/projects/${projectId}/outputs/${outputId}/video`} aria-label="Generated video" /><a className="button-link" href={`${apiBase}/api/projects/${projectId}/outputs/${outputId}/download`}>Download video</a><button onClick={() => setCustomize(value => !value)}>{customize ? "Close Customize" : "Customize"}</button>{!!operation?.notices.length && <details><summary>About this result</summary><ul>{operation.notices.map(note => <li key={note}>{note}</li>)}</ul></details>}</section>}
-    {!outputId && projectId && <button onClick={() => setCustomize(value => !value)}>{customize ? "Close Customize" : "Customize"}</button>}
-    {customize && <Workspace key={projectId} onProjectChange={id => void open(id)} />}
+    {outputId && projectId && <section className="reference-section automatic-result" aria-label="Your video"><h2>Your video</h2>{operation?.status !== "ready" && <p className="hint">Your previous video stays available until a replacement succeeds.</p>}<video controls playsInline preload="metadata" src={`${apiBase}/api/projects/${projectId}/outputs/${outputId}/video`} aria-label="Generated video" /><a className="button-link" href={`${apiBase}/api/projects/${projectId}/outputs/${outputId}/download`}>Download video</a><button onClick={() => { setCustomizeMounted(true); setCustomize(value => !value); }}>{customize ? "Close Customize" : "Customize"}</button>{!!operation?.notices.length && <details><summary>About this result</summary><ul>{operation.notices.map(note => <li key={note}>{note}</li>)}</ul></details>}</section>}
+    {!outputId && projectId && <button onClick={() => { setCustomizeMounted(true); setCustomize(value => !value); }}>{customize ? "Close Customize" : "Customize"}</button>}
+    {customizeMounted && <div hidden={!customize}><Workspace key={projectId} onProjectChange={id => void open(id)} /></div>}
     {!!projects.length && <details className="project-switcher"><summary>Saved videos</summary><ul>{projects.map(project => <li key={project.id}><button onClick={() => void open(project.id)}>{project.name}</button></li>)}</ul></details>}
   </>;
 }

@@ -259,7 +259,7 @@ def test_migration_and_interrupted_recovery_preserve_clip(local):
         connection.execute("PRAGMA user_version = 1")
     projects.initialize()
     with projects.database() as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 20
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 21
     operation, url = jobs.begin_operation(saved["id"])
     stage = jobs.staging(operation.operation_id)
     stage.mkdir()
@@ -341,3 +341,27 @@ def test_cancelled_start_still_establishes_worker_ownership(local, monkeypatch):
         assert jobs.get_operation(saved["id"]).status == "ready"
 
     client.portal.call(cancel_start)
+
+
+def test_unconfirmed_owned_process_retains_staging_and_quarantines_retry(local, monkeypatch):
+    client, directory, _ = local
+    saved = create(client)
+
+    def unsafe(url, stage, stop):
+        (stage / "partial.media").write_bytes(b"retained")
+        raise engine.ProcessCleanupError()
+
+    monkeypatch.setattr(engine, "retrieve_media", unsafe)
+    url = endpoint(saved)
+    assert client.post(url).status_code == 202
+    failure = finished(client, url)
+    assert failure["failure_code"] == "cleanup_failure"
+    assert (jobs.staging(failure["operation_id"]) / "partial.media").exists()
+    with projects.database() as db:
+        assert (
+            db.execute(
+                "SELECT cleanup_safe FROM reference_operations WHERE project_id=?", (saved["id"],)
+            ).fetchone()[0]
+            == 0
+        )
+    assert client.post(url).status_code == 500

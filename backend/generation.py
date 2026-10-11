@@ -433,7 +433,12 @@ async def worker(project_id, operation_id, data, stop):
         )
     except engine.RetrievalFailure as error:
         safe = error.cleanup_safe
-        failure = (error.code, error.message)
+        failure = (
+            error.code,
+            "Generation stopped. Retry explicitly to resume safe saved work."
+            if error.code == "interrupted"
+            else error.message,
+        )
     except ReferenceError as error:
         safe = error.code != "cleanup_failure"
         failure = (error.code, error.message)
@@ -518,7 +523,7 @@ def prepare_captions(project_id, mode, stop, deadline, operation):
             )
             spec = spec.model_copy(update={"captions": disabled})
             source = render.footage.source(project_id, stop, deadline)
-            scratch = directory / "assembled-audio-source"
+            scratch = directory / "assembled-audio-source" / str(uuid.uuid4())
             path, output = render.pipeline(
                 {"project_id": project_id, "path": source["path"], "spec": spec},
                 scratch,

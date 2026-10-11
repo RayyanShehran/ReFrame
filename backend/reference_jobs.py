@@ -354,7 +354,7 @@ async def worker(
         stop.set()
         failure = engine.RetrievalFailure("interrupted", "Reference retrieval was interrupted.")
     except ReferenceError as exc:
-        failure = engine.RetrievalFailure(exc.code, exc.message, exc.code != "cleanup_failure")
+        failure = engine.RetrievalFailure(exc.code, exc.message)
     except (sqlite3.Error, OSError):
         logger.exception("Reference retention storage failure")
         failure = engine.RetrievalFailure(

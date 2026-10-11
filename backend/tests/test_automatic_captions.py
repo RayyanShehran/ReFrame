@@ -140,3 +140,21 @@ def test_material_low_confidence_text_is_an_actionable_blocker():
     )
     with pytest.raises(ReferenceError, match="unreadable"):
         automatic.parse((header + body).encode(), 640, 360)
+
+
+def test_language_passes_choose_stronger_overlapping_reading_without_duplicating():
+    english = detection("incorrect Latin")
+    english.confidence = 40
+    arabic = detection("\u0645\u0631\u062d\u0628\u0627")
+    arabic.confidence = 85
+    assert automatic.merge_readings([english], [arabic]) == [arabic]
+    assert automatic.merge_readings([arabic], [english]) == [arabic]
+
+
+def test_partial_language_fragment_cannot_erase_a_complete_caption_line():
+    full = detection("FIRST VISIBLE WORDS")
+    fragment = detection("\u0645")
+    fragment.confidence = 99
+    fragment.rectangle = fragment.rectangle.model_copy(update={"width": 0.1})
+    merged = automatic.merge_readings([full], [fragment])
+    assert automatic.dominant(merged, set()).text == "FIRST VISIBLE WORDS"
