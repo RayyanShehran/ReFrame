@@ -15,7 +15,7 @@ type CueAppearance = { style: CaptionStyle; animation: Animation; font_binding: 
 type Cue = { start: number; end: number; text: string; appearance?: CueAppearance };
 type DraftCue = { start: string; end: string; text: string; appearance?: CueAppearance };
 type Style = CaptionStyle;
-type Track = { schema_version: 1 | 2; revision: number; enabled: boolean; cues: Cue[]; style: Style; animation: Animation; provenance: "manual" | "srt_import" | "automatic_transcription";
+type Track = { schema_version: 1 | 2; revision: number; enabled: boolean; cues: Cue[]; style: Style; animation: Animation; provenance: "manual" | "srt_import" | "automatic_transcription" | "automatic_reference" | "generated_output_audio";
   font_binding?: FontBinding; automatic_proposal_id?: string | null; timeline: { mode: Mode; plan_revision: number | null; sequence_revision?: number | null; duration_seconds: number } | null };
 type Result = { status: "default" | "ready" | "stale"; track: Track; message: string | null; whole_duration_seconds: number | null; font_available?: boolean; font_warnings?: string[] };
 export type CaptionState = { revision: number | null; ready: boolean; dirty: boolean; busy: boolean; enabled: boolean; mode: Mode | null; planRevision: number | null; sequenceRevision?: number | null };
@@ -31,7 +31,7 @@ function parse(data: unknown): Result {
   const r = data as Result, t = r?.track;
   if (!r || !["default", "ready", "stale"].includes(r.status) || !t || ![1, 2].includes(t.schema_version) ||
     !Number.isSafeInteger(t.revision) || t.revision < 0 || typeof t.enabled !== "boolean" || !validCues(t.cues) ||
-    !["manual", "srt_import", "automatic_transcription"].includes(t.provenance) || (t.provenance === "automatic_transcription" && typeof t.automatic_proposal_id !== "string") || !t.style || (t.font_binding && !validFont(t.font_binding)) ||
+    !["manual", "srt_import", "automatic_transcription", "automatic_reference", "generated_output_audio"].includes(t.provenance) || (t.provenance === "automatic_transcription" && typeof t.automatic_proposal_id !== "string") || !t.style || (t.font_binding && !validFont(t.font_binding)) ||
     (t.revision > 0 && (!t.timeline || !["whole", "cuts", "sequence"].includes(t.timeline.mode) || !finite(t.timeline.duration_seconds))) ||
     (r.whole_duration_seconds !== null && !finite(r.whole_duration_seconds))) throw new Error("Invalid caption response.");
   for (const cue of t.cues) if (cue.appearance) {
@@ -64,7 +64,7 @@ export function CaptionEditor({ projectId, planState, sequenceState = emptySeque
   const [animation, setAnimation] = useState(defaultAnimation);
   const [motionBusy, setMotionBusy] = useState(false);
   const [mode, setMode] = useState<Mode>("whole");
-  const [provenance, setProvenance] = useState<"manual" | "srt_import" | "automatic_transcription">("manual");
+  const [provenance, setProvenance] = useState<"manual" | "srt_import" | "automatic_transcription" | "automatic_reference" | "generated_output_audio">("manual");
   const [automaticId, setAutomaticId] = useState<string | null>(null);
   const [proposalBusy, setProposalBusy] = useState(false);
   const [fontBusy, setFontBusy] = useState(false);
@@ -135,7 +135,7 @@ export function CaptionEditor({ projectId, planState, sequenceState = emptySeque
     {!result && !error && <p role="status">Loading captions…</p>}
     {error && <p role="alert" id={`caption-save-error-${projectId}`}>{error}</p>}
     {result && <>
-      <p role="status">{!ready ? result.font_available === false ? "Selected font unavailable" : "Stale caption timeline" : dirty ? "Unsaved caption changes" : track?.revision ? "Captions saved" : "Captions disabled by default"} · Caption revision {revision} · {provenance === "srt_import" ? "Imported SRT (editable)" : provenance === "automatic_transcription" ? "Automatic transcription (reviewed/editable)" : "Manual text"}</p>
+      <p role="status">{!ready ? result.font_available === false ? "Selected font unavailable" : "Stale caption timeline" : dirty ? "Unsaved caption changes" : track?.revision ? "Captions saved" : "Captions disabled by default"} · Caption revision {revision} · {provenance === "srt_import" ? "Imported SRT (editable)" : provenance === "automatic_transcription" ? "Automatic transcription (reviewed/editable)" : provenance === "automatic_reference" ? "Reference visible text (OCR, editable)" : provenance === "generated_output_audio" ? "Generated from assembled output audio (editable)" : "Manual text"}</p>
       {result.message && <p role="alert">{result.message}</p>}
       {result.font_warnings?.map(w => <p role="note" key={w}>{w}</p>)}
       <details><summary>Automatic transcription and review</summary><TranscriptionReview key={projectId} projectId={projectId} revision={revision ?? 0} hasText={!!(cues.length || track?.cues.length || dirty)} draftToken={JSON.stringify(cues)} busy={busy}
@@ -156,6 +156,7 @@ export function CaptionEditor({ projectId, planState, sequenceState = emptySeque
           <label>End (seconds)<input aria-label={`Cue ${i + 1} end`} type="number" inputMode="decimal" aria-invalid={invalidIndex === i} aria-describedby={invalidIndex === i ? `cue-error-${projectId}` : undefined} min="0" max={duration ?? 120} step="any" value={c.end} onChange={e => edit(i, "end", e.target.value)} /></label>
           <label>Plain text<textarea aria-label={`Cue ${i + 1} text`} dir="auto" aria-invalid={invalidIndex === i} aria-describedby={invalidIndex === i ? `cue-error-${projectId}` : undefined} rows={2} value={c.text} onChange={e => edit(i, "text", e.target.value)} /></label>
           {c.appearance && <details><summary>Cue appearance · {c.appearance.font_binding.family}</summary>
+            <FontPicker projectId={projectId} revision={revision ?? 0} value={c.appearance.style.font} dirty={dirty} disabled={busy || proposalBusy} onChange={font => setCues(all => all.map((cue, n) => n === i ? { ...cue, appearance: { ...cue.appearance!, style: { ...cue.appearance!.style, font, font_origin: "manual" } } } : cue))} onUploaded={() => run("reload")} onBusy={setFontBusy} />
             <StyleControls value={c.appearance.style} onChange={value => setCues(all => all.map((cue, n) => n === i ? { ...cue, appearance: { ...cue.appearance!, style: value } } : cue))} />
             <button onClick={() => setCues(all => all.map((cue, n) => { if (n !== i) return cue; return { start: cue.start, end: cue.end, text: cue.text }; }))}>Use global appearance for this cue</button>
           </details>}

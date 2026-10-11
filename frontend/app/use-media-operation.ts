@@ -30,6 +30,7 @@ export function useMediaOperation<T extends MediaOperation>(projectId: string, r
   }, [projectId, route, validate]);
 
   useEffect(() => {
+    if (!projectId) return;
     let live = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let controller: AbortController;
@@ -51,7 +52,7 @@ export function useMediaOperation<T extends MediaOperation>(projectId: string, r
     }
     void poll();
     return () => { live = false; clearTimeout(timer); controller?.abort(); };
-  }, [request, revision, pollingSeconds]);
+  }, [projectId, request, revision, pollingSeconds]);
 
   useEffect(() => {
     const version = generation;

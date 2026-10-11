@@ -47,7 +47,7 @@ function project(data: unknown): Project {
   return { ...data, clip: data.clip_status === "ready" ? parseClipDetails(data.clip, true) : null } as Project;
 }
 
-export function Workspace() {
+export function Workspace({ onProjectChange }: { onProjectChange?: (id: string | null) => void } = {}) {
   const [projectId, setProjectId] = useState<string | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [current, setCurrent] = useState<Project | null>(null);
@@ -95,6 +95,7 @@ export function Workspace() {
   }, [projectId, revision]);
 
   function open(id: string | null) {
+    if (onProjectChange) { onProjectChange(id); return; }
     generation.current++; mutation.current?.abort(); mutation.current = null;
     setCurrent(null); setError(""); setBusy(false); setDeleting(null); setReferenceUrl(null);
     setLoading(true); setRevision((value) => value + 1);

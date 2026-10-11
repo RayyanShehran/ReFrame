@@ -51,7 +51,7 @@ export function parseClipDetails(data: unknown, retained = false): ClipDetails {
   return data as ClipDetails;
 }
 
-export function FootagePicker({ label, disabled, onFilesSelected }: { label: string; disabled: boolean; onFilesSelected: (files: File[]) => void }) {
+export function FootagePicker({ label, disabled, onFilesSelected, actionLabel = "Upload queued files" }: { label: string; disabled: boolean; onFilesSelected: (files: File[]) => void; actionLabel?: string }) {
   const input = useRef<HTMLInputElement>(null);
   return <div className="footage-drop" role="group" aria-label={`${label} files`}
     onDragOver={event => event.preventDefault()} onDrop={event => { event.preventDefault(); if (!disabled) onFilesSelected(Array.from(event.dataTransfer.files)); }}>
@@ -59,7 +59,7 @@ export function FootagePicker({ label, disabled, onFilesSelected }: { label: str
       accept=".mp4,.mov,video/mp4,video/quicktime" tabIndex={-1}
       onChange={event => { onFilesSelected(Array.from(event.target.files ?? [])); event.target.value = ""; }} />
     <button type="button" disabled={disabled} onClick={() => input.current?.click()}>Choose videos</button>
-    <p className="hint">Select several MP4 or MOV files, or drop them here. Review the queue below, then choose Upload queued files. Uploads run one at a time.</p>
+    <p className="hint">Select several MP4 or MOV files, or drop them here. Review the queue below, then choose {actionLabel}. Uploads run one at a time.</p>
   </div>;
 }
 

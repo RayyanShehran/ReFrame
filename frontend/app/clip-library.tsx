@@ -26,7 +26,7 @@ export function readLibrary(data: unknown): Library {
 type LibraryProps = { projectId: string; sourceKey: string; onSaved: () => void; initialDetails?: ClipDetails | null; showOriginal?: boolean };
 type UploadItem = { id: string; file: File; status: "pending" | "uploading" | "succeeded" | "failed"; error?: string };
 const MiB = 1024 * 1024;
-function rejected(file: File, count: number, bytes: number) {
+export function footageRejection(file: File, count: number, bytes: number) {
   if (!/\.(mp4|mov)$/i.test(file.name)) return "Choose an MP4 or MOV file.";
   if (!file.size) return "The file is empty.";
   if (file.size > 100 * MiB) return "The file exceeds 100 MiB.";
@@ -51,7 +51,7 @@ function LibraryContents({ projectId, sourceKey, onSaved, initialDetails, showOr
     let count = library.clips.length, bytes = library.total_bytes;
     for (const item of items.current) if (item.status === "pending") { count++; bytes += item.file.size; }
     const added = files.map(file => {
-      const error = rejected(file, count, bytes);
+      const error = footageRejection(file, count, bytes);
       if (!error) { count++; bytes += file.size; }
       return { id: crypto.randomUUID(), file, status: error ? "failed" as const : "pending" as const, error };
     });
@@ -86,7 +86,7 @@ function LibraryContents({ projectId, sourceKey, onSaved, initialDetails, showOr
       while (!controller.signal.aborted) {
         const item = items.current.find(item => item.status === "pending");
         if (!item) break;
-        const invalid = rejected(item.file, current.clips.length, current.total_bytes);
+        const invalid = footageRejection(item.file, current.clips.length, current.total_bytes);
         if (invalid) { mark(item.id, "failed", invalid); continue; }
         mark(item.id, "uploading");
         timer = setTimeout(() => controller.abort(), 35000);
