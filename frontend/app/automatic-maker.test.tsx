@@ -61,3 +61,25 @@ it("restores the saved generation and playable output without opening Customize"
   fireEvent.click(screen.getByRole("button",{name:"Customize"}));
   expect(screen.getByLabelText("Custom caption draft")).toHaveValue("My unsaved correction");
 });
+
+it("offers direct measurement continuation for a visual limit without reopening or uploading clips", async () => {
+  window.history.replaceState(null,"",`/?project=${pid}`);
+  let continued = false;
+  const starts: unknown[] = [];
+  vi.stubGlobal("fetch",vi.fn(async (url:string, init:RequestInit={})=> {
+    if(url.endsWith("/clips")) return ok(library(3));
+    if(url.endsWith("/render")) return ok({output:{output_id:"previous-output"}});
+    if(url.endsWith("/generation")) {
+      if(init.method === "POST") { starts.push(JSON.parse(init.body as string)); continued = true; }
+      return ok({project_id:pid,revision:continued?3:2,status:continued?"running":"failed",stage:"Choosing your clips",output_id:null,options:{audio:"mute",captions:"off",allow_reused_ranges:false},notices:[],failure_code:continued?null:"sample_limit",message:continued?null:"Visual coverage unavailable"});
+    }
+    if(url.endsWith(pid)) return ok({id:pid,reference:{canonical_url:"https://www.tiktok.com/@fixture/video/6718335390845095173"}});
+    return ok([]);
+  }));
+  render(<AutomaticMaker />);
+  fireEvent.click(await screen.findByRole("button",{name:"Continue using motion and scenes"}));
+  await waitFor(()=>expect(starts).toHaveLength(1));
+  expect(starts[0]).toMatchObject({expected_revision:2,matching_mode:"measurements",audio:"mute",captions:"off"});
+  expect(screen.queryByText("Advanced editor")).not.toBeInTheDocument();
+  expect(screen.getByLabelText("Generated video")).toHaveAttribute("src",expect.stringContaining("previous-output"));
+});

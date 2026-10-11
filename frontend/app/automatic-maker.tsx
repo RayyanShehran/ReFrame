@@ -6,7 +6,7 @@ import { FootagePicker } from "./clip-upload";
 import { useMediaOperation, type MediaOperation } from "./use-media-operation";
 import { Workspace } from "./workspace";
 
-type Options = { audio: "reference" | "original" | "mix" | "mute"; captions: "reference" | "output_audio" | "off"; allow_reused_ranges: boolean };
+type Options = { audio: "reference" | "original" | "mix" | "mute"; captions: "reference" | "output_audio" | "off"; allow_reused_ranges: boolean; matching_mode?: "subject_aware" | "measurements" };
 type Generation = MediaOperation & { project_id: string; revision: number; operation_id: string | null; stage: string | null; output_id: string | null; notices: string[]; options: Options | null };
 type Item = { id: string; file: File; url: string; status: "pending" | "uploading" | "succeeded" | "failed"; progress: number; error: string };
 type SavedProject = { id: string; name: string; reference: { canonical_url: string } };
@@ -97,7 +97,7 @@ export function AutomaticMaker() {
     if (operation.options) { setAudio(operation.options.audio); setCaptionMode(operation.options.captions); setAllowReuse(operation.options.allow_reused_ranges); }
     if (operation.output_id) setOutputId(operation.output_id);
   }, [operation?.revision, operation?.status, operation?.output_id]); // eslint-disable-line react-hooks/exhaustive-deps
-  async function generate() {
+  async function generate(matchingMode: "subject_aware" | "measurements" = operation?.options?.matching_mode ?? "subject_aware") {
     if (action.current || running || (!projectId && !link.trim())) return;
     const controller = new AbortController(); action.current = controller; setBusy(true); setError("");
     try {
@@ -120,7 +120,7 @@ export function AutomaticMaker() {
       if (controller.signal.aborted || currentId.current !== id) return;
       if (items.current.some(item => item.status === "failed")) throw new Error("Some files could not be uploaded. Retry/remove them; successful clips remain saved.");
       if (!retained.clips.length) throw new Error("Choose at least one MP4 or MOV clip.");
-      await request(`/${id}/generation`, controller.signal, { expected_revision: operation?.revision ?? 0, audio, captions: captionMode, allow_reused_ranges: allowReuse, replace_customized: replace });
+      await request(`/${id}/generation`, controller.signal, { expected_revision: operation?.revision ?? 0, audio, captions: captionMode, allow_reused_ranges: allowReuse, replace_customized: replace, matching_mode: matchingMode });
       generation.refresh(); setNeedsReplace(false); setReplace(false);
     } catch (cause) { if (!controller.signal.aborted) { setError(cause instanceof Error ? cause.message : "Generation failed."); if (cause instanceof Error && "code" in cause && cause.code === "generation_replace_required") setNeedsReplace(true); } }
     finally { if (action.current === controller) { action.current = null; setBusy(false); } }
@@ -149,6 +149,7 @@ export function AutomaticMaker() {
       <button className="button-primary" disabled={!!running || (!projectId && (!link.trim() || !queue.some(item => item.status === "pending"))) || (needsReplace && !replace)} onClick={() => void generate()}>{busy ? "Saving your clips…" : operation?.status === "failed" ? "Retry generation" : outputId ? "Generate again" : "Generate video"}</button>
       {operation?.status === "running" && <div role="status" className="automatic-progress"><span className="brand-dot">●</span> {operation.stage}<button onClick={() => void generation.start({}, "/cancel")}>Cancel</button></div>}
       {(error || generation.error || operation?.message) && <p role="alert">{error || generation.error || operation?.message}</p>}
+      {operation?.status === "failed" && ["sample_limit", "inference_failed", "cache_limit", "analysis_limit", "processing_timeout", "timeout", "deadline", "model_unavailable", "visual_setup", "dimension_limit"].includes(operation.failure_code ?? "") && (operation.stage === "Choosing your clips" || operation.failure_code === "visual_setup") && <><p>Visual matching could not finish within its limits. Your clips and completed work are saved.</p><button disabled={!!running} onClick={() => void generate("measurements")}>Continue using motion and scenes</button></>}
       {operation?.failure_code?.includes("setup") && <details><summary>Setup details</summary><p>Install both local feature sets in backend: <code>uv sync --locked --extra visual --extra transcription</code>. Follow the local visual, OCR and transcription setup guides in the repository’s docs. No assets download during Generate.</p></details>}
     </section>
     {outputId && projectId && <section className="reference-section automatic-result" aria-label="Your video"><h2>Your video</h2>{operation?.status !== "ready" && <p className="hint">Your previous video stays available until a replacement succeeds.</p>}<video controls playsInline preload="metadata" src={`${apiBase}/api/projects/${projectId}/outputs/${outputId}/video`} aria-label="Generated video" /><a className="button-link" href={`${apiBase}/api/projects/${projectId}/outputs/${outputId}/download`}>Download video</a><button onClick={() => { setCustomizeMounted(true); setCustomize(value => !value); }}>{customize ? "Close Customize" : "Customize"}</button>{!!operation?.notices.length && <details><summary>About this result</summary><ul>{operation.notices.map(note => <li key={note}>{note}</li>)}</ul></details>}</section>}

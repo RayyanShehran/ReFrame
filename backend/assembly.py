@@ -115,6 +115,7 @@ def inputs(project_id, settings, stop=None, deadline=None):
         "reference": ref["identity"].model_dump(mode="json"),
         "algorithm": ALGORITHM,
         "analysis": candidates.ALGORITHM,
+        "sampling": visual.SAMPLING,
         "visual": [visual.REPOSITORY, visual.REVISION, visual.ALGORITHM]
         if settings.matching_mode == "subject_aware"
         else None,
@@ -344,7 +345,7 @@ def select(data, measured, reference, stop=None, deadline=None, embeddings=None)
                 )
             elif similarity is None:
                 warnings.append(
-                    "Fewer than two 2 fps samples inside the reference or selected range: "
+                    "Insufficient visual samples inside the reference or selected range: "
                     "measurement-based selection for this slot."
                 )
             else:
@@ -452,6 +453,19 @@ def pipeline(data, directory, stop, deadline):
                 digest: (path, reference if id == "reference" else measured[id])
                 for id, path, digest in items
             }
+            visual_items = [
+                (digest, path, measurement) for digest, (path, measurement) in unique.items()
+            ]
+            requests = visual.sample_requests(
+                visual_items,
+                data["reference"]["identity"].media_sha256,
+                [
+                    (s.reference_start_frame, s.reference_end_frame)
+                    for s in data["sequence"].slots
+                    if s.reference_start_frame is not None
+                ],
+                budget=visual.MAX_SAMPLES - min(visual.REFINEMENT_SAMPLES, visual.MAX_SAMPLES // 4),
+            )
             analyzed = visual.analyze(
                 data["project_id"],
                 [(digest, path, measurement) for digest, (path, measurement) in unique.items()],
@@ -459,8 +473,33 @@ def pipeline(data, directory, stop, deadline):
                 stop,
                 deadline,
                 progress,
+                frame_requests=requests,
             )
             embeddings = {id: analyzed[digest] for id, _, digest in items}
+            first = select(data, measured, reference, stop, deadline, embeddings)
+            refined = visual.refine_requests(
+                requests,
+                [
+                    (
+                        data["hashes"][str(c.clip_id)],
+                        c.source_start_frame,
+                        c.source_start_frame + c.duration_frames,
+                    )
+                    for c in first
+                    if c.clip_id
+                ],
+            )
+            if refined != requests:
+                analyzed = visual.analyze(
+                    data["project_id"],
+                    visual_items,
+                    directory,
+                    stop,
+                    deadline,
+                    progress,
+                    frame_requests=refined,
+                )
+                embeddings = {id: analyzed[digest] for id, _, digest in items}
         choices = select(data, measured, reference, stop, deadline, embeddings)
         color.guard(stop, deadline)
         proposal = Proposal(
@@ -480,7 +519,12 @@ def pipeline(data, directory, stop, deadline):
                 if embeddings
                 else "Automatic selection based on motion, scene boundaries "
                 "and image measurements.",
-                "2 fps sampling can miss brief cuts. Dark/quiet/soft images can be intentional.",
+                "Adaptive visual sampling covers every clip and reference shot; "
+                "sparse samples can miss brief action. "
+                "Dark/quiet/soft images can be intentional."
+                if embeddings
+                else "2 fps measurements can miss brief cuts. "
+                "Dark/quiet/soft images can be intentional.",
                 "Similarity is not a probability, action/story/identity recognition "
                 "or artistic intent. Review images."
                 if embeddings

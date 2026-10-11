@@ -25,7 +25,9 @@ SHA256 = "583fd1110a514667812fee7d684952aaf82a99b959760c8d7dca7e0ab9839299"
 MODEL_BYTES = 89117001
 MODEL = Path(__file__).resolve().parents[1] / "data" / "visual-models" / REVISION / "vision.onnx"
 ALGORITHM = "clip-q8-2fps-center224-v1"
+SAMPLING = "shot-balanced-adaptive-v1"
 MAX_SAMPLES = 512
+REFINEMENT_SAMPLES = 112
 FRAME_BYTES = 224 * 224 * 3
 TEMP_BUDGET = 96 * 1024 * 1024
 CACHE_BUDGET = 32 * 1024 * 1024
@@ -103,10 +105,10 @@ class Analysis(color.Schema):
     source_hash: str = color.Field(pattern=r"^[0-9a-f]{64}$")
     revision: str
     algorithm: str
-    samples: list[Sample] = color.Field(min_length=1, max_length=240)
+    samples: list[Sample] = color.Field(min_length=1, max_length=512)
 
 
-def validate(data, digest, frames):
+def validate(data, digest, frames=None):
     try:
         result = (
             Analysis.model_validate_json(data)
@@ -119,7 +121,8 @@ def validate(data, digest, frames):
             or result.algorithm != ALGORITHM
         ):
             raise ValueError
-        if [s.frame for s in result.samples] != frames:
+        actual = [s.frame for s in result.samples]
+        if actual != sorted(set(actual)) or (frames is not None and actual != frames):
             raise ValueError
         for sample in result.samples:
             if not all(math.isfinite(v) for v in sample.embedding):
@@ -140,26 +143,119 @@ def validate(data, digest, frames):
         ) from None
 
 
-def analyze(project_id, items, directory, stop, deadline, progress):
-    """Decode each unique source once; one owned model process handles all uncached frames."""
+def spread(values, count):
+    if count >= len(values):
+        return list(values)
+    if count == 1:
+        return [values[len(values) // 2]]
+    return [values[round(i * (len(values) - 1) / (count - 1))] for i in range(count)]
+
+
+def sample_requests(items, reference_hash=None, intervals=(), budget=MAX_SAMPLES):
+    """Reserve every reference shot and every source before sharing the remaining budget."""
+    unique = {digest: measurement for digest, _, measurement in items}
+    mandatory = {digest: set() for digest in unique}
+    if reference_hash in unique:
+        for start, end in intervals:
+            if not 0 <= start < end <= unique[reference_hash].duration_frames:
+                raise engine.RetrievalFailure(
+                    "cache_invalid", "Reference sample interval is invalid."
+                )
+            mandatory[reference_hash].update({start, end - 1})
+    desired = {
+        digest: sorted({s.frame for s in measurement.samples} | mandatory[digest])
+        for digest, measurement in unique.items()
+    }
+    counts = {
+        digest: max(len(mandatory[digest]), min(2, len(values)))
+        for digest, values in desired.items()
+    }
+    if sum(counts.values()) > budget:
+        raise engine.RetrievalFailure(
+            "sample_limit", "Visual coverage exceeds the supported budget."
+        )
+    # Each clip receives another sample before any clip receives a second extra sample.
+    while sum(counts.values()) < budget:
+        available = [d for d in sorted(desired) if counts[d] < len(desired[d])]
+        if not available:
+            break
+        for digest in available[: budget - sum(counts.values())]:
+            counts[digest] += 1
+    requests = {}
+    for digest, values in desired.items():
+        count = counts[digest]
+        required = mandatory[digest]
+        if required:
+            extra = (
+                spread([v for v in values if v not in required], count - len(required))
+                if count > len(required)
+                else []
+            )
+            requests[digest] = sorted(required | set(extra))
+        elif count < len(values):
+            # Distributed pairs give short candidate ranges usable visual evidence.
+            anchors = spread(values, max(1, count // 2))
+            pairs = {
+                f for a in anchors for f in (a, min(a + 1, unique[digest].duration_frames - 1))
+            }
+            extras = (
+                spread([v for v in values if v not in pairs], count - len(pairs))
+                if count > len(pairs)
+                else []
+            )
+            requests[digest] = sorted(pairs | set(extras))
+        else:
+            requests[digest] = values
+    return requests
+
+
+def refine_requests(requests, ranges):
+    remaining = MAX_SAMPLES - sum(map(len, requests.values()))
+    extra = {digest: set() for digest in requests}
+    for digest, start, end in ranges:
+        if digest in extra and start < end:
+            extra[digest].update({start, (start + end - 1) // 2, end - 1})
+    pending = {d: sorted(values - set(requests[d])) for d, values in extra.items()}
+    refined = {d: set(values) for d, values in requests.items()}
+    while remaining and any(pending.values()):
+        for digest in sorted(pending):
+            if pending[digest] and remaining:
+                refined[digest].add(pending[digest].pop(0))
+                remaining -= 1
+    return {d: sorted(values) for d, values in refined.items()}
+
+
+def select_expression(frames):
+    # FFmpeg's expression parser has a nesting limit; balance large selections.
+    if len(frames) == 1:
+        return f"eq(n,{frames[0]})"
+    middle = len(frames) // 2
+    return f"({select_expression(frames[:middle])}+{select_expression(frames[middle:])})"
+
+
+def analyze(project_id, items, directory, stop, deadline, progress, frame_requests=None):
+    """Decode only requested uncached frames; deduplicate sources and overlap across passes."""
     verify_model()
     color.guard(stop, deadline)
-    analyses, pending, total = {}, [], 0
+    items = list(
+        {digest: (digest, path, measurement) for digest, path, measurement in items}.values()
+    )
+    requests = frame_requests if frame_requests is not None else sample_requests(items)
+    if set(requests) != {d for d, _, _ in items} or sum(map(len, requests.values())) > MAX_SAMPLES:
+        raise engine.RetrievalFailure(
+            "sample_limit", "Visual coverage exceeds the supported budget."
+        )
+    analyses, pending, previous = {}, [], {}
     for digest, path, measurement in items:
-        frames = [s.frame for s in measurement.samples]
+        frames = requests[digest]
         if (
-            frames != list(range(0, len(frames) * 15, 15))
+            not frames
+            or frames != sorted(set(frames))
+            or frames[0] < 0
             or frames[-1] >= measurement.duration_frames
         ):
             raise engine.RetrievalFailure(
-                "cache_invalid", "Measured sample timestamps are invalid."
-            )
-        total += len(frames)
-        if total > MAX_SAMPLES:
-            raise engine.RetrievalFailure(
-                "sample_limit",
-                "Subject-aware analysis supports at most 512 project samples (2 fps). "
-                "Use shorter/fewer clips or measurements.",
+                "cache_invalid", "Requested sample timestamps are invalid."
             )
         with projects.database() as db:
             row = db.execute(
@@ -167,8 +263,16 @@ def analyze(project_id, items, directory, stop, deadline, progress):
                 "AND source_hash=? AND algorithm=?",
                 (project_id, digest, ALGORITHM),
             ).fetchone()
-        if row:
-            analyses[digest] = validate(row[0], digest, frames)
+        cached = validate(row[0], digest) if row else None
+        previous[digest] = {s.frame: s for s in cached.samples} if cached else {}
+        missing = [f for f in frames if f not in previous[digest]]
+        if not missing:
+            analyses[digest] = Analysis(
+                source_hash=digest,
+                revision=REVISION,
+                algorithm=ALGORITHM,
+                samples=[previous[digest][f] for f in frames],
+            )
             progress(len(analyses))
             continue
         ffmpeg, _, video, duration, _ = color.inspect_video(
@@ -200,11 +304,16 @@ def analyze(project_id, items, directory, stop, deadline, progress):
                 "-sn",
                 "-dn",
                 "-vf",
-                "setpts=PTS-STARTPTS,fps=2:start_time=0:round=near:eof_action=pass,"
+                "setpts=PTS-STARTPTS,fps=30:start_time=0:round=near:eof_action=round,"
+                + "select='"
+                + select_expression(missing)
+                + "',"
                 f"scale={scaled[0]}:{scaled[1]}:flags=bicubic,"
                 "crop=224:224,setsar=1,format=rgb24",
-                "-t",
-                str(duration),
+                "-frames:v",
+                str(len(missing)),
+                "-fps_mode",
+                "passthrough",
                 "-f",
                 "rawvideo",
                 "-",
@@ -213,16 +322,16 @@ def analyze(project_id, items, directory, stop, deadline, progress):
             "visual-decode",
             deadline,
             60,
-            output_limit=240 * FRAME_BYTES,
+            output_limit=len(missing) * FRAME_BYTES,
             temp_budget=TEMP_BUDGET,
         )
-        if result.returncode or len(result.stdout) != len(frames) * FRAME_BYTES:
+        if result.returncode or len(result.stdout) != len(missing) * FRAME_BYTES:
             raise engine.RetrievalFailure(
-                "decode_failed", "Visual samples did not match the complete measured timeline."
+                "decode_failed", "Requested visual frames could not be completely decoded."
             )
         raw = directory / f"{digest}.rgb"
         raw.write_bytes(result.stdout)
-        pending.append({"source_hash": digest, "path": str(raw), "frames": frames})
+        pending.append({"source_hash": digest, "path": str(raw), "frames": missing})
     if pending:
         request = directory / "visual-request.json"
         request.write_text(json.dumps(pending), encoding="utf-8")
@@ -247,7 +356,21 @@ def analyze(project_id, items, directory, stop, deadline, progress):
                 raise ValueError
             for request_item, record in zip(pending, output["analyses"]):
                 analysis = validate(record, request_item["source_hash"], request_item["frames"])
-                analyses[analysis.source_hash] = analysis
+                digest = analysis.source_hash
+                combined = previous[digest] | {s.frame: s for s in analysis.samples}
+                frames = requests[digest]
+                analyses[digest] = analysis.model_copy(
+                    update={"samples": [combined[f] for f in frames]}
+                )
+                retained = set(frames) | set(
+                    spread(
+                        sorted(set(combined) - set(frames)),
+                        min(512 - len(frames), len(set(combined) - set(frames))),
+                    )
+                )
+                analysis = analysis.model_copy(
+                    update={"samples": [combined[f] for f in sorted(retained)]}
+                )
                 color.guard(stop, deadline)
                 serialized = analysis.model_dump_json()
                 with projects.database() as db:

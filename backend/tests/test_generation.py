@@ -315,3 +315,117 @@ def test_nested_failure_preserves_confirmed_cleanup_state_for_retry(local, safe)
     )
     failure = generation.stage_failure(pid, color, color.get_operation(pid))
     assert failure.code == "cleanup_failure" and failure.cleanup_safe is safe
+
+
+def test_long_valid_footage_adapts_under_budget_and_reaches_real_export(local, monkeypatch):
+    import clips
+    import visual_matching as visual
+
+    client, directory, _ = local
+    pid = seed(client, directory)
+    # Three 120-second independent footage files plus the 3-second reference exceed 512.
+    monkeypatch.setattr(
+        clips, "probe_file", __import__("tests.test_projects", fromlist=["REAL_PROBE"]).REAL_PROBE
+    )
+    ids = []
+    for index in range(3):
+        path = directory / f"long-{index}.mp4"
+        generated(
+            path, [(30 + index * 70, 40 + index * 50, 80 + index * 35)], frames_per_color=1440
+        )
+        response = client.post(
+            f"/api/projects/{pid}/clips",
+            files={"file": (path.name, path.read_bytes(), "video/mp4")},
+        )
+        assert response.status_code == 200, response.text
+        ids = [c["id"] for c in response.json()["clips"]]
+    real_model = visual.readiness()["ready"]
+    if not real_model:
+        monkeypatch.setattr(visual, "readiness", lambda: {"ready": True})
+        monkeypatch.setattr(visual, "verify_model", lambda: None)
+    original = engine.run_command
+    requests = []
+
+    def adapter(args, stage, name, *rest, **kwargs):
+        if name != "visual-inference":
+            return original(args, stage, name, *rest, **kwargs)
+        from tests.test_visual_matching import record
+
+        batch = json.loads((stage / "visual-request.json").read_text())
+        requests.extend(batch)
+        if real_model:
+            return original(args, stage, name, *rest, **kwargs)
+        return subprocess.CompletedProcess(
+            args,
+            0,
+            json.dumps(
+                {"analyses": [record(r["source_hash"], r["frames"]) for r in batch]}
+            ).encode(),
+            b"",
+        )
+
+    monkeypatch.setattr(engine, "run_command", adapter)
+    url = f"/api/projects/{pid}/generation"
+    assert (
+        client.post(
+            url, json={"captions": "off", "audio": "mute", "replace_customized": True}
+        ).status_code
+        == 202
+    )
+    done = wait(client, url, timeout=150)
+    assert done["status"] == "ready", done
+    assert sum(len(r["frames"]) for r in requests) <= 512
+    library = client.get(f"/api/projects/{pid}/clips").json()["clips"]
+    with projects.database() as db:
+        cached = {
+            r["source_hash"]: json.loads(r["analysis"])["samples"]
+            for r in db.execute("SELECT * FROM visual_cache WHERE project_id=?", (pid,))
+        }
+    for clip in library:
+        assert clip["sha256"] in cached  # Including all later uploads.
+        if clip["id"] != ids[0]:
+            assert cached[clip["sha256"]][0]["frame"] == 0
+            assert cached[clip["sha256"]][-1]["frame"] >= 3585
+    output = client.get(f"/api/projects/{pid}/render").json()["output"]
+    assert output["duration_seconds"] == pytest.approx(3, abs=1 / 30)
+    assert len(output["spec"]["sequence"]["slots"]) == 3
+    print(
+        "ADAPTIVE_EXPORT", len(library), sum(len(r["frames"]) for r in requests), done["output_id"]
+    )
+
+
+def test_visual_failure_can_continue_with_measurements_and_retained_checkpoints(local, monkeypatch):
+    client, directory, _ = local
+    pid = seed(client, directory)
+    monkeypatch.setattr(generation.visual_matching, "readiness", lambda: {"ready": True})
+    original = generation.visual_matching.analyze
+
+    def fail(*args, **kwargs):
+        raise engine.RetrievalFailure("sample_limit", "Fixture coverage unavailable")
+
+    monkeypatch.setattr(generation.visual_matching, "analyze", fail)
+    url = f"/api/projects/{pid}/generation"
+    options = {"captions": "off", "audio": "mute", "replace_customized": True}
+    assert client.post(url, json=options).status_code == 202
+    failed = wait(client, url)
+    assert failed["status"] == "failed" and failed["completed"] == ["slots"]
+    slot_revision = sequence.read(pid).sequence.revision
+    monkeypatch.setattr(
+        sequence, "generate", lambda *a, **k: pytest.fail("Must retain completed slots")
+    )
+    monkeypatch.setattr(
+        generation.visual_matching,
+        "analyze",
+        lambda *a, **k: pytest.fail("No visual work in fallback"),
+    )
+    assert (
+        client.post(
+            url, json=options | {"expected_revision": 1, "matching_mode": "measurements"}
+        ).status_code
+        == 202
+    )
+    ready = wait(client, url)
+    assert ready["status"] == "ready", ready
+    assert sequence.read(pid).sequence.revision == slot_revision + 1  # Assignment save only.
+    assert any("subject-aware matching was not used" in n for n in ready["notices"])
+    monkeypatch.setattr(generation.visual_matching, "analyze", original)

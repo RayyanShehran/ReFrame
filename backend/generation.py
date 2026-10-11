@@ -56,6 +56,7 @@ class Request(color.Schema):
     captions: Literal["reference", "output_audio", "off"] = "reference"
     allow_reused_ranges: bool = Field(default=False, strict=True)
     replace_customized: bool = Field(default=False, strict=True)
+    matching_mode: Literal["subject_aware", "measurements"] = "subject_aware"
 
 
 class Operation(color.Schema):
@@ -171,11 +172,21 @@ def begin_operation(project_id, request):
         and old == bound
         and prior.status == "failed"
         and (
-            prior.options.model_dump(exclude={"expected_revision", "replace_customized"})
-            == request.model_dump(exclude={"expected_revision", "replace_customized"})
+            prior.options.model_dump(
+                exclude={"expected_revision", "replace_customized", "matching_mode"}
+            )
+            == request.model_dump(
+                exclude={"expected_revision", "replace_customized", "matching_mode"}
+            )
         )
         else []
     )
+    if (
+        completed
+        and prior.options.matching_mode != request.matching_mode
+        and "sequence" in completed
+    ):
+        completed = []
     operation = Operation(
         project_id=project_id,
         revision=prior.revision + 1,
@@ -305,7 +316,10 @@ async def worker(project_id, operation_id, data, stop):
     safe = True
     try:
         # Setup is checked before retrieval or expensive analysis; no downloads here.
-        if not visual_matching.readiness()["ready"]:
+        if (
+            operation.options.matching_mode == "subject_aware"
+            and not visual_matching.readiness()["ready"]
+        ):
             raise ReferenceError(
                 503, "visual_setup", "Set up local visual matching before generating. See Details."
             )
@@ -337,7 +351,7 @@ async def worker(project_id, operation_id, data, stop):
             revision = generated.sequence.revision
             settings = assembly.Settings(
                 expected_sequence_revision=revision,
-                matching_mode="subject_aware",
+                matching_mode=operation.options.matching_mode,
                 allow_reused_ranges=operation.options.allow_reused_ranges,
             )
             selected = await job(assembly, "assembly", settings)
@@ -368,6 +382,13 @@ async def worker(project_id, operation_id, data, stop):
                 advance="sequence",
             )
             operation.notices.extend(selected.proposal.warnings[:5])
+        if operation.options.matching_mode == "measurements":
+            notice = (
+                "Continued using motion and scene measurements; "
+                "subject-aware matching was not used."
+            )
+            if notice not in operation.notices:
+                operation.notices.append(notice)
         saved_sequence = sequence.read(project_id).sequence
         await stage(STAGES[2])
         if "grading" not in operation.completed:

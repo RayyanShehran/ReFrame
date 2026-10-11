@@ -82,16 +82,16 @@ def test_cached_adapter_validation_and_project_budget(local, monkeypatch, tmp_pa
     )
     assert len(analyses["a" * 64].samples) == 4 and updates == [1]
     monkeypatch.setattr(visual, "MAX_SAMPLES", 3)
-    with pytest.raises(engine.RetrievalFailure) as error:
-        visual.analyze(
-            pid,
-            [("a" * 64, tmp_path / "unused", measurement)],
-            tmp_path,
-            threading.Event(),
-            time.monotonic() + 5,
-            updates.append,
-        )
-    assert error.value.code == "sample_limit"
+    reduced = visual.analyze(
+        pid,
+        [("a" * 64, tmp_path / "unused", measurement)],
+        tmp_path,
+        threading.Event(),
+        time.monotonic() + 5,
+        updates.append,
+        frame_requests={"a" * 64: [0, 15, 45]},
+    )
+    assert len(reduced["a" * 64].samples) == 3
 
 
 def test_visual_selection_tracks_association_after_reorder_and_reports_missing():
@@ -181,7 +181,7 @@ def test_association_persistence_and_visual_failure_preserves_prior(local, monke
     assert client.post(url, json=settings | {"matching_mode": "subject_aware"}).status_code == 409
     monkeypatch.setattr(visual, "readiness", lambda: {"ready": True})
 
-    def failed(*args):
+    def failed(*args, **kwargs):
         raise engine.RetrievalFailure("inference_failed", "Deterministic adapter failure")
 
     monkeypatch.setattr(visual, "analyze", failed)
@@ -202,12 +202,14 @@ def test_association_persistence_and_visual_failure_preserves_prior(local, monke
     assert client.post(seq_url, json={"expected_revision": 2, "slots": changed}).status_code == 200
     assert client.get(url).json()["proposal_stale"]
 
-    def deterministic_adapter(project_id, items, directory, stop, deadline, progress):
+    def deterministic_adapter(
+        project_id, items, directory, stop, deadline, progress, frame_requests=None
+    ):
         return {
             digest: visual.validate(
-                record(digest, [s.frame for s in measured.samples]),
+                record(digest, frame_requests[digest]),
                 digest,
-                [s.frame for s in measured.samples],
+                frame_requests[digest],
             )
             for digest, path, measured in items
         }
@@ -276,6 +278,26 @@ def test_real_decode_one_adapter_call_across_large_staging(local, monkeypatch, t
     )
     assert len(calls) == 1 and len(result[digest].samples) == 6
     assert not list(stage.glob("*.json")) and not list(stage.glob(digest + "*"))
+    refined = visual.analyze(
+        pid,
+        [(digest, path, measurement), (digest, path, measurement)],
+        stage,
+        threading.Event(),
+        time.monotonic() + 15,
+        lambda n: None,
+        frame_requests={digest: [0, 15, 31]},
+    )
+    assert [s.frame for s in refined[digest].samples] == [0, 15, 31]
+    assert len(calls) == 2 and calls[-1][0]["frames"] == [31]
+    visual.analyze(
+        pid,
+        [(digest, path, measurement)],
+        stage,
+        threading.Event(),
+        time.monotonic() + 5,
+        lambda n: None,
+    )
+    assert len(calls) == 2  # Original grid remains cached after refinement.
     assert candidates.TEMP_BUDGET < visual.TEMP_BUDGET
 
 
@@ -288,3 +310,64 @@ def test_identical_vectors_roundoff_stays_in_cosine_domain():
     sample = SimpleNamespace(embedding=[v / norm for v in values])
     assert visual.similarity([sample], [sample]) == pytest.approx(1.0)
     assert -1 <= visual.similarity([sample], [sample]) <= 1
+
+
+def test_adaptive_budget_covers_all_shots_and_later_clips_then_bounds_refinement():
+    items = [(f"{i:064x}", None, synthetic(3600)) for i in range(11)]
+    # Old fixed-rate requests total 2,640; duplicate source requests must not consume more.
+    intervals = [(i, i + 60) for i in range(0, 3600, 60)]
+    requests = visual.sample_requests(items + [items[-1]], items[0][0], intervals, budget=400)
+    assert sum(map(len, requests.values())) <= 400
+    assert len(requests) == 11
+    for start, end in intervals:
+        assert len([f for f in requests[items[0][0]] if start <= f < end]) >= 2
+    for digest, _, _ in items[1:]:
+        assert requests[digest][0] == 0 and requests[digest][-1] >= 3585
+        assert len(requests[digest]) >= 2
+    ranges = [
+        (digest, start, start + 60) for digest, _, _ in items[1:] for start in range(0, 3600, 60)
+    ]
+    refined = visual.refine_requests(requests, ranges + ranges)
+    assert sum(map(len, refined.values())) == 512
+    assert all(set(requests[d]) <= set(refined[d]) for d in requests)
+    assert refined[items[-1][0]] != requests[items[-1][0]]
+    assert visual.refine_requests(refined, ranges) == refined
+
+
+def test_adaptive_selection_can_choose_the_last_of_ten_long_clips():
+    import uuid
+    from types import SimpleNamespace
+
+    import assembly
+    import sequence
+
+    items = [(f"{i:064x}", None, synthetic(3600)) for i in range(11)]
+    requests = visual.sample_requests(items, items[0][0], [(0, 60)], budget=400)
+    embeddings, measured = {}, {}
+    reference = visual.validate(
+        record(items[0][0], requests[items[0][0]]), items[0][0], requests[items[0][0]]
+    )
+    for index, (digest, _, measurement) in enumerate(items[1:], 1):
+        clip_id = str(uuid.UUID(int=index))
+        data = record(digest, requests[digest])
+        if index != 10:
+            for sample in data["samples"]:
+                sample["embedding"] = [0.0, 1.0] + [0.0] * 510
+        embeddings[clip_id] = visual.validate(data, digest, requests[digest])
+        measured[clip_id] = measurement
+    embeddings["reference"] = reference
+    slot = sequence.Slot(
+        id=uuid.uuid4(),
+        duration_frames=60,
+        source_end_frame=60,
+        output_start_frame=0,
+        output_end_frame=60,
+        reference_start_frame=0,
+        reference_end_frame=60,
+    )
+    data = {
+        "sequence": SimpleNamespace(slots=[slot]),
+        "settings": assembly.Settings(expected_sequence_revision=1, matching_mode="subject_aware"),
+    }
+    choice = assembly.select(data, measured, synthetic(3600), embeddings=embeddings)[0]
+    assert str(choice.clip_id) == str(uuid.UUID(int=10)) and choice.visual_similarity == 1
