@@ -272,3 +272,10 @@ Additive schema **19** adds `visual_cache`, cascading on project deletion. `visu
 ## Versioned per-source color modes and transfer
 
 Schema **20** adds separate grading settings, matches and shared-worker operations; old recipes/blueprints/specifications remain compatible. `color_transfer` fits bounded encoded-SDR tone/opponent-chroma models, while `grading` validates revisioned clip/shot bindings and routes server-generated LUTs. Export, frame previews and caption previews share that routing; color precedes framing/captions, with no Basic/Transfer stacking. Sources and exact saved models are revalidated before atomic publication. Existing process, deletion and output lifecycles remain. [Method, schema/API, numerical bounds and real evidence](COLOR_TRANSFER.md).
+
+
+### Cue-specific caption appearance compatibility
+
+Track schema 2 adds optional cue `appearance` (validated style, supported animation, server-resolved font binding). Schema 1 and legacy three-field cues remain readable without migration or forced rewriting. Saves with overrides write schema 2. Each cue uses its own ASS style and exact prepared font on the final canvas; literal text escaping and complex Arabic shaping remain unchanged. Editor text/timing edits preserve these overrides. Removing an override explicitly returns that cue to the global appearance. Font replacement checks and updates all affected cue bindings atomically. Saving resolves every font identity on the server rather than trusting submitted bindings.
+
+Focused generated evidence: a one-second 320×240 clip changed from yellow Poppins Bold at the upper position to white Amiri Bold Arabic at the lower position. Decoded frames at 7/30 and 22/30 seconds contained respectively 318 yellow pixels (mean row 55.59) and 26 bright white pixels (mean row 181.31); literal formatting-like text remained escaped. This is renderer evidence, not automatic OCR/workflow acceptance.

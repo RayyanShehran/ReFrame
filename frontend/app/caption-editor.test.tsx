@@ -143,3 +143,26 @@ it("refreshes an uploaded timeline without replacing manual cue/style drafts", a
  expect(fetcher).toHaveBeenCalledTimes(2);expect(screen.getByLabelText("Cue 1 text")).toHaveValue("Keep my draft");
  expect(screen.getByLabelText("Text size (% of output height)")).toHaveValue("8");expect(screen.getByRole("button",{name:"Save captions"})).toBeEnabled();
 });
+
+
+it("retains individual cue appearances through text edit, save and refresh", async () => {
+  const appearance = { style: { ...defaultStyle, color: "yellow", font: "poppins-bold" }, animation: defaultAnimation,
+    font_binding: { kind: "builtin", candidate_id: "poppins-bold", font_id: null, sha256: "a".repeat(64), family: "Poppins", style: "Bold (700)" } };
+  let saved = { ...initial, status: "ready", track: { ...initial.track, schema_version: 2, revision: 1, enabled: true,
+    cues: [{ start: 0, end: 1, text: "First", appearance }], timeline: { mode: "whole", plan_revision: null, duration_seconds: 4 } } };
+  vi.stubGlobal("fetch", vi.fn(async (_url: string, options: RequestInit) => {
+    if (options.method === "POST") {
+      const body = JSON.parse(options.body as string);
+      expect(body.cues).toEqual([{ start: 0, end: 1, text: "Edited", appearance }]);
+      saved = { ...saved, track: { ...saved.track, cues: body.cues, revision: 2 } };
+    }
+    return ok(saved);
+  }));
+  const view = render(<CaptionEditor projectId="one" planState={plan} onState={vi.fn()} />);
+  fireEvent.change(await screen.findByLabelText("Cue 1 text"), { target: { value: "Edited" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save captions" }));
+  await screen.findByText(/Captions saved.*revision 2/);
+  view.unmount(); render(<CaptionEditor projectId="one" planState={plan} onState={vi.fn()} />);
+  expect(await screen.findByLabelText("Cue 1 text")).toHaveValue("Edited");
+  expect(screen.getByText(/Cue appearance.*Poppins/)).toBeInTheDocument();
+});

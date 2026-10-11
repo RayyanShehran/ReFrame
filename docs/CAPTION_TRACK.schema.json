@@ -52,6 +52,33 @@
       "title": "Animation",
       "type": "object"
     },
+    "Appearance": {
+      "additionalProperties": false,
+      "properties": {
+        "style": {
+          "$ref": "#/$defs/Style"
+        },
+        "animation": {
+          "$ref": "#/$defs/Animation"
+        },
+        "font_binding": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Binding"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "style"
+      ],
+      "title": "Appearance",
+      "type": "object"
+    },
     "AutomaticBinding": {
       "additionalProperties": false,
       "properties": {
@@ -88,7 +115,20 @@
               "enum": [
                 "amiri-regular",
                 "amiri-bold",
-                "anton-regular"
+                "anton-regular",
+                "barlowcondensed-regular",
+                "barlowcondensed-bold",
+                "barlowcondensed-italic",
+                "poppins-regular",
+                "poppins-bold",
+                "poppins-italic",
+                "varelaround-regular",
+                "spacemono-regular",
+                "spacemono-bold",
+                "spacemono-italic",
+                "crimsontext-regular",
+                "crimsontext-bold",
+                "crimsontext-italic"
               ],
               "type": "string"
             },
@@ -156,6 +196,17 @@
           "minLength": 1,
           "title": "Text",
           "type": "string"
+        },
+        "appearance": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Appearance"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "required": [
@@ -302,16 +353,38 @@
           "type": "string"
         },
         "font": {
-          "default": "default",
-          "enum": [
-            "default",
-            "custom",
-            "amiri-regular",
-            "amiri-bold",
-            "anton-regular"
+          "anyOf": [
+            {
+              "enum": [
+                "default",
+                "custom"
+              ],
+              "type": "string"
+            },
+            {
+              "enum": [
+                "amiri-regular",
+                "amiri-bold",
+                "anton-regular",
+                "barlowcondensed-regular",
+                "barlowcondensed-bold",
+                "barlowcondensed-italic",
+                "poppins-regular",
+                "poppins-bold",
+                "poppins-italic",
+                "varelaround-regular",
+                "spacemono-regular",
+                "spacemono-bold",
+                "spacemono-italic",
+                "crimsontext-regular",
+                "crimsontext-bold",
+                "crimsontext-italic"
+              ],
+              "type": "string"
+            }
           ],
-          "title": "Font",
-          "type": "string"
+          "default": "default",
+          "title": "Font"
         },
         "font_origin": {
           "default": "manual",
@@ -427,7 +500,8 @@
         "mode": {
           "enum": [
             "whole",
-            "cuts"
+            "cuts",
+            "sequence"
           ],
           "title": "Mode",
           "type": "string"
@@ -453,6 +527,26 @@
           ],
           "default": null,
           "title": "Plan Revision"
+        },
+        "sequence_revision": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sequence Revision"
+        },
+        "sequence_sources": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Sequence Sources",
+          "type": "object"
         }
       },
       "required": [
@@ -563,8 +657,11 @@
       "title": "Automatic Proposal Id"
     },
     "schema_version": {
-      "const": 1,
       "default": 1,
+      "enum": [
+        1,
+        2
+      ],
       "title": "Schema Version",
       "type": "integer"
     },

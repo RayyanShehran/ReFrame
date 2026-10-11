@@ -11,10 +11,11 @@ import { CaptionAppearancePreview, type AppearanceContext } from "./caption-appe
 import { AnimationControls, defaultAnimation, readAnimation, type Animation } from "./caption-animation";
 
 type Mode = "whole" | "cuts" | "sequence";
-type Cue = { start: number; end: number; text: string };
-type DraftCue = { start: string; end: string; text: string };
+type CueAppearance = { style: CaptionStyle; animation: Animation; font_binding: FontBinding };
+type Cue = { start: number; end: number; text: string; appearance?: CueAppearance };
+type DraftCue = { start: string; end: string; text: string; appearance?: CueAppearance };
 type Style = CaptionStyle;
-type Track = { schema_version: 1; revision: number; enabled: boolean; cues: Cue[]; style: Style; animation: Animation; provenance: "manual" | "srt_import" | "automatic_transcription";
+type Track = { schema_version: 1 | 2; revision: number; enabled: boolean; cues: Cue[]; style: Style; animation: Animation; provenance: "manual" | "srt_import" | "automatic_transcription";
   font_binding?: FontBinding; automatic_proposal_id?: string | null; timeline: { mode: Mode; plan_revision: number | null; sequence_revision?: number | null; duration_seconds: number } | null };
 type Result = { status: "default" | "ready" | "stale"; track: Track; message: string | null; whole_duration_seconds: number | null; font_available?: boolean; font_warnings?: string[] };
 export type CaptionState = { revision: number | null; ready: boolean; dirty: boolean; busy: boolean; enabled: boolean; mode: Mode | null; planRevision: number | null; sequenceRevision?: number | null };
@@ -28,11 +29,15 @@ function validCues(cues: Cue[]) {
 }
 function parse(data: unknown): Result {
   const r = data as Result, t = r?.track;
-  if (!r || !["default", "ready", "stale"].includes(r.status) || !t || t.schema_version !== 1 ||
+  if (!r || !["default", "ready", "stale"].includes(r.status) || !t || ![1, 2].includes(t.schema_version) ||
     !Number.isSafeInteger(t.revision) || t.revision < 0 || typeof t.enabled !== "boolean" || !validCues(t.cues) ||
     !["manual", "srt_import", "automatic_transcription"].includes(t.provenance) || (t.provenance === "automatic_transcription" && typeof t.automatic_proposal_id !== "string") || !t.style || (t.font_binding && !validFont(t.font_binding)) ||
     (t.revision > 0 && (!t.timeline || !["whole", "cuts", "sequence"].includes(t.timeline.mode) || !finite(t.timeline.duration_seconds))) ||
     (r.whole_duration_seconds !== null && !finite(r.whole_duration_seconds))) throw new Error("Invalid caption response.");
+  for (const cue of t.cues) if (cue.appearance) {
+    readStyle(cue.appearance.style); readAnimation(cue.appearance.animation);
+    if (!validFont(cue.appearance.font_binding)) throw new Error("Invalid cue font.");
+  }
   return { ...r, track: { ...t, style: readStyle(t.style), animation: readAnimation(t.animation) } };
 }
 async function request(projectId: string, signal: AbortSignal, body?: unknown, file?: File): Promise<unknown> {
@@ -122,7 +127,7 @@ export function CaptionEditor({ projectId, planState, sequenceState = emptySeque
       }
     } finally { if (action.current === controller) { action.current = null; if (!controller.signal.aborted) setBusy(false); } }
   }
-  function edit(index: number, key: keyof DraftCue, value: string) { setCues(all => all.map((c, i) => i === index ? { ...c, [key]: value } : c)); setConfirm(false); }
+  function edit(index: number, key: "start" | "end" | "text", value: string) { setCues(all => all.map((c, i) => i === index ? { ...c, [key]: value } : c)); setConfirm(false); }
   useWorkspaceReport("caption-settings", "audio", busy || proposalBusy ? "Working" : error || (!!result && !ready) ? "Needs attention" : ready ? dirty ? "Needs input" : "Ready" : "Needs input", "Saving or loading caption…");
   return <section className="reference-section" aria-label="Captions">
     <h3>Captions</h3>
@@ -150,6 +155,10 @@ export function CaptionEditor({ projectId, planState, sequenceState = emptySeque
           <label>Start (seconds)<input aria-label={`Cue ${i + 1} start`} type="number" inputMode="decimal" aria-invalid={invalidIndex === i} aria-describedby={invalidIndex === i ? `cue-error-${projectId}` : undefined} min="0" max={duration ?? 120} step="any" value={c.start} onChange={e => edit(i, "start", e.target.value)} /></label>
           <label>End (seconds)<input aria-label={`Cue ${i + 1} end`} type="number" inputMode="decimal" aria-invalid={invalidIndex === i} aria-describedby={invalidIndex === i ? `cue-error-${projectId}` : undefined} min="0" max={duration ?? 120} step="any" value={c.end} onChange={e => edit(i, "end", e.target.value)} /></label>
           <label>Plain text<textarea aria-label={`Cue ${i + 1} text`} dir="auto" aria-invalid={invalidIndex === i} aria-describedby={invalidIndex === i ? `cue-error-${projectId}` : undefined} rows={2} value={c.text} onChange={e => edit(i, "text", e.target.value)} /></label>
+          {c.appearance && <details><summary>Cue appearance · {c.appearance.font_binding.family}</summary>
+            <StyleControls value={c.appearance.style} onChange={value => setCues(all => all.map((cue, n) => n === i ? { ...cue, appearance: { ...cue.appearance!, style: value } } : cue))} />
+            <button onClick={() => setCues(all => all.map((cue, n) => { if (n !== i) return cue; return { start: cue.start, end: cue.end, text: cue.text }; }))}>Use global appearance for this cue</button>
+          </details>}
           <span>{Array.from(c.text).length}/200 characters</span><button onClick={() => { setCues(all => all.filter((_, n) => n !== i)); setConfirm(false); }}>Delete cue {i + 1}</button>
         </fieldset>)}
         {invalidIndex >= 0 && <p role="alert" id={`cue-error-${projectId}`}>Cue {invalidIndex + 1}: use finite ordered nonoverlapping times inside the output, nonempty text, at most 200 characters and two lines.</p>}

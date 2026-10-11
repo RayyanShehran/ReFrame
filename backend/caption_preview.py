@@ -202,7 +202,7 @@ def snapshot(project_id, request, deadline):
         )
     if not track.enabled or request.cue_index >= len(track.cues):
         raise ReferenceError(422, "invalid_cue", "Enable and save a valid cue before previewing.")
-    font_assets.validate(project_id, track.font_binding, track.cues, deadline=deadline)
+    font_assets.validate_track(project_id, track, deadline=deadline)
     if track.timeline != captions.timeline(project_id, track.timeline.mode, deadline=deadline):
         raise ReferenceError(
             409, "captions_stale", "Save captions for the current output timeline."
@@ -377,7 +377,7 @@ def caption_frame(project_id, request):
             grading_revision=spec.grading.settings.revision if spec.grading else 0,
             framing_revision=spec.framing.revision,
             caption_revision=spec.captions.revision,
-            font=spec.captions.font_binding,
+            font=(cue.appearance.font_binding if cue.appearance else spec.captions.font_binding),
             font_origin=spec.captions.style.font_origin,
             cue_index=request.cue_index,
             cue_start_seconds=cue.start,

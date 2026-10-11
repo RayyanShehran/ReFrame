@@ -564,9 +564,7 @@ def subtitle(track, project_id, directory, width, height, deadline, *, temp_budg
         raise engine.RetrievalFailure(
             "captions_unavailable", "Install FFmpeg with the libass ASS filter to render captions."
         )
-    fonts, family, warnings = font_assets.prepare(
-        project_id, track.font_binding, track.cues, directory, deadline
-    )
+    fonts, family, warnings = font_assets.prepare_track(project_id, track, directory, deadline)
     return caption_tracks.subtitle_filter(
         track, directory, width, height, (fonts, family)
     ), warnings
@@ -1162,10 +1160,9 @@ def commit(project_id, operation_id, path, output, stop, deadline):
             )
     target = destination(project_id, output.output_id)
     if output.spec.captions.enabled:
-        font_assets.validate(
+        font_assets.validate_track(
             project_id,
-            output.spec.captions.font_binding,
-            output.spec.captions.cues,
+            output.spec.captions,
             stop=stop,
             deadline=deadline,
         )

@@ -340,10 +340,20 @@ def upload(project_id, raw, expected_revision, expected_caption_revision, replac
             captions.revision_check(current_caption, expected_caption_revision)
             if current_caption:
                 track = captions.Track.model_validate_json(current_caption["track"])
-                if track.style.font == "custom":
-                    # Explicit replacement preserves the timeline and provenance.
-                    validate_text(metadata, track.cues)
-                    track.font_binding = metadata.binding
+                custom_cues = [
+                    cue
+                    for cue in track.cues
+                    if (cue.appearance.style.font if cue.appearance else track.style.font)
+                    == "custom"
+                ]
+                if track.style.font == "custom" or custom_cues:
+                    # Explicit replacement preserves each cue's timeline and appearance.
+                    validate_text(metadata, custom_cues)
+                    if track.style.font == "custom":
+                        track.font_binding = metadata.binding
+                    for cue in custom_cues:
+                        if cue.appearance:
+                            cue.appearance.font_binding = metadata.binding
                     track.revision += 1
                     track.updated_at = datetime.fromisoformat(projects.now())
                     db.execute(
@@ -372,3 +382,41 @@ def validate_text(metadata, cues):
             "unsupported_font_glyph",
             "Replacement font cannot cover the saved captions. Previous font retained.",
         )
+
+
+def track_fonts(track):
+    groups = {track.font_binding.sha256: (track.font_binding, [])}
+    for cue in track.cues:
+        binding = cue.appearance.font_binding if cue.appearance else track.font_binding
+        if not binding:
+            raise ReferenceError(409, "caption_font_unavailable", "Cue font identity is missing.")
+        groups.setdefault(binding.sha256, (binding, []))[1].append(cue)
+    return groups
+
+
+def validate_track(project_id, track, *, stop=None, deadline=None):
+    warnings = []
+    for binding, cues in track_fonts(track).values():
+        warnings.extend(validate(project_id, binding, cues, stop=stop, deadline=deadline))
+    return list(dict.fromkeys(warnings))
+
+
+def prepare_track(project_id, track, directory, deadline):
+    if not any(c.appearance for c in track.cues):
+        return prepare(project_id, track.font_binding, track.cues, directory, deadline)
+    combined = directory / "cue-fonts"
+    combined.mkdir()
+    families, warnings = {}, []
+    for index, (binding, cues) in enumerate(track_fonts(track).values()):
+        stage = directory / f"cue-font-{index}"
+        stage.mkdir()
+        fonts, family, notes = prepare(project_id, binding, cues, stage, deadline)
+        name = "DejaVuSans.ttf" if binding.kind == "default" else "selected.ttf"
+        shutil.copyfile(
+            fonts / name,
+            combined / ("DejaVuSans.ttf" if binding.kind == "default" else f"{binding.sha256}.ttf"),
+        )
+        shutil.rmtree(stage)
+        families[binding.sha256] = family
+        warnings.extend(notes)
+    return combined, families, list(dict.fromkeys(warnings))

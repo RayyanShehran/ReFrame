@@ -7,7 +7,7 @@ from decimal import ROUND_CEILING, Decimal
 from typing import Literal
 from uuid import UUID
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, field_serializer, field_validator, model_validator
 
 import audio_settings
 import color_analysis as color
@@ -19,29 +19,6 @@ import projects
 from references import ReferenceError
 
 SRT_LIMIT = 128 * 1024
-
-
-class Cue(color.Schema):
-    start: float = Field(ge=0, lt=120, strict=True, allow_inf_nan=False)
-    end: float = Field(gt=0, le=120, strict=True, allow_inf_nan=False)
-    text: str = Field(min_length=1, max_length=200, strict=True)
-
-    @field_validator("text")
-    @classmethod
-    def plain_text(cls, value):
-        if not value.strip():
-            raise ValueError("Caption text cannot be empty")
-        if value.count("\n") > 1:
-            raise ValueError("Use at most two explicit lines per cue")
-        if any(unicodedata.category(c) in {"Cc", "Cs"} and c != "\n" for c in value):
-            raise ValueError("Caption text contains unsupported control characters")
-        return value  # Markup-looking text remains literal, including braces/backslashes.
-
-    @model_validator(mode="after")
-    def interval(self):
-        if self.start >= self.end:
-            raise ValueError("Cue end must be after its start")
-        return self
 
 
 class Style(color.Schema):
@@ -73,6 +50,36 @@ class Animation(color.Schema):
     displacement: float = Field(default=0.08, ge=0, le=0.25, strict=True, allow_inf_nan=False)
 
 
+class Appearance(color.Schema):
+    style: Style
+    animation: Animation = Field(default_factory=Animation)
+    font_binding: font_assets.Binding | None = None
+
+
+class Cue(color.Schema):
+    start: float = Field(ge=0, lt=120, strict=True, allow_inf_nan=False)
+    end: float = Field(gt=0, le=120, strict=True, allow_inf_nan=False)
+    text: str = Field(min_length=1, max_length=200, strict=True)
+    appearance: Appearance | None = None
+
+    @field_validator("text")
+    @classmethod
+    def plain_text(cls, value):
+        if not value.strip():
+            raise ValueError("Caption text cannot be empty")
+        if value.count("\n") > 1:
+            raise ValueError("Use at most two explicit lines per cue")
+        if any(unicodedata.category(c) in {"Cc", "Cs"} and c != "\n" for c in value):
+            raise ValueError("Caption text contains unsupported control characters")
+        return value  # Markup-looking text remains literal, including braces/backslashes.
+
+    @model_validator(mode="after")
+    def interval(self):
+        if self.start >= self.end:
+            raise ValueError("Cue end must be after its start")
+        return self
+
+
 class Choices(color.Schema):
     enabled: bool = Field(default=False, strict=True)
     cues: list[Cue] = Field(default_factory=list, max_length=200)
@@ -80,6 +87,11 @@ class Choices(color.Schema):
     animation: Animation = Field(default_factory=Animation)
     provenance: Literal["manual", "srt_import", "automatic_transcription"] = "manual"
     automatic_proposal_id: UUID | None = None
+
+    @field_serializer("cues")
+    def serialize_cues(self, cues):
+        # Keep legacy three-field cues byte-compatible when no appearance override exists.
+        return [cue.model_dump(mode="json", exclude_none=True) for cue in cues]
 
     @model_validator(mode="after")
     def ordered(self):
@@ -121,7 +133,7 @@ class AutomaticBinding(color.Schema):
 
 
 class Track(Choices):
-    schema_version: Literal[1] = 1
+    schema_version: Literal[1, 2] = 1
     revision: int = Field(default=0, ge=0, strict=True)
     timeline: Timeline | None = None
     created_at: datetime | None = None
@@ -133,6 +145,13 @@ class Track(Choices):
     def bound(self):
         if self.style.font != self.font_binding.choice:
             raise ValueError("Selected font must match its saved identity")
+        for cue in self.cues:
+            if cue.appearance and (
+                self.schema_version != 2
+                or not cue.appearance.font_binding
+                or cue.appearance.style.font != cue.appearance.font_binding.choice
+            ):
+                raise ValueError("Per-cue appearances require version 2 and a saved font identity")
         if self.revision and not self.timeline:
             raise ValueError("Saved captions require a timeline")
         if self.timeline:
@@ -247,7 +266,7 @@ def read(project_id):
     font_warnings = []
     font_unavailable = False
     try:
-        font_warnings = font_assets.validate(project_id, track.font_binding, track.cues)
+        font_warnings = font_assets.validate_track(project_id, track)
     except ReferenceError as exc:
         # Font problems are recoverable style errors, not sticky timeline invalidation.
         font_unavailable, message = True, exc.message
@@ -336,7 +355,17 @@ def save(project_id, request):
         raise ReferenceError(422, "invalid_caption", str(exc)) from None
     timestamp = projects.now()
     font_binding = font_assets.selected(project_id, request.style.font)
-    font_assets.validate(project_id, font_binding, request.cues)
+    resolved_cues = []
+    for cue in request.cues:
+        if cue.appearance:
+            selected = font_assets.selected(project_id, cue.appearance.style.font)
+            font_assets.validate(project_id, selected, [cue])
+            cue = cue.model_copy(
+                update={"appearance": cue.appearance.model_copy(update={"font_binding": selected})}
+            )
+        else:
+            font_assets.validate(project_id, font_binding, [cue])
+        resolved_cues.append(cue)
     automatic_binding = None
     if request.provenance == "automatic_transcription":
         if previous and previous.automatic_proposal_id == request.automatic_proposal_id:
@@ -366,8 +395,11 @@ def save(project_id, request):
                 "expected_plan_revision",
                 "expected_sequence_revision",
                 "confirm_rebind",
+                "cues",
             }
         ),
+        cues=resolved_cues,
+        schema_version=2 if any(c.appearance for c in resolved_cues) else 1,
         timeline=binding,
         revision=request.expected_revision + 1,
         created_at=previous.created_at if previous else timestamp,
@@ -505,7 +537,7 @@ def animation_tags(track, cue, width, height, position):
     return f"{{\\move({x:.3f},{y + a.displacement * height:.3f},{x:.3f},{y:.3f},0,{entrance})}}"
 
 
-def subtitle_filter(track, directory, width, height, prepared_font=None):
+def subtitle_document(track, width, height, prepared_font=None):
     style = track.style
     size = height * (
         style.size_percent / 100
@@ -562,12 +594,61 @@ def subtitle_filter(track, directory, width, height, prepared_font=None):
     encoded = content.encode("utf-8")
     if len(encoded) > 512 * 1024:
         raise ReferenceError(422, "caption_data_limit", "Subtitle data exceeds its 512 KiB bound.")
-    target = directory / "captions.ass"
-    target.write_bytes(encoded)
-    if not fonts.is_dir() or (
-        track.style.font == "default" and not (fonts / "DejaVuSans.ttf").is_file()
-    ):
+    if track.style.font == "default" and not (fonts / "DejaVuSans.ttf").is_file():
         raise ReferenceError(
             503, "caption_font_unavailable", "Bundled caption font is unavailable."
+        )
+    return content, fonts
+
+
+def subtitle_filter(track, directory, width, height, prepared_font=None):
+    families = prepared_font[1] if prepared_font and isinstance(prepared_font[1], dict) else None
+    if not any(c.appearance for c in track.cues):
+        prepared = (
+            (prepared_font[0], families[track.font_binding.sha256]) if families else prepared_font
+        )
+        content, fonts = subtitle_document(track, width, height, prepared)
+    else:
+        if not families:
+            raise ReferenceError(409, "caption_font_unavailable", "Prepare all cue fonts first.")
+        scripts = []
+        for index, cue in enumerate(track.cues):
+            appearance = cue.appearance
+            binding = appearance.font_binding if appearance else track.font_binding
+            selected = track.model_copy(
+                update={
+                    "cues": [cue],
+                    "style": appearance.style if appearance else track.style,
+                    "animation": appearance.animation if appearance else track.animation,
+                    "font_binding": binding,
+                }
+            )
+            script, fonts = subtitle_document(
+                selected, width, height, (prepared_font[0], families[binding.sha256])
+            )
+            scripts.append(
+                script.replace("Style: Default,", f"Style: Cue{index},", 1).replace(
+                    ",Default,,0,0,0,,", f",Cue{index},,0,0,0,,", 1
+                )
+            )
+        header = scripts[0].split("Style: Cue0,", 1)[0]
+        styles = "".join(
+            script[script.index("Style: Cue") : script.index("\n\n[Events]")] + "\n"
+            for script in scripts
+        )
+        event_header = (
+            "\n[Events]\nFormat: Layer, Start, End, Style, Name, "
+            "MarginL, MarginR, MarginV, Effect, Text\n"
+        )
+        events = "".join(script.split("Effect, Text\n", 1)[1] for script in scripts)
+        content = header + styles + event_header + events
+    encoded = content.encode("utf-8")
+    if len(encoded) > 512 * 1024:
+        raise ReferenceError(422, "caption_data_limit", "Subtitle data exceeds its 512 KiB bound.")
+    target = directory / "captions.ass"
+    target.write_bytes(encoded)
+    if not fonts.is_dir():
+        raise ReferenceError(
+            503, "caption_font_unavailable", "Caption font directory is unavailable."
         )
     return f"ass=filename={filter_path(target)}:fontsdir={filter_path(fonts)}:shaping=complex"
