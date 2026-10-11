@@ -31,8 +31,8 @@ TEMP_BUDGET = 96 * 1024 * 1024
 CACHE_BUDGET = 32 * 1024 * 1024
 JSON_LIMIT = 24 * 1024 * 1024
 SETUP = (
-    "In backend: uv sync --locked --extra visual; "
-    "uv run --locked --extra visual python visual_matching.py setup"
+    "In backend: uv sync --locked --extra visual --extra transcription; "
+    "uv run --locked --extra visual --extra transcription python visual_matching.py setup"
 )
 
 
@@ -288,9 +288,13 @@ def range_samples(analysis, start, end):
 
 
 def similarity(a, b):
-    return sum(sum(x * y for x, y in zip(sa.embedding, sb.embedding)) for sa in a for sb in b) / (
-        len(a) * len(b)
-    )
+    pairs = []
+    for sa in a:
+        for sb in b:
+            norm = math.sqrt(sum(v * v for v in sa.embedding) * sum(v * v for v in sb.embedding))
+            pairs.append(sum(x * y for x, y in zip(sa.embedding, sb.embedding)) / norm)
+    # Floating-point unit vectors can otherwise produce 1.0000000000000004.
+    return max(-1.0, min(1.0, sum(pairs) / len(pairs)))
 
 
 def infer(request):

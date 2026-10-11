@@ -130,6 +130,8 @@ def specification(
     expected_framing_revision=None,
     expected_sequence_revision=None,
     expected_grading_revision=None,
+    *,
+    caption_override=None,
 ):
     settings = grading_choices.read_settings(project_id)
     if settings.revision != (expected_grading_revision or 0):
@@ -193,6 +195,8 @@ def specification(
     elif expected_audio_revision != audio.settings.revision:
         raise ReferenceError(409, "revision_conflict", "Audio changed. Reload before rendering.")
     caption = caption_tracks.read(project_id)
+    if caption_override is not None:
+        caption = caption.model_copy(update={"track": caption_override})
     if expected_caption_revision is None:
         if caption.track.revision:
             raise ReferenceError(409, "revision_conflict", "Include the saved caption revision.")

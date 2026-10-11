@@ -27,6 +27,7 @@ import font_match
 import footage_analysis
 import frame_preview
 import framing
+import generation
 import grading
 import pacing_analysis
 import projects
@@ -68,6 +69,7 @@ async def lifespan(_app: FastAPI):
     await projects.storage_call(video_render.recover)
     await projects.storage_call(transcription.recover)
     await projects.storage_call(grading.recover)
+    await projects.storage_call(generation.recover)
     try:
         yield
     finally:
@@ -629,3 +631,25 @@ async def save_grading(project_id: str, request: grading.Save):
 )
 async def prepare_grading(project_id: str, request: grading.Prepare):
     return await reference_jobs.start(project_id, analysis="grading", grading_request=request)
+
+
+@app.get("/api/projects/{project_id}/generation", response_model=generation.Operation)
+async def generation_status(project_id: str):
+    return await projects.storage_call(generation.get_operation, project_id)
+
+
+@app.post(
+    "/api/projects/{project_id}/generation", response_model=generation.Operation, status_code=202
+)
+async def generate_video(project_id: str, request: generation.Request):
+    return await reference_jobs.start(project_id, analysis="generation", generation_request=request)
+
+
+@app.post("/api/projects/{project_id}/generation/cancel", response_model=generation.Operation)
+async def cancel_generation(project_id: str):
+    async with reference_jobs.start_lock:
+        owned = reference_jobs.active
+        current = await projects.storage_call(generation.get_operation, project_id)
+        if owned and owned[0] == project_id and owned[1] == current.operation_id:
+            owned[2].set()
+    return current

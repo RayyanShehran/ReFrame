@@ -7,6 +7,7 @@ import math
 import shutil
 import time
 import unicodedata
+from contextlib import nullcontext
 from typing import Literal
 from uuid import UUID
 
@@ -259,8 +260,8 @@ def sample_png(normalized, directory, deadline, name):
     return preview.image(png, (width, 64))
 
 
-def generate(project_id, request):
-    with preview.operation() as (directory, deadline):
+def generate(project_id, request, *, stage=None):
+    with nullcontext(stage) if stage else preview.operation() as (directory, deadline):
         previous = read(project_id, deadline)
         if previous["revision"] != request.expected_revision:
             raise ReferenceError(

@@ -85,7 +85,13 @@ class Choices(color.Schema):
     cues: list[Cue] = Field(default_factory=list, max_length=200)
     style: Style = Field(default_factory=Style)
     animation: Animation = Field(default_factory=Animation)
-    provenance: Literal["manual", "srt_import", "automatic_transcription"] = "manual"
+    provenance: Literal[
+        "manual",
+        "srt_import",
+        "automatic_transcription",
+        "automatic_reference",
+        "generated_output_audio",
+    ] = "manual"
     automatic_proposal_id: UUID | None = None
 
     @field_serializer("cues")
@@ -132,6 +138,15 @@ class AutomaticBinding(color.Schema):
     audio: audio_settings.Settings
 
 
+class VisibleBinding(color.Schema):
+    source: color.Source
+    reference_operation_id: UUID
+    method: Literal["visible-tsv-adaptive-v1"]
+    reads: int = Field(ge=1, le=600)
+    engine_version: str = Field(max_length=256)
+    assets_commit: str = Field(pattern=r"^[0-9a-f]{40}$")
+
+
 class Track(Choices):
     schema_version: Literal[1, 2] = 1
     revision: int = Field(default=0, ge=0, strict=True)
@@ -139,6 +154,8 @@ class Track(Choices):
     created_at: datetime | None = None
     updated_at: datetime | None = None
     automatic_binding: AutomaticBinding | None = None
+    visible_binding: VisibleBinding | None = None
+    generated_audio_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     font_binding: font_assets.Binding = Field(default_factory=font_assets.Binding)
 
     @model_validator(mode="after")
@@ -152,6 +169,14 @@ class Track(Choices):
                 or cue.appearance.style.font != cue.appearance.font_binding.choice
             ):
                 raise ValueError("Per-cue appearances require version 2 and a saved font identity")
+        if self.revision and self.provenance == "automatic_reference" and not self.visible_binding:
+            raise ValueError("Reference OCR captions require visible-source provenance")
+        if (
+            self.revision
+            and self.provenance == "generated_output_audio"
+            and (not self.automatic_binding or not self.generated_audio_sha256)
+        ):
+            raise ValueError("Generated speech captions require assembled-audio provenance")
         if self.revision and not self.timeline:
             raise ValueError("Saved captions require a timeline")
         if self.timeline:
@@ -276,6 +301,14 @@ def read(project_id):
                 raise ReferenceError(
                     409, "captions_stale", "Caption footage or output timeline changed."
                 )
+            if track.visible_binding:
+                current_reference = color.source(project_id)
+                if current_reference[
+                    "identity"
+                ] != track.visible_binding.source or current_reference[
+                    "reference_operation_id"
+                ] != str(track.visible_binding.reference_operation_id):
+                    raise ReferenceError(409, "captions_stale", "Reference OCR source changed.")
             if track.automatic_binding:
                 current_audio = audio_settings.read(project_id)
                 if (
@@ -309,7 +342,7 @@ def read(project_id):
     )
 
 
-def save(project_id, request):
+def save(project_id, request, *, visible_binding=None, generated_audio=None):
     row = record(project_id)
     revision_check(row, request.expected_revision)
     previous = Track.model_validate_json(row["track"]) if row else None
@@ -387,6 +420,34 @@ def save(project_id, request):
             automatic_binding = proposal.binding
             if automatic_binding.timeline != binding:
                 raise ReferenceError(409, "proposal_stale", "Use the proposal's output timeline.")
+    if request.provenance == "automatic_reference":
+        visible_binding = visible_binding or (previous.visible_binding if previous else None)
+        if not visible_binding:
+            raise ReferenceError(409, "caption_provenance", "Generate reference captions first.")
+        current = color.source(project_id)
+        if current["identity"] != visible_binding.source or current[
+            "reference_operation_id"
+        ] != str(visible_binding.reference_operation_id):
+            raise ReferenceError(409, "source_changed", "Reference OCR source changed.")
+    else:
+        visible_binding = None
+    audio_hash = None
+    if request.provenance == "generated_output_audio":
+        if generated_audio:
+            automatic_binding, audio_hash = generated_audio
+        elif previous and previous.provenance == "generated_output_audio":
+            automatic_binding, audio_hash = (
+                previous.automatic_binding,
+                previous.generated_audio_sha256,
+            )
+        if (
+            not automatic_binding
+            or automatic_binding.timeline != binding
+            or automatic_binding.audio != audio_settings.read(project_id).settings
+        ):
+            raise ReferenceError(
+                409, "caption_provenance", "Generate captions for current output audio."
+            )
     track = Track(
         **request.model_dump(
             exclude={
@@ -405,6 +466,8 @@ def save(project_id, request):
         created_at=previous.created_at if previous else timestamp,
         updated_at=timestamp,
         automatic_binding=automatic_binding,
+        visible_binding=visible_binding,
+        generated_audio_sha256=audio_hash,
         font_binding=font_binding,
     )
     with projects.database() as connection:

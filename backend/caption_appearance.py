@@ -6,6 +6,7 @@ import shutil
 import statistics
 import time
 from collections import Counter
+from contextlib import nullcontext
 from typing import Literal
 
 from pydantic import Field
@@ -309,8 +310,8 @@ def render_sample(style, binding, text, width, height, directory, prepared, dead
     return bbox(points, width), match.mask(raw[::3], width, height, tight=False)
 
 
-def generate(project_id, request):
-    with preview.operation() as (directory, deadline):
+def generate(project_id, request, *, stage=None):
+    with nullcontext(stage) if stage else preview.operation() as (directory, deadline):
         previous = record(project_id)
         if (previous["revision"] if previous else 0) != request.expected_revision:
             raise ReferenceError(

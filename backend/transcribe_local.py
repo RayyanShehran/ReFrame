@@ -207,8 +207,9 @@ def run(path, duration, language, directory, stop, deadline):
         raise engine.RetrievalFailure(
             "model_unavailable",
             "Set up local captions: in backend run "
-            "uv sync --locked --extra transcription, then "
-            "uv run --locked --extra transcription python transcribe_local.py setup.",
+            "uv sync --locked --extra visual --extra transcription, then "
+            "uv run --locked --extra visual --extra transcription "
+            "python transcribe_local.py setup.",
         )
     with owned_scope(stop):
         result = engine.run_command(

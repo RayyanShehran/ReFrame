@@ -278,6 +278,7 @@ def initialize():
             18,
             19,
             20,
+            21,
         }:
             raise RuntimeError("Unsupported ReFrame database schema")
         connection.execute("""CREATE TABLE IF NOT EXISTS projects (
@@ -399,7 +400,13 @@ def initialize():
                 connection.execute(
                     f"ALTER TABLE grading_operations ADD COLUMN {column} INTEGER NOT NULL DEFAULT 0"
                 )
-        connection.execute("PRAGMA user_version = 20")
+        connection.execute("""CREATE TABLE IF NOT EXISTS generation_operations (
+            project_id TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+            operation_id TEXT NOT NULL UNIQUE, revision INTEGER NOT NULL,
+            state TEXT NOT NULL CHECK(state IN ('running','ready','failed')),
+            operation TEXT NOT NULL, snapshot TEXT NOT NULL,
+            cleanup_safe INTEGER NOT NULL DEFAULT 1)""")
+        connection.execute("PRAGMA user_version = 21")
     # Only generated staging names are ours. Unknown files are left untouched.
     for path in staging.glob("clip-*"):
         try:

@@ -5,6 +5,7 @@ import math
 import shutil
 import statistics as stats
 import time
+from contextlib import nullcontext
 from typing import Literal
 
 from pydantic import Field, model_validator
@@ -355,8 +356,8 @@ def fit(rows, contaminated=False):
     )
 
 
-def analyze(project_id, request):
-    with preview.operation() as (directory, deadline):
+def analyze(project_id, request, *, stage=None):
+    with nullcontext(stage) if stage else preview.operation() as (directory, deadline):
         previous = record(project_id)
         if (previous["revision"] if previous else 0) != request.expected_revision:
             raise ReferenceError(

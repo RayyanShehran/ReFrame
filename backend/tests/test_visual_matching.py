@@ -277,3 +277,14 @@ def test_real_decode_one_adapter_call_across_large_staging(local, monkeypatch, t
     assert len(calls) == 1 and len(result[digest].samples) == 6
     assert not list(stage.glob("*.json")) and not list(stage.glob(digest + "*"))
     assert candidates.TEMP_BUDGET < visual.TEMP_BUDGET
+
+
+def test_identical_vectors_roundoff_stays_in_cosine_domain():
+    import math
+    from types import SimpleNamespace
+
+    values = [math.sin(i + 0.1) for i in range(512)]
+    norm = math.sqrt(sum(v * v for v in values))
+    sample = SimpleNamespace(embedding=[v / norm for v in values])
+    assert visual.similarity([sample], [sample]) == pytest.approx(1.0)
+    assert -1 <= visual.similarity([sample], [sample]) <= 1

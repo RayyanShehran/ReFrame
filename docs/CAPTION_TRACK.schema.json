@@ -557,6 +557,50 @@
       "title": "Timeline",
       "type": "object"
     },
+    "VisibleBinding": {
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "$ref": "#/$defs/color_analysis__Source"
+        },
+        "reference_operation_id": {
+          "format": "uuid",
+          "title": "Reference Operation Id",
+          "type": "string"
+        },
+        "method": {
+          "const": "visible-tsv-adaptive-v1",
+          "title": "Method",
+          "type": "string"
+        },
+        "reads": {
+          "maximum": 600,
+          "minimum": 1,
+          "title": "Reads",
+          "type": "integer"
+        },
+        "engine_version": {
+          "maxLength": 256,
+          "title": "Engine Version",
+          "type": "string"
+        },
+        "assets_commit": {
+          "pattern": "^[0-9a-f]{40}$",
+          "title": "Assets Commit",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source",
+        "reference_operation_id",
+        "method",
+        "reads",
+        "engine_version",
+        "assets_commit"
+      ],
+      "title": "VisibleBinding",
+      "type": "object"
+    },
     "color_analysis__Source": {
       "additionalProperties": false,
       "properties": {
@@ -638,7 +682,9 @@
       "enum": [
         "manual",
         "srt_import",
-        "automatic_transcription"
+        "automatic_transcription",
+        "automatic_reference",
+        "generated_output_audio"
       ],
       "title": "Provenance",
       "type": "string"
@@ -718,6 +764,30 @@
         }
       ],
       "default": null
+    },
+    "visible_binding": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/VisibleBinding"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "generated_audio_sha256": {
+      "anyOf": [
+        {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Generated Audio Sha256"
     },
     "font_binding": {
       "$ref": "#/$defs/Binding"

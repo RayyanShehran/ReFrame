@@ -255,9 +255,27 @@ def compensate(project_id, operation_id):
     target.unlink(missing_ok=True)
 
 
-async def worker(project_id, operation_id, url, stop, analysis=False):
+async def worker(
+    project_id,
+    operation_id,
+    url,
+    stop,
+    analysis=False,
+    *,
+    overall_deadline=None,
+    before_commit=None,
+):
     global active
     failure = None
+    if analysis == "generation":
+        import generation
+
+        try:
+            await generation.worker(project_id, operation_id, url, stop)
+        finally:
+            if active and active[1] == operation_id:
+                active = None
+        return
     if analysis:
         if analysis == "render":
             import video_render as color
@@ -291,7 +309,7 @@ async def worker(project_id, operation_id, url, stop, analysis=False):
             fail_operation,
         )
         compensate_fn, seconds = compensate, engine.TOTAL_SECONDS
-    deadline = time.monotonic() + seconds
+    deadline = min(time.monotonic() + seconds, overall_deadline or float("inf"))
     try:
         processing = asyncio.create_task(
             asyncio.to_thread(process, url, stage(operation_id), stop, deadline)
@@ -310,6 +328,8 @@ async def worker(project_id, operation_id, url, stop, analysis=False):
             if processing.done() and not processing.cancelled():
                 try:
                     processing.result()
+                except engine.ProcessCleanupError:
+                    raise
                 except engine.RetrievalFailure as exc:
                     if not exc.cleanup_safe:
                         raise exc
@@ -317,7 +337,15 @@ async def worker(project_id, operation_id, url, stop, analysis=False):
                     pass
             raise
         async with projects.operation_lock:
+            if before_commit:
+                await finish_thread(before_commit)
             await finish_thread(commit, project_id, operation_id, path, media, stop, deadline)
+    except engine.ProcessCleanupError:
+        failure = engine.RetrievalFailure(
+            "cleanup_failure",
+            "Owned processing could not be confirmed stopped; files retained.",
+            False,
+        )
     except engine.RetrievalFailure as exc:
         failure = exc
     except engine.ProbeTimeout:
@@ -326,7 +354,7 @@ async def worker(project_id, operation_id, url, stop, analysis=False):
         stop.set()
         failure = engine.RetrievalFailure("interrupted", "Reference retrieval was interrupted.")
     except ReferenceError as exc:
-        failure = engine.RetrievalFailure(exc.code, exc.message)
+        failure = engine.RetrievalFailure(exc.code, exc.message, exc.code != "cleanup_failure")
     except (sqlite3.Error, OSError):
         logger.exception("Reference retention storage failure")
         failure = engine.RetrievalFailure(
@@ -371,11 +399,14 @@ async def start(
     assembly_request=None,
     grading_request=None,
     expected_grading_revision=None,
+    generation_request=None,
 ):
     global active
     projects.identifier(project_id)
     if analysis:
-        if analysis == "render":
+        if analysis == "generation":
+            import generation as color
+        elif analysis == "render":
             import video_render as color
         elif analysis == "grading":
             import grading as color
@@ -396,7 +427,11 @@ async def start(
     async with start_lock:
         if project_id in closing:
             raise ReferenceError(409, "project_deleting", "Project deletion is in progress.")
-        if analysis == "render":
+        if analysis == "generation":
+            current = await projects.storage_call(read, project_id, True)
+            if current.status != "running":
+                current = None
+        elif analysis == "render":
             async with projects.operation_lock:
                 current = await projects.storage_call(
                     color.reusable,
@@ -445,6 +480,8 @@ async def start(
                         expected_grading_revision,
                     )
                     if analysis == "render"
+                    else (project_id, generation_request)
+                    if analysis == "generation"
                     else (project_id, grading_request)
                     if analysis == "grading"
                     else (project_id, assembly_request)
@@ -519,6 +556,9 @@ async def delete(project_id):
             import grading
 
             await projects.storage_call(grading.prepare_delete, project_id)
+            import generation
+
+            await projects.storage_call(generation.prepare_delete, project_id)
             await projects.storage_call(projects.delete_project, project_id)
     finally:
         closing.discard(project_id)
@@ -543,7 +583,8 @@ def check_quarantine():
             "UNION ALL SELECT 1 FROM render_operations WHERE cleanup_safe = 0 "
             "UNION ALL SELECT 1 FROM grading_operations WHERE cleanup_safe = 0 "
             "UNION ALL SELECT 1 FROM assembly_operations WHERE cleanup_safe = 0 "
-            "UNION ALL SELECT 1 FROM transcription_operations WHERE cleanup_safe = 0 LIMIT 1"
+            "UNION ALL SELECT 1 FROM transcription_operations WHERE cleanup_safe = 0 "
+            "UNION ALL SELECT 1 FROM generation_operations WHERE cleanup_safe = 0 LIMIT 1"
         ).fetchone()
     if (
         unsafe
