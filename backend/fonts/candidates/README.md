@@ -1,6 +1,6 @@
 # Curated caption candidates
 
-Seventeen bundled static faces (plus at most one uploaded project font) are compared:
+Eighteen bundled static faces (plus at most one uploaded project font) are compared:
 
 - Existing DejaVu Sans Book: `../DejaVuSans.ttf`, license `../LICENSE.txt`.
 - Amiri Regular (400) and Bold (700): Arabic Naskh and Latin, SIL Open Font License 1.1, `amiri-OFL.txt`.
@@ -19,3 +19,5 @@ Additional unmodified static faces from the same pinned official Google Fonts co
 - Crimson Text: Regular, Bold, Italic; `ofl/crimsontext/`, SIL OFL 1.1, `crimsontext-OFL.txt`.
 
 Barlow Condensed covers condensed sans, Poppins geometric sans, Varela Round rounded sans, Crimson Text serif, Space Mono monospace; existing Amiri covers Arabic. Each regular/bold/italic entry is an actual static face. All hashes are pinned in the catalog. Font matching retains its existing execution and staging bounds and may report a bound failure instead of a partial ranking.
+
+Patrick Hand Regular adds a Latin handwritten candidate, SIL OFL 1.1 (`PatrickHand-OFL.txt`), from the official Google Fonts repository at commit `aeb9574d3cb4ab2ac5de70a8c730b11662281803`, `ofl/patrickhand/PatrickHand-Regular.ttf`. No Arabic coverage or exact reference-font identity is claimed. Original bytes/hash are pinned.

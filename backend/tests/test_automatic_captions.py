@@ -220,3 +220,38 @@ def test_crop_padding_artifact_cannot_become_source_text_or_raise_a_geometry_err
     mapped = automatic.map_crop_detection(d, (0, 0, 100, 100), (232, 232), 2, (960, 540))
     assert mapped.rectangle.x == 0 and mapped.rectangle.y == 0
     assert mapped.rectangle.width == pytest.approx(50 / 960)
+
+
+def test_three_lines_follow_geometric_order_including_arabic():
+    lines = [detection("First longer line"), detection("مرحبا بالعالم"), detection("Last line")]
+    for i, line in enumerate(lines):
+        line.rectangle = line.rectangle.model_copy(update={"y": 0.3 + i * 0.12})
+    result = automatic.dominant(list(reversed(lines)), set())
+    assert result.text == "First longer line\nمرحبا بالعالم\nLast line"
+    assert result.glyph_height == pytest.approx(0.1)
+    with pytest.raises(ValueError, match="three"):
+        captions.Cue(start=0.0, end=1.0, text=result.text + "\nFourth")
+
+
+def test_temporal_vote_preserves_actual_punctuation_and_not_digit_replacement():
+    good = detection("You know I want you to know,")
+    noisy = detection("You know 1 want you to know.")
+    rows = automatic.consolidate([(0, good), (15, noisy), (30, good)])
+    assert all(d.text == good.text for _, d in rows)
+    only_digits = automatic.consolidate([(0, noisy), (15, noisy)])
+    assert all(d.text == noisy.text for _, d in only_digits)
+    assert not automatic.reliable_wording(noisy)
+
+
+def test_temporal_vote_retains_true_added_line_and_does_not_bridge_absence():
+    first = detection("First line")
+    added = detection("First line\nSecond line")
+    rows = automatic.consolidate([(0, first), (15, None), (30, added), (45, added)])
+    assert [d.text if d else None for _, d in rows] == [first.text, None, added.text, added.text]
+
+
+def test_temporal_reading_keeps_persistent_legitimate_caption_but_excludes_known_creator():
+    caption = detection("Persistent legitimate caption")
+    watermark = detection("@creator")
+    result = automatic.track(lambda f: [caption, watermark], [0, 15, 30], {"@creator"})
+    assert len(result) == 1 and result[0][1].text == caption.text

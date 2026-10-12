@@ -1,6 +1,7 @@
 """Bounded visible-text tracking; never substitutes speech for visible reference words."""
 
 import csv
+import hashlib
 import io
 import math
 import shutil
@@ -9,6 +10,7 @@ from collections import Counter
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from difflib import SequenceMatcher
+from pathlib import Path
 
 import caption_appearance as appearance
 import caption_ocr as ocr
@@ -22,7 +24,7 @@ import reference_motion as motion
 import video_render as render
 from references import ReferenceError
 
-METHOD = "visible-tsv-adaptive-v2"
+METHOD = "visible-tsv-adaptive-v3"
 MAX_READS = 600
 MAX_APPEARANCES = 8
 TOTAL_SECONDS = 300
@@ -38,6 +40,8 @@ class Detection:
     sample_rectangle: match.Rectangle | None = None
     glyph_height: float | None = None
     minimum_confidence: float = 100.0
+    sharpness: float = 0.0
+    frame_index: int | None = None
 
 
 def parse(raw, width, height, uncertain=None):
@@ -177,7 +181,8 @@ def same(a, b):
     if a is None or b is None:
         return a is b
     return (
-        SequenceMatcher(None, a.text.casefold(), b.text.casefold()).ratio() >= 0.9
+        a.text.count("\n") == b.text.count("\n")
+        and SequenceMatcher(None, a.text.casefold(), b.text.casefold()).ratio() >= 0.85
         and abs(a.rectangle.y - b.rectangle.y) < 0.08
     )
 
@@ -192,19 +197,23 @@ def dominant(rows, ignored):
     if selected is None:
         return None
     r = selected.rectangle
-    adjacent = [
-        d
-        for d in eligible
-        if d is not selected
-        and abs(d.rectangle.height - r.height) < r.height * 0.3
-        and abs((d.rectangle.x + d.rectangle.width / 2) - (r.x + r.width / 2)) < 0.08
-        and abs(d.rectangle.y - r.y) <= r.height * 1.8
-        and d.rectangle.y != r.y
-    ]
-    if not adjacent:
-        return selected
-    other = min(adjacent, key=lambda d: abs(d.rectangle.y - r.y))
-    lines = sorted([selected, other], key=lambda d: d.rectangle.y)
+    lines = [selected]
+    for d in sorted(eligible, key=lambda d: abs(d.rectangle.y - r.y)):
+        if d is selected:
+            continue
+        c = d.rectangle
+        if (
+            abs(c.height - r.height) < r.height * 0.3
+            and abs(c.x + c.width / 2 - r.x - r.width / 2) < 0.08
+            and all(abs(c.y - line.rectangle.y) > r.height * 0.5 for line in lines)
+            and any(abs(c.y - line.rectangle.y) <= r.height * 1.8 for line in lines)
+        ):
+            lines.append(d)
+    if len(lines) > 3:
+        raise ReferenceError(
+            422, "caption_region_limit", "More than three caption lines need review."
+        )
+    lines.sort(key=lambda d: d.rectangle.y)
     text = "\n".join(d.text for d in lines)
     captions.Cue(start=0.0, end=1.0, text=text)
     left = min(d.rectangle.x for d in lines)
@@ -215,11 +224,51 @@ def dominant(rows, ignored):
         selected,
         text=text,
         rectangle=match.Rectangle(x=left, y=top, width=right - left, height=bottom - top),
+        minimum_confidence=min(d.minimum_confidence for d in lines),
+        glyph_height=selected.glyph_height or selected.rectangle.height,
+        sample_text=selected.sample_text or selected.text[:80],
+        sample_rectangle=selected.sample_rectangle or selected.rectangle,
     )
 
 
+def consolidate(observations):
+    """Choose an actually observed block, never synthesize words from plausible sentences."""
+    rows = list(observations)
+    for i in range(1, len(rows) - 1):
+        before, current, after = rows[i - 1][1], rows[i][1], rows[i + 1][1]
+        if (
+            before
+            and after
+            and same(before, after)
+            and current
+            and (
+                same(current, before)
+                or (
+                    current.text in before.text
+                    and abs(current.rectangle.y - before.rectangle.y) < 0.1
+                )
+            )
+        ):
+            rows[i] = (rows[i][0], before)
+    start = 0
+    while start < len(rows):
+        end = start + 1
+        while end < len(rows) and same(rows[start][1], rows[end][1]):
+            end += 1
+        readings = [d for _, d in rows[start:end] if d is not None]
+        if readings:
+            counts = Counter(d.text for d in readings)
+            winner = max(
+                readings,
+                key=lambda d: (counts[d.text], reliable_wording(d), d.confidence, d.sharpness),
+            )
+            rows[start:end] = [(f, winner) for f, _ in rows[start:end]]
+        start = end
+    return rows
+
+
 def track(read, frames, ignored):
-    observations = [(f, dominant(read(f), ignored)) for f in frames]
+    observations = consolidate([(f, dominant(read(f), ignored)) for f in frames])
 
     def refine(left, a, right, b):
         if same(a, b):
@@ -228,6 +277,10 @@ def track(read, frames, ignored):
             return [(right, b)]
         middle = (left + right) // 2
         detected = dominant(read(middle), ignored)
+        if same(detected, a):
+            detected = a
+        elif same(detected, b):
+            detected = b
         return refine(left, a, middle, detected) + refine(middle, detected, right, b)
 
     refined = [observations[0]]
@@ -278,7 +331,12 @@ def retry_crops(image, uncertain):
 
     width, height = image.size
     r, g, b = image.convert("RGB").split()
-    mask = ImageChops.subtract(ImageChops.darker(r, g), b).point(lambda v: 255 if v > 55 else 0)
+    mask = ImageChops.subtract(
+        ImageChops.lighter(ImageChops.lighter(r, g), b),
+        ImageChops.darker(ImageChops.darker(r, g), b),
+    ).point(lambda v: 255 if v > 55 else 0)
+    bright = ImageChops.lighter(ImageChops.lighter(r, g), b).point(lambda v: 255 if v > 180 else 0)
+    mask = ImageChops.darker(mask, bright)
     bands, start, last = [], None, None
     for y in range(height):
         box = mask.crop((0, y, width, y + 1)).getbbox()
@@ -303,9 +361,9 @@ def retry_crops(image, uncertain):
                 boxes.append((box[0], top, box[2], bottom))
     crops = []
     if boxes:
-        # Preserve all lines in the selected block; three-line results require review.
+        # Preserve all lines in the selected block; up to three lines retain top-to-bottom ordering.
         best = max(boxes, key=lambda r: r[2] - r[0])
-        near = [r for r in boxes if abs(r[1] - best[1]) < height * 0.15]
+        near = [r for r in boxes if abs(r[1] - best[1]) < height * 0.18]
         box = (
             min(r[0] for r in near),
             min(r[1] for r in near),
@@ -390,6 +448,24 @@ def detect(project_id, source, directory, stop, deadline):
     reads = [0]
     unresolved = {}
     script_votes = Counter()
+    crop_cache = {}
+
+    def cached_ocr(args, stage, name):
+        key = (
+            args[args.index("-l") + 1],
+            hashlib.sha256(Path(args[1]).read_bytes()).digest(),
+        )
+        if key in crop_cache:
+            return crop_cache[key]
+        reads[0] += 1
+        result = engine.run_command(
+            args, stage, name, deadline, 15, output_limit=128 * 1024, temp_budget=16 * 1024 * 1024
+        )
+        if result.returncode == 0:
+            if len(crop_cache) >= 32:
+                crop_cache.pop(next(iter(crop_cache)))
+            crop_cache[key] = result
+        return result
 
     def read_frame(index):
         color.guard(stop, deadline)
@@ -458,8 +534,7 @@ def detect(project_id, source, directory, stop, deadline):
                     if reads[0] >= MAX_READS:
                         unresolved[index] = "OCR work budget reached"
                         break
-                    reads[0] += 1
-                    result = engine.run_command(
+                    result = cached_ocr(
                         [
                             str(ocr.executable()),
                             str(ocr_image),
@@ -479,10 +554,6 @@ def detect(project_id, source, directory, stop, deadline):
                         ],
                         stage,
                         f"caption-tsv-{language}",
-                        deadline,
-                        15,
-                        output_limit=128 * 1024,
-                        temp_budget=16 * 1024 * 1024,
                     )
                     if result.returncode:
                         raise ReferenceError(
@@ -564,8 +635,7 @@ def detect(project_id, source, directory, stop, deadline):
                     crop = ImageOps.expand(crop, border=16, fill=255)
                     path = stage / f"retry-{attempt}.png"
                     crop.save(path)
-                    reads[0] += 1
-                    result = engine.run_command(
+                    result = cached_ocr(
                         [
                             str(ocr.executable()),
                             str(path),
@@ -585,10 +655,6 @@ def detect(project_id, source, directory, stop, deadline):
                         ],
                         stage,
                         "caption-crop-retry",
-                        deadline,
-                        15,
-                        output_limit=128 * 1024,
-                        temp_budget=16 * 1024 * 1024,
                     )
                     if result.returncode:
                         unresolved[index] = "OCR crop retry failed"
@@ -617,19 +683,50 @@ def detect(project_id, source, directory, stop, deadline):
                     reliable = [d for d in found if reliable_wording(d)]
                     if found or low:
                         ambiguous = len(reliable) != len(found) or bool(low)
-                    if reliable:
-                        detections = reliable
+                    readable = [
+                        d
+                        for d in found
+                        if d.confidence >= 55
+                        and d.minimum_confidence >= 35
+                        and sum(c.isalnum() for c in d.text) >= 4
+                    ]
+                    if readable:
+                        detections = readable
+                    if len(reliable) == len(found) and reliable:
                         break
             # Do not export isolated texture-like glyphs or low-confidence word fragments.
             reliable = [d for d in detections if reliable_wording(d)]
             if uncertain and not reliable or ambiguous:
                 unresolved[index] = "Text could not be read confidently"
-            if len(reliable) > 2:
-                unresolved[index] = "More than two visible lines require review"
-            detections = reliable
+            if len(detections) > 3:
+                unresolved[index] = "More than three visible lines require review"
+            detections = [
+                d
+                for d in detections
+                if d.confidence >= 55
+                and d.minimum_confidence >= 35
+                and sum(c.isalnum() for c in d.text) >= 4
+            ]
             if detections:
                 pixels = appearance.rgb(target, width, height, stage, deadline)
                 for detected in detections:
+                    detected.frame_index = index
+                    from PIL import ImageFilter, ImageStat
+
+                    box = (
+                        int(detected.rectangle.x * native.width),
+                        int(detected.rectangle.y * native.height),
+                        max(
+                            1, int((detected.rectangle.x + detected.rectangle.width) * native.width)
+                        ),
+                        max(
+                            1,
+                            int((detected.rectangle.y + detected.rectangle.height) * native.height),
+                        ),
+                    )
+                    detected.sharpness = ImageStat.Stat(
+                        native.crop(box).convert("L").filter(ImageFilter.FIND_EDGES)
+                    ).var[0]
                     rect = detected.rectangle
                     x, y = int(rect.x * width), int(rect.y * height)
                     w, h = max(1, round(rect.width * width)), max(1, round(rect.height * height))
@@ -646,6 +743,9 @@ def detect(project_id, source, directory, stop, deadline):
                         for i in range(0, len(crop), 3)
                         if max(crop[i : i + 3]) > 200
                     ]
+                    chromatic = [c for c in colors if max(c) - min(c) > 70]
+                    if len(chromatic) >= 20:
+                        colors = chromatic
                     if colors:
                         detected.ink = appearance.hex_color(Counter(colors).most_common(1)[0][0])
                         glyph_rows = [
@@ -672,31 +772,31 @@ def detect(project_id, source, directory, stop, deadline):
     for f in nearby:
         read(f)
     frames = sorted(set(frames) | set(nearby))
-    ignored = {text for text, count in counts.items() if count < 2}
+    ignored = set()
     for values in cache.values():
         for d in values:
-            if d.text in ignored:
+            if counts[d.text] < 2:
                 unresolved[min(frames)] = "Unstable isolated readings require review"
     creator = source["identity"].canonical_url.split("/@")[-1].split("/")[0].casefold()
     for text in counts:
         compact = "".join(c for c in text.casefold() if c.isalnum())
         if creator and SequenceMatcher(None, compact, creator).ratio() >= 0.85:
             ignored.add(text)
-    for text, count in counts.items():
-        representative = next(d for values in cache.values() for d in values if d.text == text)
-        rect = representative.rectangle
-        if count >= len(frames) * 0.8 and (
-            rect.y < 0.2 or rect.x < 0.08 or rect.x + rect.width > 0.92
-        ):
-            ignored.add(text)
     changes = track(read, frames, ignored)
-    stable = Counter(d.text for values in cache.values() if (d := dominant(values, ignored)))
+    stable = Counter(
+        d.text
+        for _, d in consolidate(
+            [(f, dominant(values, ignored)) for f, values in sorted(cache.items())]
+        )
+        if d
+    )
     cues, notes = [], []
     if ignored:
         notes.append(
             "Persistent edge text was excluded as likely logos/usernames; check Customize."
         )
     styles = {}
+    baselines = {}
     for i, (start, detected) in enumerate(changes):
         end = changes[i + 1][0] if i + 1 < len(changes) else total
         if detected is None or end <= start:
@@ -710,7 +810,13 @@ def detect(project_id, source, directory, stop, deadline):
             )
         rectangle = detected.rectangle
         # Similar text height/anchor share a fit; color is estimated separately for each cue.
-        key = (round(rectangle.height * 50), round(rectangle.y * 20), detected.ink)
+        key = (
+            round(
+                (detected.glyph_height or rectangle.height / (detected.text.count("\n") + 1)) * 50
+            ),
+            round(rectangle.y * 20),
+            detected.ink,
+        )
         if key not in styles:
             if unresolved:
                 # Preserve partial text before spending time on font fitting.
@@ -725,21 +831,60 @@ def detect(project_id, source, directory, stop, deadline):
                         color=detected.ink,
                         horizontal=rectangle.x + rectangle.width / 2,
                         vertical=min(1.0, rectangle.y + rectangle.height + 0.025),
-                        size_percent=min(15.0, max(2.0, 100 * rectangle.height * 1.5)),
+                        size_percent=min(
+                            15.0,
+                            max(
+                                2.0,
+                                150
+                                * (
+                                    detected.glyph_height
+                                    or rectangle.height / (detected.text.count("\n") + 1)
+                                ),
+                            ),
+                        ),
+                        outline_percent=0.0,
                     ),
                     font_binding=font,
                 )
-                notes.append("Partial cues use a supported default font; appearance needs review.")
+                baselines[key] = 0.025
+                if len(styles) == 1 and deadline - time.monotonic() >= 40:
+                    try:
+                        styles[key], messages = infer(
+                            project_id,
+                            source,
+                            detected,
+                            (detected.frame_index or start) / 30,
+                            start / 30,
+                            end / 30,
+                            directory,
+                            stop,
+                            min(deadline, time.monotonic() + 35),
+                            len(styles),
+                            motion_fit=False,
+                        )
+                        sample = detected.sample_rectangle or rectangle
+                        baselines[key] = styles[key].style.vertical - sample.y - sample.height
+                        notes.extend(messages)
+                    except engine.ProbeTimeout:
+                        notes.append(
+                            "Appearance fitting reached its bound; supported default used."
+                        )
+                notes.append("Partial wording remains a proposal; font/placement are approximate.")
             elif len(styles) >= MAX_APPEARANCES:
                 unresolved[start] = "Appearance budget reached; approximate style needs review"
                 nearest = min(styles, key=lambda k: abs(k[0] - key[0]) + abs(k[1] - key[1]))
                 styles[key] = styles[nearest]
+                baselines[key] = baselines[nearest]
             else:
                 fitted, messages = infer(
                     project_id,
                     source,
                     detected,
-                    (start + end - 1) / 60,
+                    (
+                        detected.frame_index / 30
+                        if detected.frame_index is not None
+                        else (start + end - 1) / 60
+                    ),
                     start / 30,
                     end / 30,
                     directory,
@@ -748,12 +893,15 @@ def detect(project_id, source, directory, stop, deadline):
                     len(styles),
                 )
                 styles[key] = fitted
+                sample = detected.sample_rectangle or rectangle
+                baselines[key] = fitted.style.vertical - sample.y - sample.height
                 notes.extend(messages)
         fitted = styles[key].model_copy(deep=True)
         # Every cue gets its own placement, even when reusing a fitted static face.
         fitted.style.color = detected.ink
         fitted.style.horizontal = rectangle.x + rectangle.width / 2
-        # Retain the font-fit baseline; OCR box bottoms are not ASS anchors.
+        fitted.style.vertical = min(1.0, max(0.0, rectangle.y + rectangle.height + baselines[key]))
+        # Retain the font-fit baseline for the complete multiline block.
         cues.append(
             captions.Cue(start=start / 30, end=end / 30, text=detected.text, appearance=fitted)
         )
@@ -790,7 +938,20 @@ def detect(project_id, source, directory, stop, deadline):
     )
 
 
-def infer(project_id, source, detected, timestamp, start, end, directory, stop, deadline, index):
+def infer(
+    project_id,
+    source,
+    detected,
+    timestamp,
+    start,
+    end,
+    directory,
+    stop,
+    deadline,
+    index,
+    *,
+    motion_fit=True,
+):
     stage = directory / f"fit-{index}"
     stage.mkdir()
     safe = True
@@ -895,7 +1056,7 @@ def infer(project_id, source, detected, timestamp, start, end, directory, stop, 
             messages.append(
                 "Caption size uses observed glyph height; closest font width can differ."
             )
-        if 0.4 <= end - start <= 4:
+        if motion_fit and 0.4 <= end - start <= 4:
             motion_stage = stage / "motion"
             motion_stage.mkdir()
             previous = motion.record(project_id)

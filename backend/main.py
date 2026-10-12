@@ -653,3 +653,10 @@ async def cancel_generation(project_id: str):
         if owned and owned[0] == project_id and owned[1] == current.operation_id:
             owned[2].set()
     return current
+
+
+@app.post(
+    "/api/projects/{project_id}/generation/caption-review", response_model=generation.Operation
+)
+async def correct_generation_captions(project_id: str, request: generation.ReviewRequest):
+    return await saved_still(project_id, request, generation.review_captions)

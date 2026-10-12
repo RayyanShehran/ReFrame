@@ -75,7 +75,7 @@ def test_save_restore_revisions_timeline_rebind_preserves_text_and_analyses(loca
     "cues",
     [
         [{"start": 0, "end": 1, "text": ""}],
-        [{"start": 0, "end": 1, "text": "a\nb\nc"}],
+        [{"start": 0, "end": 1, "text": "a\nb\nc\nd"}],
         [{"start": 0, "end": 1, "text": "x" * 201}],
         [{"start": True, "end": 1, "text": "x"}],
         [{"start": "NaN", "end": 1, "text": "x"}],

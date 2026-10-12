@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 
-export const fontChoices = ['default', 'custom', 'amiri-regular', 'amiri-bold', 'anton-regular', 'barlowcondensed-regular', 'barlowcondensed-bold', 'barlowcondensed-italic', 'poppins-regular', 'poppins-bold', 'poppins-italic', 'varelaround-regular', 'spacemono-regular', 'spacemono-bold', 'spacemono-italic', 'crimsontext-regular', 'crimsontext-bold', 'crimsontext-italic'] as const;
+export const fontChoices = ['default', 'custom', 'patrickhand-regular', 'amiri-regular', 'amiri-bold', 'anton-regular', 'barlowcondensed-regular', 'barlowcondensed-bold', 'barlowcondensed-italic', 'poppins-regular', 'poppins-bold', 'poppins-italic', 'varelaround-regular', 'spacemono-regular', 'spacemono-bold', 'spacemono-italic', 'crimsontext-regular', 'crimsontext-bold', 'crimsontext-italic'] as const;
 export type FontChoice = typeof fontChoices[number];
 export type FontBinding = { kind: "default" | "custom" | "builtin"; candidate_id?: FontChoice | null; font_id: string | null; sha256: string; family: string; style: string };
 export type CaptionStyle = { color: string; size: "small" | "medium" | "large"; placement: "bottom-center" | "center"; font: FontChoice; font_origin: "manual" | "assisted"; size_percent: number | null; outline_color: string; outline_percent: number | null; shadow_color: string; shadow_percent: number; alignment: "left" | "center" | "right"; horizontal: number | null; vertical: number | null; bold: boolean; italic: boolean };

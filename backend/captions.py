@@ -67,8 +67,8 @@ class Cue(color.Schema):
     def plain_text(cls, value):
         if not value.strip():
             raise ValueError("Caption text cannot be empty")
-        if value.count("\n") > 1:
-            raise ValueError("Use at most two explicit lines per cue")
+        if value.count("\n") > 2:
+            raise ValueError("Use at most three explicit lines per cue")
         if any(unicodedata.category(c) in {"Cc", "Cs"} and c != "\n" for c in value):
             raise ValueError("Caption text contains unsupported control characters")
         return value  # Markup-looking text remains literal, including braces/backslashes.
@@ -141,7 +141,7 @@ class AutomaticBinding(color.Schema):
 class VisibleBinding(color.Schema):
     source: color.Source
     reference_operation_id: UUID
-    method: Literal["visible-tsv-adaptive-v1", "visible-tsv-adaptive-v2"]
+    method: Literal["visible-tsv-adaptive-v1", "visible-tsv-adaptive-v2", "visible-tsv-adaptive-v3"]
     reads: int = Field(ge=1, le=600)
     engine_version: str = Field(max_length=256)
     assets_commit: str = Field(pattern=r"^[0-9a-f]{40}$")

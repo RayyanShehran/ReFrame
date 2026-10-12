@@ -24,7 +24,7 @@ const defaults: Style = defaultStyle;
 const finite = (v: unknown) => typeof v === "number" && Number.isFinite(v) && v >= 0 && v <= 120;
 function validCues(cues: Cue[]) {
   return Array.isArray(cues) && cues.length <= 200 && cues.every((c, i) => finite(c.start) && finite(c.end) && c.start < c.end &&
-    typeof c.text === "string" && !!c.text.trim() && Array.from(c.text).length <= 200 && c.text.split("\n").length <= 2 &&
+    typeof c.text === "string" && !!c.text.trim() && Array.from(c.text).length <= 200 && c.text.split("\n").length <= 3 &&
     (!i || c.start >= cues[i - 1].end));
 }
 function parse(data: unknown): Result {
@@ -149,7 +149,7 @@ export function CaptionEditor({ projectId, planState, sequenceState = emptySeque
         <StyleControls value={style} onChange={setStyle} />
         <AnimationControls value={animation} onChange={setAnimation} />
         <label>Import SRT<input type="file" accept=".srt,text/plain,application/x-subrip" onChange={e => { const file = e.target.files?.[0]; e.target.value = ""; if (file) void run("import", file); }} /></label>
-        <p className="hint">UTF-8, at most 128 KiB, 200 cues, 200 characters and two explicit lines per cue. Formatting-looking text is shown literally.</p>
+        <p className="hint">UTF-8, at most 128 KiB, 200 cues, 200 characters and three explicit lines per cue. Formatting-looking text is shown literally.</p>
         {preview && <div role="group" aria-label="SRT import preview"><h4>SRT preview: {preview.length} cues</h4><ol>{preview.map((c, i) => <li key={i}>{c.start}–{c.end} seconds <span className="caption-text" dir="auto">{c.text}</span></li>)}</ol><p>Replacing changes only this draft. All cue times are revalidated when saved.</p><button onClick={() => { setCues(drafts(preview)); setProvenance("srt_import"); setAutomaticId(null); setPreview(null); setConfirm(false); }}>Replace draft with imported cues</button><button onClick={() => setPreview(null)}>Cancel import</button></div>}
         {cues.map((c, i) => <fieldset key={i} className="caption-cue"><legend>Cue {i + 1}</legend>
           <label>Start (seconds)<input aria-label={`Cue ${i + 1} start`} type="number" inputMode="decimal" aria-invalid={invalidIndex === i} aria-describedby={invalidIndex === i ? `cue-error-${projectId}` : undefined} min="0" max={duration ?? 120} step="any" value={c.start} onChange={e => edit(i, "start", e.target.value)} /></label>

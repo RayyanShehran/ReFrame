@@ -8,7 +8,7 @@ import time
 import uuid
 from typing import Literal
 
-from pydantic import Field, field_validator
+from pydantic import Field, ValidationError, field_validator
 
 import assembly
 import audio_settings
@@ -58,6 +58,7 @@ class Request(color.Schema):
     replace_customized: bool = Field(default=False, strict=True)
     matching_mode: Literal["subject_aware", "measurements"] = "subject_aware"
     accept_partial_captions: bool = Field(default=False, strict=True)
+    replace_verified_captions: bool = Field(default=False, strict=True)
 
 
 class CaptionReview(color.Schema):
@@ -65,12 +66,28 @@ class CaptionReview(color.Schema):
     notices: list[str] = Field(max_length=30)
     evidence: captions.VisibleBinding
     unreadable_samples: int = Field(ge=1, le=3600)
+    verified_cues: list[captions.Cue] = Field(default_factory=list, max_length=200)
 
     @field_validator("cues")
     @classmethod
     def stable_intervals(cls, cues):
         # Earlier partial drafts may contain one-frame OCR flicker, not stable caption words.
         return [cue for cue in cues if cue.end - cue.start >= 0.1 - 0.000001]
+
+
+class ReviewRequest(color.Schema):
+    expected_revision: int = Field(ge=1, strict=True)
+    cues: list[captions.Cue] = Field(max_length=200)
+    verified_indices: list[int] = Field(max_length=200)
+
+    @field_validator("verified_indices")
+    @classmethod
+    def indices(cls, values):
+        if any(type(i) is not int or not 0 <= i < 200 for i in values) or len(set(values)) != len(
+            values
+        ):
+            raise ValueError("Choose valid, distinct cue indices")
+        return values
 
 
 class Operation(color.Schema):
@@ -108,6 +125,77 @@ def get_operation(project_id, require_active=False):
             "are saved; retry reading or continue without captions."
         )
     return operation
+
+
+def review_captions(project_id, request):
+    row = record(project_id)
+    operation = get_operation(project_id)
+    if operation.revision != request.expected_revision:
+        raise ReferenceError(
+            409, "revision_conflict", "Caption reading changed. Reload before correcting."
+        )
+    if operation.status == "running" or not row or not row["cleanup_safe"]:
+        raise ReferenceError(409, "reference_busy", "Wait for caption reading to stop safely.")
+    review = operation.caption_review
+    source = color.source(project_id)
+    if (
+        not review
+        or review.evidence.source != source["identity"]
+        or json.loads(row["snapshot"]) != snapshot(project_id)
+    ):
+        raise ReferenceError(
+            409, "caption_review_stale", "Reference or output timeline changed. Retry reading."
+        )
+    try:
+        captions.Choices(cues=request.cues)
+    except ValidationError:
+        raise ReferenceError(
+            422, "invalid_caption", "Keep cues ordered, without overlaps."
+        ) from None
+    duration = sequence.read(project_id).sequence.output_frames / 30
+    if any(c.end > duration + 0.000001 for c in request.cues) or any(
+        i >= len(request.cues) for i in request.verified_indices
+    ):
+        raise ReferenceError(
+            422, "invalid_caption", "Keep every cue inside the output and verify an existing cue."
+        )
+    review.cues = request.cues
+    review.verified_cues = [request.cues[i] for i in request.verified_indices]
+    operation.revision += 1
+    with projects.database() as db:
+        changed = db.execute(
+            "UPDATE generation_operations SET revision=?,operation=? "
+            "WHERE project_id=? AND revision=?",
+            (
+                operation.revision,
+                operation.model_dump_json(),
+                project_id,
+                request.expected_revision,
+            ),
+        ).rowcount
+        if changed != 1:
+            raise ReferenceError(
+                409, "revision_conflict", "Caption reading changed. Reload before correcting."
+            )
+    return operation
+
+
+def retain_reviewed(cues, review, source, replace_verified=False, incomplete=False):
+    if not review or review.evidence.source != source["identity"] or replace_verified:
+        return cues, []
+    verified = review.verified_cues
+    result = [
+        c for c in cues if not any(c.start < v.end and v.start < c.end for v in verified)
+    ] + verified
+    if incomplete and review.evidence.method == automatic_captions.METHOD:
+        result += [
+            c for c in review.cues if not any(c.start < n.end and n.start < c.end for n in result)
+        ]
+    if len(result) > 200:
+        raise ReferenceError(
+            413, "caption_cue_limit", "More than 200 retained cues need correction."
+        )
+    return sorted(result, key=lambda c: c.start), verified
 
 
 def snapshot(project_id, stop=None, deadline=None):
@@ -191,7 +279,7 @@ def begin_operation(project_id, request):
         prior.completed
         if row
         and old == bound
-        and prior.status == "failed"
+        and prior.status in {"failed", "ready"}
         and (
             prior.options.model_dump(
                 exclude={
@@ -200,6 +288,7 @@ def begin_operation(project_id, request):
                     "matching_mode",
                     "captions",
                     "accept_partial_captions",
+                    "replace_verified_captions",
                 }
             )
             == request.model_dump(
@@ -209,6 +298,7 @@ def begin_operation(project_id, request):
                     "matching_mode",
                     "captions",
                     "accept_partial_captions",
+                    "replace_verified_captions",
                 }
             )
         )
@@ -220,7 +310,7 @@ def begin_operation(project_id, request):
         and "sequence" in completed
     ):
         completed = []
-    if completed and prior.options.captions != request.captions:
+    if completed and (prior.options.captions != request.captions or prior.status == "ready"):
         completed = [stage for stage in completed if stage != "captions"]
     operation = Operation(
         project_id=project_id,
@@ -566,7 +656,10 @@ def prepare_captions(project_id, mode, stop, deadline, operation):
             if mode == "reference" and operation.options.accept_partial_captions:
                 if (
                     not review
-                    or review.evidence.method != automatic_captions.METHOD
+                    or (
+                        review.evidence.method != automatic_captions.METHOD
+                        and not review.verified_cues
+                    )
                     or not review.cues
                     or review.evidence.source != source["identity"]
                     or str(review.evidence.reference_operation_id)
@@ -585,24 +678,21 @@ def prepare_captions(project_id, mode, stop, deadline, operation):
                     project_id, source, directory, stop, deadline
                 )
                 incomplete = evidence.pop("unreadable_samples", 0)
+                if mode == "reference":
+                    cues, verified = retain_reviewed(
+                        cues,
+                        review,
+                        source,
+                        operation.options.replace_verified_captions,
+                        bool(incomplete),
+                    )
                 if mode == "reference" and incomplete:
-                    # Keep prior reliable cues when retrying an unchanged incomplete track.
-                    if (
-                        review
-                        and review.evidence.source == source["identity"]
-                        and review.evidence.method == automatic_captions.METHOD
-                    ):
-                        cues += [
-                            c
-                            for c in review.cues
-                            if not any(c.start < n.end and n.start < c.end for n in cues)
-                        ]
-                    cues = sorted(cues, key=lambda c: c.start)[:200]
                     operation.caption_review = CaptionReview(
                         cues=cues,
                         notices=notices[:30],
                         evidence=captions.VisibleBinding.model_validate(evidence),
                         unreadable_samples=incomplete,
+                        verified_cues=verified,
                     )
                     raise ReferenceError(
                         422,

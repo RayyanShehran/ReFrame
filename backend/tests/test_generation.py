@@ -473,6 +473,30 @@ def test_partial_caption_review_requires_confirmation_and_resumes_only_caption_r
     assert failed["completed"] == ["slots", "sequence", "grading", "audio"]
     assert failed["caption_review"]["cues"][0]["text"] == "Reliable words"
     assert client.get(f"/api/projects/{pid}/render").json()["output"] is None
+    correction = {
+        "expected_revision": 1,
+        "cues": [{"start": 0.5, "end": 1.2, "text": "User corrected words"}],
+        "verified_indices": [0],
+    }
+    corrected = client.post(url + "/caption-review", json=correction)
+    assert corrected.status_code == 200, corrected.text
+    assert corrected.json()["revision"] == 2
+    assert client.post(url + "/caption-review", json=correction).status_code == 409
+    assert (
+        client.post(
+            url + "/caption-review",
+            json=correction | {"expected_revision": 2, "verified_indices": [1]},
+        ).status_code
+        == 422
+    )
+    assert (
+        client.post(
+            url + "/caption-review",
+            json=correction
+            | {"expected_revision": 2, "cues": [{"start": 0.5, "end": 4.0, "text": "Outside"}]},
+        ).status_code
+        == 422
+    )
     seq = sequence.read(pid).sequence.model_dump()
     with projects.database() as db:
         measured = [
@@ -488,31 +512,31 @@ def test_partial_caption_review_requires_confirmation_and_resumes_only_caption_r
         return [], notes, evidence
 
     monkeypatch.setattr(generation.automatic_captions, "detect", retry_with_less_text)
-    assert client.post(url, json=options | {"expected_revision": 1}).status_code == 202
+    assert client.post(url, json=options | {"expected_revision": 2}).status_code == 202
     retried = wait(client, url)
     assert retried["failure_code"] == "caption_partial"
-    assert retried["caption_review"]["cues"][0]["text"] == "Reliable words"
+    assert retried["caption_review"]["cues"][0]["text"] == "User corrected words"
     if choice == "off":
         monkeypatch.setattr(
             generation.automatic_captions,
             "detect",
             lambda *a, **k: pytest.fail("Off must not OCR again"),
         )
-        retry = options | {"captions": "off", "expected_revision": 2}
+        retry = options | {"captions": "off", "expected_revision": 3}
     else:
         monkeypatch.setattr(
             generation.automatic_captions,
             "detect",
             lambda *a, **k: pytest.fail("Use saved reviewed cues"),
         )
-        retry = options | {"accept_partial_captions": True, "expected_revision": 2}
+        retry = options | {"accept_partial_captions": True, "expected_revision": 3}
     assert client.post(url, json=retry).status_code == 202
     done = wait(client, url)
     assert done["status"] == "ready", done
     output = client.get(f"/api/projects/{pid}/render").json()["output"]
     assert output["spec"]["captions"]["enabled"] is (choice == "partial")
     assert sequence.read(pid).sequence.model_dump() == seq
-    assert done["caption_review"]["cues"][0]["text"] == "Reliable words"
+    assert done["caption_review"]["cues"][0]["text"] == "User corrected words"
     with projects.database() as db:
         assert [
             tuple(r)
@@ -550,3 +574,42 @@ def test_partial_caption_confirmation_rejects_changed_reference(local):
             pid, "reference", threading.Event(), time.monotonic() + 20, operation
         )
     assert error.value.code == "caption_review_required"
+
+
+def test_user_corrected_cues_survive_overlapping_retry_until_explicit_replacement():
+    import captions
+
+    source = {
+        "identity": generation.color.Source(
+            canonical_url="https://www.tiktok.com/@test/video/6718335390845095173",
+            video_id="6718335390845095173",
+            media_sha256="a" * 64,
+        )
+    }
+    good = captions.Cue(start=0.5, end=1.5, text="Corrected words\nمرحبا\nThird line")
+    wrong = captions.Cue(start=0.5, end=1.5, text="Misread words")
+    review = generation.CaptionReview(
+        cues=[good],
+        verified_cues=[good],
+        notices=[],
+        unreadable_samples=1,
+        evidence=captions.VisibleBinding(
+            source=source["identity"],
+            reference_operation_id=str(__import__("uuid").uuid4()),
+            method=generation.automatic_captions.METHOD,
+            reads=1,
+            engine_version="test",
+            assets_commit="a" * 40,
+        ),
+    )
+    cues, verified = generation.retain_reviewed([wrong], review, source, incomplete=True)
+    assert cues == [good] and verified == [good]
+    assert generation.retain_reviewed([wrong], review, source, replace_verified=True) == (
+        [wrong],
+        [],
+    )
+    assert generation.retain_reviewed(
+        [wrong],
+        review,
+        {"identity": source["identity"].model_copy(update={"media_sha256": "b" * 64})},
+    ) == ([wrong], [])
