@@ -30,5 +30,7 @@
       "bytes": 327,
       "sha256": "e098c98c6834fbcd3f3e75215e3e8b8868f0fe5bf07aef93d28e4f7196db293c"
     }
-  }
+  },
+  "license_status": "unresolved",
+  "license_evidence": "https://huggingface.co/microsoft/trocr-small-handwritten/tree/b4648cfa171985a6745f37ddd637e98c0da958ac"
 }

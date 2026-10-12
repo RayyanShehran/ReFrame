@@ -24,7 +24,11 @@ def executable():
 
 
 def available():
-    return executable().is_file() and all((MODEL / name).is_file() for name in MANIFEST["files"])
+    return (
+        MANIFEST.get("license_status") == "permitted"
+        and executable().is_file()
+        and all((MODEL / name).is_file() for name in MANIFEST["files"])
+    )
 
 
 def verify():
@@ -42,6 +46,11 @@ def setup(download):
         raise ValueError(
             "Use setup --download to explicitly install 247 MB of model assets "
             "and CPU dependencies (about 300 MB of wheels). No media is uploaded."
+        )
+    if MANIFEST.get("license_status") != "permitted":
+        raise ValueError(
+            "Checkpoint weight permissions remain unresolved. Setup/download and automatic "
+            "selection are disabled; installed files and saved captions are preserved."
         )
     if not executable().is_file():
         venv.EnvBuilder(with_pip=True).create(ENV)

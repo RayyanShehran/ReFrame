@@ -515,3 +515,27 @@ def test_unknown_outline_does_not_add_a_dark_border_to_assisted_handwriting(tmp_
     assert appearance.style.outline_percent == 0.0
     assert appearance.style.font == "patrickhand-regular"
     assert notices and not (tmp_path / "fit-0").exists()
+
+
+def test_unresolved_checkpoint_cannot_download_or_be_selected(tmp_path, monkeypatch):
+    import handwriting_ocr as handwriting
+
+    preserved = tmp_path / "model.bin"
+    preserved.write_bytes(b"existing user asset")
+    monkeypatch.setattr(
+        handwriting, "MANIFEST", {"license_status": "unresolved", "files": {"model.bin": {}}}
+    )
+    monkeypatch.setattr(handwriting, "MODEL", tmp_path)
+    monkeypatch.setattr(handwriting, "executable", lambda: preserved)
+    monkeypatch.setattr(
+        handwriting.subprocess, "run", lambda *args, **kwargs: pytest.fail("No dependency setup")
+    )
+    monkeypatch.setattr(
+        handwriting.urllib.request,
+        "urlopen",
+        lambda *args, **kwargs: pytest.fail("No model download"),
+    )
+    assert not handwriting.available()
+    with pytest.raises(ValueError, match="permissions remain unresolved"):
+        handwriting.setup(True)
+    assert preserved.read_bytes() == b"existing user asset"
