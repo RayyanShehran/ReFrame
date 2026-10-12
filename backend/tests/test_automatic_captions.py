@@ -567,3 +567,56 @@ def test_component_limit_fails_explicitly_instead_of_returning_a_partial_mask():
     pixels[::3, ::3] = 255
     with pytest.raises(ReferenceError, match="component budget"):
         automatic.glyph_mask(Image.fromarray(pixels))
+
+
+def test_handwriting_timeout_retains_only_completed_owned_readings(tmp_path):
+    import json
+    import sys
+
+    names = ["a" * 64 + ".png", "b" * 64 + ".png"]
+    helper = tmp_path / "helper.py"
+    payload_json = json.dumps(
+        {
+            "engine": "local-test",
+            "results": [
+                {"name": names[0], "text": "Observed words", "score": 0.9, "capped": False}
+            ],
+        }
+    )
+    helper.write_text(
+        "import time\nfrom pathlib import Path\n"
+        + f"Path({str(tmp_path / 'progress.json')!r})"
+        + f".write_text({payload_json!r}, encoding='utf-8')\n"
+        + "while True: time.sleep(.01)\n",
+        encoding="utf-8",
+    )
+    payload, timed_out = automatic.run_handwriting(
+        [sys.executable, str(helper)],
+        tmp_path,
+        names,
+        time.monotonic() + 5,
+        1.0,
+    )
+    assert timed_out and [row["name"] for row in payload["results"]] == names[:1]
+    assert payload["results"][0]["text"] == "Observed words"
+    with pytest.raises(ReferenceError, match="could not be read safely"):
+        automatic.validate_handwriting(json.dumps(payload).encode(), names)
+
+
+@pytest.mark.parametrize(
+    "results",
+    [
+        [{"name": "unowned", "text": "Unknown", "score": 0.9, "capped": False}],
+        [{"name": "owned", "text": "Unknown", "score": float("nan"), "capped": False}],
+        [{"name": "owned", "text": "Unknown", "score": 0.9, "capped": False}] * 2,
+    ],
+)
+def test_partial_handwriting_progress_rejects_unowned_duplicate_or_invalid_rows(results):
+    import json
+
+    with pytest.raises(ReferenceError, match="could not be read safely"):
+        automatic.validate_handwriting(
+            json.dumps({"engine": "local-test", "results": results}).encode(),
+            ["owned"],
+            allow_partial=True,
+        )

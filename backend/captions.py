@@ -155,6 +155,7 @@ class VisibleBinding(color.Schema):
     native_frame_width: int | None = Field(default=None, ge=2, le=1920)
     native_frame_height: int | None = Field(default=None, ge=2, le=1920)
     handwriting_requests: int = Field(default=0, ge=0, le=96)
+    handwriting_completed_requests: int | None = Field(default=None, ge=0, le=96)
     elapsed_seconds: float | None = Field(default=None, ge=0, le=600, allow_inf_nan=False)
 
 

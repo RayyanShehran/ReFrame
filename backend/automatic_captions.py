@@ -654,6 +654,37 @@ def fit_review_width(project_id, cues, directory, stop, deadline):
     return result
 
 
+def run_handwriting(args, stage, names, deadline, stage_limit=70):
+    try:
+        result = engine.run_command(
+            args,
+            stage,
+            "caption-handwriting",
+            deadline,
+            stage_limit,
+            output_limit=128 * 1024,
+            temp_budget=16 * 1024 * 1024,
+        )
+    except engine.ProbeTimeout:
+        # The runner confirms termination before this owned checkpoint is read.
+        progress = stage / "progress.json"
+        if not progress.is_file():
+            return {"results": [], "engine": ""}, True
+        if progress.stat().st_size > 128 * 1024:
+            raise ReferenceError(
+                422, "ocr_output_invalid", "Handwriting progress exceeds its bound."
+            )
+        return validate_handwriting(progress.read_bytes(), names, allow_partial=True), True
+    if result.returncode:
+        raise ReferenceError(
+            503,
+            "handwriting_unavailable",
+            "Local handwriting reading failed. Run its explicit setup "
+            "or continue without captions.",
+        )
+    return validate_handwriting(result.stdout, names), False
+
+
 def native_geometry(video):
     width, height = framing.display_dimensions(video)
     factor = min(1.0, 1920 / max(width, height))
@@ -738,14 +769,16 @@ def overlaps_line(a, b):
     return intersection / min(a.width * a.height, b.width * b.height) >= 0.5
 
 
-def validate_handwriting(raw, names):
+def validate_handwriting(raw, names, *, allow_partial=False):
     try:
         value = json.loads(raw)
         rows = value["results"]
         if (
             not isinstance(rows, list)
-            or len(rows) != len(names)
-            or {r["name"] for r in rows} != set(names)
+            or len(rows) > len(names)
+            or len({r["name"] for r in rows}) != len(rows)
+            or not {r["name"] for r in rows}.issubset(names)
+            or (not allow_partial and len(rows) != len(names))
             or not isinstance(value["engine"], str)
             or len(value["engine"]) > 180
         ):
@@ -807,6 +840,7 @@ def detect(project_id, source, directory, stop, deadline):
     handwriting_bytes = 0
     handwriting_engine = None
     handwriting_requests = 0
+    handwriting_completed_requests = 0
     signatures = {}
     prototypes = []
     discovery = set(frames)
@@ -1209,7 +1243,7 @@ def detect(project_id, source, directory, stop, deadline):
                 try:
                     handwriting_requests = len(names)
                     reads[0] += len(names)
-                    result = engine.run_command(
+                    payload, timed_out = run_handwriting(
                         [
                             str(handwriting.executable()),
                             str(Path(handwriting.__file__)),
@@ -1217,25 +1251,22 @@ def detect(project_id, source, directory, stop, deadline):
                             str(request),
                         ],
                         stage,
-                        "caption-handwriting",
+                        names,
                         reading_deadline,
-                        70,
-                        output_limit=128 * 1024,
-                        temp_budget=16 * 1024 * 1024,
                     )
-                    if result.returncode:
-                        raise ReferenceError(
-                            503,
-                            "handwriting_unavailable",
-                            "Local handwriting reading failed. Run its explicit setup "
-                            "or continue without captions.",
+                    if timed_out:
+                        unresolved[0] = (
+                            "Handwriting deadline reached; completed readings retained for review"
                         )
-                    payload = validate_handwriting(result.stdout, names)
+                    handwriting_completed_requests = len(payload["results"])
                     handwriting_engine = payload["engine"]
                     results = {row["name"]: row for row in payload["results"]}
                     observed = []
                     for index, rect, variants in selected:
-                        choices = [results[name] for name in variants]
+                        choices = [results[name] for name in variants if name in results]
+                        if not choices:
+                            unresolved[index] = "Handwriting reading did not complete"
+                            continue
                         chosen = max(choices, key=lambda row: row["score"])
                         text = chosen["text"]
                         if (
@@ -1254,7 +1285,8 @@ def detect(project_id, source, directory, stop, deadline):
                             minimum_confidence=100,
                             frame_index=index,
                             recognizer="trocr",
-                            needs_review=choices[0]["text"] != choices[1]["text"]
+                            needs_review=len(choices) < len(variants)
+                            or len({row["text"] for row in choices}) != 1
                             or chosen["score"] < 0.85,
                         )
                         observed.append((index, d))
@@ -1541,6 +1573,7 @@ def detect(project_id, source, directory, stop, deadline):
             "native_frame_width": canvas[0],
             "native_frame_height": canvas[1],
             "handwriting_requests": handwriting_requests,
+            "handwriting_completed_requests": handwriting_completed_requests,
             "elapsed_seconds": time.monotonic() - started,
             "source": source["identity"].model_dump(mode="json"),
             "reference_operation_id": source["reference_operation_id"],

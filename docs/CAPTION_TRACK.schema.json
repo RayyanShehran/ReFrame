@@ -631,6 +631,20 @@
           "title": "Handwriting Requests",
           "type": "integer"
         },
+        "handwriting_completed_requests": {
+          "anyOf": [
+            {
+              "maximum": 96,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Handwriting Completed Requests"
+        },
         "elapsed_seconds": {
           "anyOf": [
             {

@@ -203,6 +203,15 @@ def recognize(request_path):
     processor = TrOCRProcessor.from_pretrained(MODEL, local_files_only=True, use_fast=False)
     model = VisionEncoderDecoderModel.from_pretrained(MODEL, local_files_only=True).eval()
     results = []
+    engine = "TrOCR-base-fp32@" + MANIFEST["revision"] + "/transformers-4.57.6/torch-2.7.1+cpu"
+
+    def checkpoint():
+        progress = request_path.parent / "progress.json"
+        partial = progress.with_suffix(".partial")
+        partial.write_text(json.dumps({"results": results, "engine": engine}), encoding="utf-8")
+        partial.replace(progress)
+
+    checkpoint()
     for name in entries:
         if not isinstance(name, str) or not re.fullmatch(r"[0-9a-f]{64}\.png", name):
             raise ValueError("Invalid owned handwriting image name.")
@@ -234,16 +243,8 @@ def recognize(request_path):
                 "capped": capped,
             }
         )
-    print(
-        json.dumps(
-            {
-                "results": results,
-                "engine": "TrOCR-base-fp32@"
-                + MANIFEST["revision"]
-                + "/transformers-4.57.6/torch-2.7.1+cpu",
-            }
-        )
-    )
+        checkpoint()
+    print(json.dumps({"results": results, "engine": engine}))
 
 
 if __name__ == "__main__":
