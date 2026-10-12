@@ -7,12 +7,13 @@ import { useMediaOperation, type MediaOperation } from "./use-media-operation";
 import { Workspace } from "./workspace";
 
 type Options = { audio: "reference" | "original" | "mix" | "mute"; captions: "reference" | "output_audio" | "off"; allow_reused_ranges: boolean; matching_mode?: "subject_aware" | "measurements" };
-type Generation = MediaOperation & { project_id: string; revision: number; operation_id: string | null; stage: string | null; output_id: string | null; notices: string[]; options: Options | null };
+type Generation = MediaOperation & { project_id: string; revision: number; operation_id: string | null; stage: string | null; output_id: string | null; notices: string[]; options: Options | null; caption_review?: { cues: { start: number; end: number; text: string }[]; unreadable_samples: number } | null };
 type Item = { id: string; file: File; url: string; status: "pending" | "uploading" | "succeeded" | "failed"; progress: number; error: string };
 type SavedProject = { id: string; name: string; reference: { canonical_url: string } };
 function parse(value: unknown): Generation {
   const g = value as Generation;
   if (!g || typeof g.project_id !== "string" || !Number.isSafeInteger(g.revision) || g.revision < 0 || !["idle", "running", "ready", "failed"].includes(g.status) || !Array.isArray(g.notices) || g.notices.length > 30 || g.notices.some(n => typeof n !== "string" || n.length > 2000)) throw new Error("Generation status could not be read.");
+  if (g.caption_review && (!Array.isArray(g.caption_review.cues) || g.caption_review.cues.length > 200 || g.caption_review.cues.some(c => !Number.isFinite(c.start) || !Number.isFinite(c.end) || c.start < 0 || c.end <= c.start || typeof c.text !== "string" || c.text.length > 200))) throw new Error("Detected caption review could not be read.");
   return g;
 }
 async function request(path: string, signal: AbortSignal, body?: unknown) {
@@ -41,7 +42,7 @@ export function AutomaticMaker() {
   const [library, setLibrary] = useState<Library | null>(null), [queue, setQueue] = useState<Item[]>([]);
   const [busy, setBusy] = useState(false), [error, setError] = useState(""), [customize, setCustomize] = useState(false);
   const [allowReuse, setAllowReuse] = useState(false), [replace, setReplace] = useState(false), [needsReplace, setNeedsReplace] = useState(false);
-  const [customizeMounted, setCustomizeMounted] = useState(false);
+  const [customizeMounted, setCustomizeMounted] = useState(false), [acceptPartial, setAcceptPartial] = useState(false);
   const [outputId, setOutputId] = useState<string | null>(null);
   const items = useRef<Item[]>([]), action = useRef<AbortController | null>(null), currentId = useRef<string | null>(null);
   const urls = useRef(new Set<string>());
@@ -68,7 +69,7 @@ export function AutomaticMaker() {
       try { await request(`/${encodeURIComponent(old)}/generation/cancel`, AbortSignal.timeout(10000), {}); }
       catch { setError("Could not confirm cancellation. Retry before switching projects."); return; }
     }
-    currentId.current = id; setProjectId(id); setLibrary(null); setOutputId(null); setCustomize(false); setCustomizeMounted(false); setBusy(false); setError(""); setReplace(false); setNeedsReplace(false);
+    currentId.current = id; setProjectId(id); setLibrary(null); setOutputId(null); setCustomize(false); setCustomizeMounted(false); setBusy(false); setError(""); setReplace(false); setNeedsReplace(false); setAcceptPartial(false);
     for (const url of urls.current) URL.revokeObjectURL(url); urls.current.clear(); update([]);
     if (changeHistory) { const url = new URL(window.location.href); if (id) url.searchParams.set("project", id); else url.searchParams.delete("project"); window.history.pushState(null, "", url); }
     if (!id) { setLink(""); setAudio("reference"); setCaptionMode("reference"); return; }
@@ -97,7 +98,7 @@ export function AutomaticMaker() {
     if (operation.options) { setAudio(operation.options.audio); setCaptionMode(operation.options.captions); setAllowReuse(operation.options.allow_reused_ranges); }
     if (operation.output_id) setOutputId(operation.output_id);
   }, [operation?.revision, operation?.status, operation?.output_id]); // eslint-disable-line react-hooks/exhaustive-deps
-  async function generate(matchingMode: "subject_aware" | "measurements" = operation?.options?.matching_mode ?? "subject_aware") {
+  async function generate(matchingMode: "subject_aware" | "measurements" = operation?.options?.matching_mode ?? "subject_aware", captions = captionMode, partial = false) {
     if (action.current || running || (!projectId && !link.trim())) return;
     const controller = new AbortController(); action.current = controller; setBusy(true); setError("");
     try {
@@ -120,8 +121,8 @@ export function AutomaticMaker() {
       if (controller.signal.aborted || currentId.current !== id) return;
       if (items.current.some(item => item.status === "failed")) throw new Error("Some files could not be uploaded. Retry/remove them; successful clips remain saved.");
       if (!retained.clips.length) throw new Error("Choose at least one MP4 or MOV clip.");
-      await request(`/${id}/generation`, controller.signal, { expected_revision: operation?.revision ?? 0, audio, captions: captionMode, allow_reused_ranges: allowReuse, replace_customized: replace, matching_mode: matchingMode });
-      generation.refresh(); setNeedsReplace(false); setReplace(false);
+      await request(`/${id}/generation`, controller.signal, { expected_revision: operation?.revision ?? 0, audio, captions, allow_reused_ranges: allowReuse, replace_customized: replace, matching_mode: matchingMode, accept_partial_captions: partial });
+      generation.refresh(); setNeedsReplace(false); setReplace(false); setAcceptPartial(false);
     } catch (cause) { if (!controller.signal.aborted) { setError(cause instanceof Error ? cause.message : "Generation failed."); if (cause instanceof Error && "code" in cause && cause.code === "generation_replace_required") setNeedsReplace(true); } }
     finally { if (action.current === controller) { action.current = null; setBusy(false); } }
   }
@@ -150,9 +151,11 @@ export function AutomaticMaker() {
       {operation?.status === "running" && <div role="status" className="automatic-progress"><span className="brand-dot">●</span> {operation.stage}<button onClick={() => void generation.start({}, "/cancel")}>Cancel</button></div>}
       {(error || generation.error || operation?.message) && <p role="alert">{error || generation.error || operation?.message}</p>}
       {operation?.status === "failed" && ["sample_limit", "inference_failed", "cache_limit", "analysis_limit", "processing_timeout", "timeout", "deadline", "model_unavailable", "visual_setup", "dimension_limit"].includes(operation.failure_code ?? "") && (operation.stage === "Choosing your clips" || operation.failure_code === "visual_setup") && <><p>Visual matching could not finish within its limits. Your clips and completed work are saved.</p><button disabled={!!running} onClick={() => void generate("measurements")}>Continue using motion and scenes</button></>}
+      {operation?.status === "failed" && (["caption_setup", "caption_unreadable", "caption_partial", "caption_review_required", "caption_cue_limit", "ocr_unavailable", "caption_work_limit", "caption_region_limit", "caption_style_limit", "ocr_failed", "ocr_output_invalid"].includes(operation.failure_code ?? "") || (operation.failure_code === "generation_failed" && operation.stage === "Recreating captions")) && <div className="caption-recovery"><button disabled={!!running} onClick={() => void generate(undefined, captionMode)}>Retry caption reading</button><button disabled={!!running} onClick={() => void generate(undefined, "off")}>Continue without captions</button>{!!operation.caption_review?.cues.length && <><details><summary>{operation.caption_review.cues.length} detected cues — incomplete</summary><ul>{operation.caption_review.cues.map((cue, i) => <li key={i}>{cue.start.toFixed(2)}–{cue.end.toFixed(2)}: {cue.text}</li>)}</ul></details><label><input type="checkbox" checked={acceptPartial} onChange={e => setAcceptPartial(e.target.checked)} /> I want to export these incomplete captions; some words may be missing or misread.</label><button disabled={!!running || !acceptPartial} onClick={() => void generate(undefined, "reference", true)}>Use detected captions</button></>}</div>}
       {operation?.failure_code?.includes("setup") && <details><summary>Setup details</summary><p>Install both local feature sets in backend: <code>uv sync --locked --extra visual --extra transcription</code>. Follow the local visual, OCR and transcription setup guides in the repository’s docs. No assets download during Generate.</p></details>}
     </section>
     {outputId && projectId && <section className="reference-section automatic-result" aria-label="Your video"><h2>Your video</h2>{operation?.status !== "ready" && <p className="hint">Your previous video stays available until a replacement succeeds.</p>}<video controls playsInline preload="metadata" src={`${apiBase}/api/projects/${projectId}/outputs/${outputId}/video`} aria-label="Generated video" /><a className="button-link" href={`${apiBase}/api/projects/${projectId}/outputs/${outputId}/download`}>Download video</a><button onClick={() => { setCustomizeMounted(true); setCustomize(value => !value); }}>{customize ? "Close Customize" : "Customize"}</button>{!!operation?.notices.length && <details><summary>About this result</summary><ul>{operation.notices.map(note => <li key={note}>{note}</li>)}</ul></details>}</section>}
+    {operation?.status === "ready" && !!operation.caption_review?.cues.length && <details><summary>Saved caption reading — incomplete</summary><p>These detected words were retained for review. Check the saved caption mode for this video.</p><ul>{operation.caption_review.cues.map((cue, i) => <li key={i}>{cue.start.toFixed(2)}–{cue.end.toFixed(2)}: {cue.text}</li>)}</ul></details>}
     {!outputId && projectId && <button onClick={() => { setCustomizeMounted(true); setCustomize(value => !value); }}>{customize ? "Close Customize" : "Customize"}</button>}
     {customizeMounted && <div hidden={!customize}><Workspace key={projectId} onProjectChange={id => void open(id)} /></div>}
     {!!projects.length && <details className="project-switcher"><summary>Saved videos</summary><ul>{projects.map(project => <li key={project.id}><button onClick={() => void open(project.id)}>{project.name}</button></li>)}</ul></details>}

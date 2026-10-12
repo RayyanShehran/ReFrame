@@ -141,7 +141,7 @@ class AutomaticBinding(color.Schema):
 class VisibleBinding(color.Schema):
     source: color.Source
     reference_operation_id: UUID
-    method: Literal["visible-tsv-adaptive-v1"]
+    method: Literal["visible-tsv-adaptive-v1", "visible-tsv-adaptive-v2"]
     reads: int = Field(ge=1, le=600)
     engine_version: str = Field(max_length=256)
     assets_commit: str = Field(pattern=r"^[0-9a-f]{40}$")

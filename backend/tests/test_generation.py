@@ -439,6 +439,8 @@ def test_partial_caption_review_requires_confirmation_and_resumes_only_caption_r
 
     client, directory, _ = local
     pid = seed(client, directory)
+    # Recognition is mocked here; optional-asset setup gates are covered separately.
+    monkeypatch.setattr(generation, "capability", lambda *args: None)
     calls = []
 
     def incomplete(project_id, source, *args):
@@ -448,7 +450,7 @@ def test_partial_caption_review_requires_confirmation_and_resumes_only_caption_r
             ["Some text remains unreadable"],
             {
                 "unreadable_samples": 3,
-                "method": "visible-tsv-adaptive-v1",
+                "method": generation.automatic_captions.METHOD,
                 "reads": 4,
                 "engine_version": "local-test",
                 "assets_commit": "a" * 40,
@@ -532,7 +534,7 @@ def test_partial_caption_confirmation_rejects_changed_reference(local):
         evidence=captions.VisibleBinding(
             source=source["identity"].model_copy(update={"media_sha256": "b" * 64}),
             reference_operation_id=source["reference_operation_id"],
-            method="visible-tsv-adaptive-v1",
+            method=generation.automatic_captions.METHOD,
             reads=1,
             engine_version="test",
             assets_commit="a" * 40,

@@ -22,7 +22,7 @@ import reference_motion as motion
 import video_render as render
 from references import ReferenceError
 
-METHOD = "visible-tsv-adaptive-v1"
+METHOD = "visible-tsv-adaptive-v2"
 MAX_READS = 600
 MAX_APPEARANCES = 8
 TOTAL_SECONDS = 300
@@ -264,7 +264,12 @@ def temporary(stage):
 def reliable_wording(detection):
     # Ambiguous letter/digit readings are retained for review, never repaired by guessing.
     tokens = [word.strip(".,!?;:") for word in detection.text.split()]
-    return detection.minimum_confidence >= 75 and not any(t in {"1", "0", "|"} for t in tokens)
+    return (
+        detection.minimum_confidence >= 75
+        and sum(c.isalnum() for c in detection.text) >= 4
+        and not all(t.isdigit() for t in tokens)
+        and not any(t in {"1", "0", "|"} for t in tokens)
+    )
 
 
 def retry_crops(image, uncertain):
@@ -292,7 +297,10 @@ def retry_crops(image, uncertain):
             continue
         box = mask.crop((0, top, width, bottom)).getbbox()
         if box and 0.06 * width <= box[2] - box[0] <= 0.95 * width:
-            boxes.append((box[0], top, box[2], bottom))
+            region = mask.crop((box[0], top, box[2], bottom))
+            density = region.histogram()[255] / (region.width * region.height)
+            if 0.02 <= density <= 0.35:
+                boxes.append((box[0], top, box[2], bottom))
     crops = []
     if boxes:
         # Preserve all lines in the selected block; three-line results require review.
@@ -304,8 +312,18 @@ def retry_crops(image, uncertain):
             max(r[2] for r in near),
             max(r[3] for r in near),
         )
+        margin = max(8, round(height * 0.01))
+        box = (
+            max(0, box[0] - margin),
+            max(0, box[1] - margin),
+            min(width, box[2] + margin),
+            min(height, box[3] + margin),
+        )
         crops.append((ImageOps.invert(mask.crop(box)), box, "eng+ara"))
-    if uncertain:
+    if crops:
+        box = crops[0][1]
+        crops.append((ImageOps.autocontrast(image.crop(box).convert("L")), box, "eng+ara"))
+    elif uncertain:
         r = max(uncertain, key=lambda r: r.width * r.height)
         box = (
             max(0, int((r.x - 0.02) * width)),
@@ -315,6 +333,26 @@ def retry_crops(image, uncertain):
         )
         crops.append((ImageOps.autocontrast(image.crop(box).convert("L")), box, "eng+ara"))
     return crops[:2]
+
+
+def map_crop_detection(detection, box, crop_size, factor, native_size):
+    r = detection.rectangle
+    left = box[0] + (r.x * crop_size[0] - 16) / factor
+    top = box[1] + (r.y * crop_size[1] - 16) / factor
+    right = left + r.width * crop_size[0] / factor
+    bottom = top + r.height * crop_size[1] / factor
+    # OCR can interpret the crop padding as text; it has no corresponding source pixels.
+    if not (box[0] <= left < right <= box[2] and box[1] <= top < bottom <= box[3]):
+        return None
+    detection.rectangle = match.Rectangle(
+        x=left / native_size[0],
+        y=top / native_size[1],
+        width=(right - left) / native_size[0],
+        height=(bottom - top) / native_size[1],
+    )
+    detection.sample_text = None
+    detection.sample_rectangle = None
+    return detection
 
 
 def frame_seek(video, index):
@@ -351,6 +389,7 @@ def detect(project_id, source, directory, stop, deadline):
     cache = {}
     reads = [0]
     unresolved = {}
+    script_votes = Counter()
 
     def read_frame(index):
         color.guard(stop, deadline)
@@ -401,7 +440,20 @@ def detect(project_id, source, directory, stop, deadline):
                 with Image.open(target) as image:
                     image.convert("L").save(ocr_image)
                 detections = []
-                for language in ("eng", "ara"):
+                with Image.open(target) as image:
+                    colored_region = bool(retry_crops(image, []))
+                # Prefer a detected colored-text crop to full-frame texture recognition.
+                languages = () if colored_region else ("eng", "ara")
+                ambiguous = colored_region
+                if not colored_region and script_votes["latin"] > max(
+                    12, 2 * script_votes["arabic"]
+                ):
+                    languages = ("eng",)
+                elif not colored_region and script_votes["arabic"] > max(
+                    12, 2 * script_votes["latin"]
+                ):
+                    languages = ("ara",)
+                for language in languages:
                     color.guard(stop, deadline)
                     if reads[0] >= MAX_READS:
                         unresolved[index] = "OCR work budget reached"
@@ -492,6 +544,10 @@ def detect(project_id, source, directory, stop, deadline):
                 with Image.open(native_target) as image:
                     native = image.convert("RGB")
                 for attempt, (crop, box, language) in enumerate(retry_crops(native, uncertain)):
+                    if script_votes["latin"] > 2 * script_votes["arabic"]:
+                        language = "eng"
+                    elif script_votes["arabic"] > 2 * script_votes["latin"]:
+                        language = "ara"
                     color.guard(stop, deadline)
                     if reads[0] >= MAX_READS:
                         unresolved[index] = "OCR work budget reached"
@@ -503,6 +559,9 @@ def detect(project_id, source, directory, stop, deadline):
                             max(8, round(crop.height * factor_crop)),
                         )
                     )
+                    from PIL import ImageOps
+
+                    crop = ImageOps.expand(crop, border=16, fill=255)
                     path = stage / f"retry-{attempt}.png"
                     crop.save(path)
                     reads[0] += 1
@@ -547,15 +606,14 @@ def detect(project_id, source, directory, stop, deadline):
                         unresolved[index] = "Detector output requires review"
                         continue
                     for d in found:
-                        r = d.rectangle
-                        d.rectangle = match.Rectangle(
-                            x=(box[0] + r.x * crop.width / factor_crop) / native.width,
-                            y=(box[1] + r.y * crop.height / factor_crop) / native.height,
-                            width=r.width * crop.width / factor_crop / native.width,
-                            height=r.height * crop.height / factor_crop / native.height,
-                        )
-                        d.sample_text = None
-                        d.sample_rectangle = None
+                        if d.confidence >= 70 and len(d.text) >= 8:
+                            script_votes["latin"] += sum(
+                                c.isascii() and c.isalpha() for c in d.text
+                            )
+                            script_votes["arabic"] += sum("\u0600" <= c <= "\u06ff" for c in d.text)
+                        if map_crop_detection(d, box, crop.size, factor_crop, native.size) is None:
+                            d.minimum_confidence = 0.0
+                            unresolved[index] = "OCR padding artifact requires review"
                     reliable = [d for d in found if reliable_wording(d)]
                     if found or low:
                         ambiguous = len(reliable) != len(found) or bool(low)
@@ -614,7 +672,11 @@ def detect(project_id, source, directory, stop, deadline):
     for f in nearby:
         read(f)
     frames = sorted(set(frames) | set(nearby))
-    ignored = set()
+    ignored = {text for text, count in counts.items() if count < 2}
+    for values in cache.values():
+        for d in values:
+            if d.text in ignored:
+                unresolved[min(frames)] = "Unstable isolated readings require review"
     creator = source["identity"].canonical_url.split("/@")[-1].split("/")[0].casefold()
     for text in counts:
         compact = "".join(c for c in text.casefold() if c.isalnum())
@@ -628,6 +690,7 @@ def detect(project_id, source, directory, stop, deadline):
         ):
             ignored.add(text)
     changes = track(read, frames, ignored)
+    stable = Counter(d.text for values in cache.values() if (d := dominant(values, ignored)))
     cues, notes = [], []
     if ignored:
         notes.append(
@@ -637,6 +700,9 @@ def detect(project_id, source, directory, stop, deadline):
     for i, (start, detected) in enumerate(changes):
         end = changes[i + 1][0] if i + 1 < len(changes) else total
         if detected is None or end <= start:
+            continue
+        if end - start < 3 or stable[detected.text] < 2:
+            unresolved[start] = "Brief or isolated wording needs review"
             continue
         if len(cues) >= 200:
             raise ReferenceError(

@@ -8,7 +8,7 @@ import time
 import uuid
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, field_validator
 
 import assembly
 import audio_settings
@@ -66,6 +66,12 @@ class CaptionReview(color.Schema):
     evidence: captions.VisibleBinding
     unreadable_samples: int = Field(ge=1, le=3600)
 
+    @field_validator("cues")
+    @classmethod
+    def stable_intervals(cls, cues):
+        # Earlier partial drafts may contain one-frame OCR flicker, not stable caption words.
+        return [cue for cue in cues if cue.end - cue.start >= 0.1 - 0.000001]
+
 
 class Operation(color.Schema):
     project_id: str | None = None
@@ -95,7 +101,13 @@ def get_operation(project_id, require_active=False):
     row = record(project_id)
     if not row:
         return Operation(project_id=project_id)
-    return Operation.model_validate_json(row["operation"])
+    operation = Operation.model_validate_json(row["operation"])
+    if operation.failure_code == "caption_partial" and operation.caption_review:
+        operation.message = (
+            f"Caption reading is incomplete. {len(operation.caption_review.cues)} detected cues "
+            "are saved; retry reading or continue without captions."
+        )
+    return operation
 
 
 def snapshot(project_id, stop=None, deadline=None):
@@ -554,6 +566,7 @@ def prepare_captions(project_id, mode, stop, deadline, operation):
             if mode == "reference" and operation.options.accept_partial_captions:
                 if (
                     not review
+                    or review.evidence.method != automatic_captions.METHOD
                     or not review.cues
                     or review.evidence.source != source["identity"]
                     or str(review.evidence.reference_operation_id)
@@ -574,7 +587,11 @@ def prepare_captions(project_id, mode, stop, deadline, operation):
                 incomplete = evidence.pop("unreadable_samples", 0)
                 if mode == "reference" and incomplete:
                     # Keep prior reliable cues when retrying an unchanged incomplete track.
-                    if review and review.evidence.source == source["identity"]:
+                    if (
+                        review
+                        and review.evidence.source == source["identity"]
+                        and review.evidence.method == automatic_captions.METHOD
+                    ):
                         cues += [
                             c
                             for c in review.cues

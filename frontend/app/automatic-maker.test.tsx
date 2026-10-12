@@ -83,3 +83,27 @@ it("offers direct measurement continuation for a visual limit without reopening 
   expect(screen.queryByText("Advanced editor")).not.toBeInTheDocument();
   expect(screen.getByLabelText("Generated video")).toHaveAttribute("src",expect.stringContaining("previous-output"));
 });
+
+it.each(["Retry caption reading", "Continue without captions", "Use detected captions"])("offers %s beside incomplete reading without repeating upload or requiring Customize", async (action) => {
+  window.history.replaceState(null,"",`/?project=${pid}`);
+  const starts: Record<string,unknown>[] = [];
+  vi.stubGlobal("fetch",vi.fn(async (url:string, init:RequestInit={})=> {
+    if(url.endsWith("/clips")) return ok(library(3));
+    if(url.endsWith("/render")) return ok({output:{output_id:"previous-output"}});
+    if(url.endsWith("/generation")) {
+      if(init.method === "POST") starts.push(JSON.parse(init.body as string));
+      return ok({project_id:pid,revision:3,status:starts.length?"running":"failed",stage:"Recreating captions",output_id:null,options:{audio:"reference",captions:"reference",allow_reused_ranges:false},notices:[],failure_code:"caption_partial",message:"Caption reading is incomplete.",caption_review:{cues:[{start:1,end:2,text:"Reliable words"}],unreadable_samples:2}});
+    }
+    if(url.endsWith(pid)) return ok({id:pid,reference:{canonical_url:"https://www.tiktok.com/@fixture/video/6718335390845095173"}});
+    return ok([]);
+  }));
+  render(<AutomaticMaker />);
+  await screen.findByRole("button",{name:"Retry caption reading"});
+  expect(screen.getByRole("button",{name:"Use detected captions"})).toBeDisabled();
+  if(action === "Use detected captions") fireEvent.click(screen.getByRole("checkbox",{name:/I want to export these incomplete captions/}));
+  fireEvent.click(screen.getByRole("button",{name:action}));
+  await waitFor(()=>expect(starts).toHaveLength(1));
+  expect(starts[0]).toMatchObject({expected_revision:3,captions:action==="Continue without captions"?"off":"reference",accept_partial_captions:action==="Use detected captions"});
+  expect(screen.queryByText("Advanced editor")).not.toBeInTheDocument();
+  expect(screen.getByLabelText("Generated video")).toHaveAttribute("src",expect.stringContaining("previous-output"));
+});

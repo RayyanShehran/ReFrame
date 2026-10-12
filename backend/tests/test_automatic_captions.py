@@ -188,3 +188,35 @@ def test_ambiguous_words_are_collected_without_erasing_reliable_lines():
     unknown = []
     found = automatic.parse((header + body).encode(), 640, 360, unknown)
     assert [d.text for d in found] == ["Reliable"] and len(unknown) == 1
+
+
+def test_retry_crop_uses_sparse_colored_glyphs_instead_of_larger_solid_foreground():
+    pytest.importorskip("PIL")
+    from PIL import Image, ImageDraw, ImageFont
+
+    image = Image.new("RGB", (960, 540), (50, 50, 50))
+    draw = ImageDraw.Draw(image)
+    font = ImageFont.truetype(str(fonts.BUNDLED), 40)
+    draw.text((220, 220), "Readable caption", font=font, fill=(255, 235, 0))
+    draw.rectangle((0, 430, 850, 480), fill=(255, 235, 0))
+    crops = automatic.retry_crops(image, [])
+    assert len(crops) == 2
+    assert all(200 < box[1] < box[3] < 300 for _, box, _ in crops)
+
+
+def test_ambiguous_letter_digit_or_isolated_fragment_is_not_repaired_as_a_word():
+    for text in ["You know 1 want", "50", "all"]:
+        assert not automatic.reliable_wording(detection(text))
+    assert automatic.reliable_wording(detection("Boys you meet"))
+
+
+def test_crop_padding_artifact_cannot_become_source_text_or_raise_a_geometry_error():
+    d = detection("Readable words")
+    d.rectangle = d.rectangle.model_copy(update={"x": 0.0, "y": 0.0})
+    assert automatic.map_crop_detection(d, (0, 0, 100, 100), (232, 232), 2, (960, 540)) is None
+    d.rectangle = automatic.match.Rectangle(
+        x=16 / 232, y=16 / 232, width=100 / 232, height=30 / 232
+    )
+    mapped = automatic.map_crop_detection(d, (0, 0, 100, 100), (232, 232), 2, (960, 540))
+    assert mapped.rectangle.x == 0 and mapped.rectangle.y == 0
+    assert mapped.rectangle.width == pytest.approx(50 / 960)
