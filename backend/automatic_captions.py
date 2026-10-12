@@ -475,6 +475,8 @@ def fit_review_width(project_id, cues, directory, stop, deadline):
             style=captions.Style(), font_binding=fonts.Binding()
         )
         style = appearance_value.style.model_copy(deep=True)
+        if style.font_origin == "assisted" and style.outline_percent is None:
+            style.outline_percent = 0.0
         binding = appearance_value.font_binding or fonts.selected(project_id, style.font)
         appearance_value = appearance_value.model_copy(update={"font_binding": binding})
         if style.font != binding.choice:
@@ -1453,6 +1455,7 @@ def infer(
     base = captions.Style(
         font=font.choice,
         font_origin="assisted",
+        outline_percent=0.0,
         size_percent=min(15.0, max(2.0, r.height * 140)),
         horizontal=r.x + r.width / 2,
         vertical=r.y + r.height,

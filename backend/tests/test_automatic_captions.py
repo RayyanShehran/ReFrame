@@ -491,3 +491,27 @@ def test_refined_model_readings_are_recorded_for_stability_instead_of_dropped():
     stable = Counter(automatic.dominant(rows, set()).text for rows in cache.values())
     assert changes[0][1].text == correct.text
     assert stable[correct.text] == 3 and stable[raw.text] == 0
+
+
+def test_unknown_outline_does_not_add_a_dark_border_to_assisted_handwriting(tmp_path, monkeypatch):
+    def unavailable(*args):
+        raise ReferenceError(422, "no_useful_font_match", "No reliable outline evidence.")
+
+    monkeypatch.setattr(automatic.match, "read", unavailable)
+    observed = detection("Readable words")
+    observed.recognizer = "trocr"
+    appearance, notices = automatic.infer(
+        "fixture",
+        {},
+        observed,
+        1.0,
+        0.5,
+        2.0,
+        tmp_path,
+        threading.Event(),
+        time.monotonic() + 10,
+        0,
+    )
+    assert appearance.style.outline_percent == 0.0
+    assert appearance.style.font == "patrickhand-regular"
+    assert notices and not (tmp_path / "fit-0").exists()

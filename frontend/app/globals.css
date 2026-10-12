@@ -236,3 +236,8 @@ footer { color: var(--secondary); padding-top: 40px; font-size: 12px; }
 .caption-correction-grid fieldset { min-width: 0; }
 .caption-correction-grid textarea { width: 100%; white-space: pre-wrap; }
 @media (max-width: 640px) { .caption-correction-grid { grid-template-columns: 1fr; } }
+
+.caption-correction-grid fieldset, .caption-correction-grid label { display: grid; gap: .5rem; }
+.caption-correction-grid fieldset { padding: 1rem; }
+.caption-correction-grid input[type=number], .caption-correction-grid textarea { display: block; width: 100%; min-height: 44px; padding: .5rem; border: 1px solid var(--border, #333); background: #080808; color: inherit; }
+.caption-correction-grid label:has(input[type=checkbox]) { display: flex; align-items: center; }
