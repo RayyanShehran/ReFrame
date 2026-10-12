@@ -464,9 +464,104 @@ def frame_seek(video, index):
     return [], f"setpts=PTS-STARTPTS,select='gte(t,{index}/30)',trim=end_frame=1,"
 
 
+def fit_review_width(project_id, cues, directory, stop, deadline):
+    source = render.footage.source(project_id, stop, deadline)
+    video, _, _ = render.probe(source["path"], directory, deadline, temp_budget=16 * 1024 * 1024)
+    _, canvas, _ = framing.geometry(video, framing.read(project_id).settings)
+    widths = {}
+    result = []
+    for i, cue in enumerate(cues):
+        appearance_value = cue.appearance or captions.Appearance(
+            style=captions.Style(), font_binding=fonts.Binding()
+        )
+        style = appearance_value.style.model_copy(deep=True)
+        binding = appearance_value.font_binding or fonts.selected(project_id, style.font)
+        appearance_value = appearance_value.model_copy(update={"font_binding": binding})
+        if style.font != binding.choice:
+            raise ReferenceError(
+                422, "caption_font_unavailable", "Caption style and font identity do not match."
+            )
+        longest = max(cue.text.split("\n"), key=len)
+        key = (appearance_value.font_binding.sha256, longest)
+        if key not in widths:
+            if len(widths) >= 24:
+                raise ReferenceError(
+                    413, "caption_appearance_limit", "Caption width calibration reached its bound."
+                )
+            with temporary(directory / f"review-width-{i}") as stage:
+                prepared = fonts.prepare(
+                    project_id, appearance_value.font_binding, [cue], stage, deadline
+                )
+                box, _ = appearance.render_sample(
+                    style.model_copy(
+                        update={
+                            "size_percent": 10.0,
+                            "color": "white",
+                            "outline_percent": 0.0,
+                            "shadow_percent": 0.0,
+                            "horizontal": 0.5,
+                            "vertical": 0.5,
+                        }
+                    ),
+                    appearance_value.font_binding,
+                    longest,
+                    4096,
+                    256,
+                    stage,
+                    prepared,
+                    deadline,
+                    with_mask=False,
+                )
+                widths[key] = box[2]
+        anchor = style.horizontal if style.horizontal is not None else 0.5
+        available = {"left": 1 - anchor, "right": anchor, "center": 2 * min(anchor, 1 - anchor)}[
+            style.alignment
+        ]
+        if available <= 0:
+            raise ReferenceError(
+                422, "caption_appearance_limit", "Move the caption anchor inside the output canvas."
+            )
+        size = style.size_percent or {"small": 3.5, "medium": 5.0, "large": 7.0}[style.size]
+        style.size_percent = fit_width(size, widths[key], min(0.9, available), canvas)
+        result.append(
+            cue.model_copy(
+                update={"appearance": appearance_value.model_copy(update={"style": style})}
+            )
+        )
+    return result
+
+
+def native_geometry(video):
+    width, height = framing.display_dimensions(video)
+    factor = min(1.0, 1920 / max(width, height))
+    return tuple(max(2, math.floor(v * factor / 2) * 2) for v in (width, height))
+
+
+def fit_width(size, measured_width, fraction, canvas):
+    width, height = canvas
+    limit = 10 * fraction * width * 256 / (measured_width * height)
+    fitted = max(0.5, min(size, limit))
+    if measured_width * height / 256 * fitted / 10 > width * 0.96:
+        raise ReferenceError(
+            422,
+            "caption_appearance_limit",
+            "Caption text cannot fit this canvas within supported sizes. "
+            "Correct or shorten the cue.",
+        )
+    return fitted
+
+
 def glyph_similarity(a, b):
     mass = sum(a) + sum(b)
     return 2 * sum(min(x, y) for x, y in zip(a, b)) / mass if mass else 0.0
+
+
+def read_tracked(index, read_frame, cache, signatures, prototypes):
+    found = read_frame(index)
+    cache[index] = (
+        recover_lines(index, signatures.get(index, []), prototypes, found) if prototypes else found
+    )
+    return cache[index]
 
 
 def recover_lines(index, signatures, prototypes, fallback):
@@ -552,9 +647,11 @@ def validate_handwriting(raw, names):
 
 
 def detect(project_id, source, directory, stop, deadline):
+    started = time.monotonic()
     overall_deadline = deadline
     deadline = min(deadline, time.monotonic() + TOTAL_SECONDS)
     engine._control.stop = stop
+    reading_deadline = min(deadline, time.monotonic() + 220)
     available = ocr.inspect_capability(directory, deadline)
     if not available["available"]:
         raise ReferenceError(
@@ -566,7 +663,13 @@ def detect(project_id, source, directory, stop, deadline):
         source["path"], directory, deadline, temp_budget=16 * 1024 * 1024
     )
     color.inspect_colors(video)
-    scale, canvas, _ = framing.geometry(video, framing.Settings())
+    footage_source = render.footage.source(project_id, stop, deadline)
+    output_video, _, _ = render.probe(
+        footage_source["path"], directory, deadline, temp_budget=16 * 1024 * 1024
+    )
+    _, output_canvas, _ = framing.geometry(output_video, framing.read(project_id).settings)
+    canvas = native_geometry(video)
+    scale = canvas
     factor = 960 / max(canvas)
     width, height = (max(2, math.floor(v * factor / 2) * 2) for v in canvas)
     total = max(1, math.floor(duration * 30 + 0.00001))
@@ -580,6 +683,7 @@ def detect(project_id, source, directory, stop, deadline):
     handwriting_images, handwriting_rows = {}, []
     handwriting_bytes = 0
     handwriting_engine = None
+    handwriting_requests = 0
     signatures = {}
     prototypes = []
     discovery = set(frames)
@@ -593,7 +697,13 @@ def detect(project_id, source, directory, stop, deadline):
             return crop_cache[key]
         reads[0] += 1
         result = engine.run_command(
-            args, stage, name, deadline, 15, output_limit=128 * 1024, temp_budget=16 * 1024 * 1024
+            args,
+            stage,
+            name,
+            reading_deadline,
+            15,
+            output_limit=128 * 1024,
+            temp_budget=16 * 1024 * 1024,
         )
         if result.returncode == 0:
             if len(crop_cache) >= 32:
@@ -605,8 +715,8 @@ def detect(project_id, source, directory, stop, deadline):
         nonlocal handwriting_bytes
         if index in cache:
             return cache[index]
-        color.guard(stop, deadline)
-        if reads[0] >= MAX_READS or deadline - time.monotonic() < 20:
+        color.guard(stop, reading_deadline)
+        if reads[0] >= MAX_READS or reading_deadline - time.monotonic() < 20:
             unresolved[index] = "OCR work budget reached"
             cache[index] = []
             return []
@@ -641,7 +751,7 @@ def detect(project_id, source, directory, stop, deadline):
                     ],
                     stage,
                     "caption-frame",
-                    deadline,
+                    reading_deadline,
                     15,
                     temp_budget=16 * 1024 * 1024,
                 )
@@ -665,7 +775,7 @@ def detect(project_id, source, directory, stop, deadline):
                 ):
                     languages = ("ara",)
                 for language in languages:
-                    color.guard(stop, deadline)
+                    color.guard(stop, reading_deadline)
                     if reads[0] >= MAX_READS:
                         unresolved[index] = "OCR work budget reached"
                         break
@@ -748,7 +858,7 @@ def detect(project_id, source, directory, stop, deadline):
                     ],
                     stage,
                     "caption-native-frame",
-                    deadline,
+                    reading_deadline,
                     15,
                     temp_budget=16 * 1024 * 1024,
                 )
@@ -759,7 +869,7 @@ def detect(project_id, source, directory, stop, deadline):
                         language = "eng"
                     elif script_votes["arabic"] > 2 * script_votes["latin"]:
                         language = "ara"
-                    color.guard(stop, deadline)
+                    color.guard(stop, reading_deadline)
                     if reads[0] >= MAX_READS:
                         unresolved[index] = "OCR work budget reached"
                         break
@@ -949,12 +1059,7 @@ def detect(project_id, source, directory, stop, deadline):
 
     def read(index):
         try:
-            found = read_frame(index)
-            return (
-                recover_lines(index, signatures.get(index, []), prototypes, found)
-                if prototypes
-                else found
-            )
+            return read_tracked(index, read_frame, cache, signatures, prototypes)
         except engine.ProbeTimeout:
             # The contained runner confirms termination before raising a timeout.
             unresolved[index] = "Caption reading deadline reached"
@@ -967,13 +1072,15 @@ def detect(project_id, source, directory, stop, deadline):
         allowed = min(handwriting.MAX_LINES // 2, (MAX_READS - reads[0]) // 2)
         selected = select_handwriting(handwriting_rows, allowed)
         names = list(dict.fromkeys(name for _, _, variants in selected for name in variants))
-        if names and deadline - time.monotonic() > 30:
+        if names and reading_deadline - time.monotonic() > 30:
             with temporary(directory / "handwriting") as stage:
                 for name in names:
                     (stage / name).write_bytes(handwriting_images[name])
                 request = stage / "request.json"
                 request.write_text(json.dumps(names), encoding="utf-8")
                 try:
+                    handwriting_requests = len(names)
+                    reads[0] += len(names)
                     result = engine.run_command(
                         [
                             str(handwriting.executable()),
@@ -983,7 +1090,7 @@ def detect(project_id, source, directory, stop, deadline):
                         ],
                         stage,
                         "caption-handwriting",
-                        deadline,
+                        reading_deadline,
                         70,
                         output_limit=128 * 1024,
                         temp_budget=16 * 1024 * 1024,
@@ -997,7 +1104,6 @@ def detect(project_id, source, directory, stop, deadline):
                         )
                     payload = validate_handwriting(result.stdout, names)
                     handwriting_engine = payload["engine"]
-                    reads[0] += len(names)
                     results = {row["name"]: row for row in payload["results"]}
                     observed = []
                     for index, rect, variants in selected:
@@ -1035,6 +1141,13 @@ def detect(project_id, source, directory, stop, deadline):
                             }
                         )
                         d.needs_review = d.needs_review or agreement < 2
+                        if any(
+                            reliable_wording(old)
+                            and old.minimum_confidence >= 90
+                            and old.text.casefold() == d.text.casefold()
+                            for old in cache[index]
+                        ):
+                            continue
                         cache[index] = merge_readings(
                             [
                                 existing
@@ -1112,6 +1225,8 @@ def detect(project_id, source, directory, stop, deadline):
         )
     styles = {}
     baselines = {}
+    partial_fits = 0
+    width_cache = {}
     for i, (start, detected) in enumerate(changes):
         end = changes[i + 1][0] if i + 1 < len(changes) else total
         if detected is None or end <= start:
@@ -1143,6 +1258,7 @@ def detect(project_id, source, directory, stop, deadline):
                 styles[key] = captions.Appearance(
                     style=captions.Style(
                         font=font.choice,
+                        font_origin="assisted",
                         color=detected.ink,
                         horizontal=rectangle.x + rectangle.width / 2,
                         vertical=min(1.0, rectangle.y + rectangle.height + 0.025),
@@ -1162,7 +1278,12 @@ def detect(project_id, source, directory, stop, deadline):
                     font_binding=font,
                 )
                 baselines[key] = 0.025
-                if len(styles) == 1 and deadline - time.monotonic() >= 40:
+                if (
+                    partial_fits < 2
+                    and sum(c.isalnum() for c in (detected.sample_text or detected.text)) >= 4
+                    and deadline - time.monotonic() >= 40
+                ):
+                    partial_fits += 1
                     try:
                         styles[key], messages = infer(
                             project_id,
@@ -1216,7 +1337,48 @@ def detect(project_id, source, directory, stop, deadline):
         fitted.style.color = detected.ink
         fitted.style.horizontal = rectangle.x + rectangle.width / 2
         fitted.style.vertical = min(1.0, max(0.0, rectangle.y + rectangle.height + baselines[key]))
-        # Retain the font-fit baseline for the complete multiline block.
+        longest = max(detected.text.split("\n"), key=len)
+        width_key = (fitted.font_binding.sha256, longest)
+        if width_key not in width_cache:
+            if len(width_cache) >= 24:
+                raise ReferenceError(
+                    413,
+                    "caption_appearance_limit",
+                    "Caption width calibration reached its bound. Review the partial captions.",
+                )
+            with temporary(directory / f"width-{i}") as stage:
+                prepared = fonts.prepare(
+                    project_id,
+                    fitted.font_binding,
+                    [captions.Cue(start=0.0, end=1.0, text=longest)],
+                    stage,
+                    deadline,
+                )
+                measured, _ = appearance.render_sample(
+                    fitted.style.model_copy(
+                        update={
+                            "size_percent": 10.0,
+                            "horizontal": 0.5,
+                            "vertical": 0.5,
+                            "color": "white",
+                            "outline_percent": 0.0,
+                            "shadow_percent": 0.0,
+                        }
+                    ),
+                    fitted.font_binding,
+                    longest,
+                    4096,
+                    256,
+                    stage,
+                    prepared,
+                    deadline,
+                    with_mask=False,
+                )
+                width_cache[width_key] = measured[2]
+        fitted.style.size_percent = fit_width(
+            fitted.style.size_percent, width_cache[width_key], rectangle.width, output_canvas
+        )
+        # Font proportions stay intact; a different output aspect can reduce glyph height.
         cues.append(
             captions.Cue(start=start / 30, end=end / 30, text=detected.text, appearance=fitted)
         )
@@ -1248,6 +1410,10 @@ def detect(project_id, source, directory, stop, deadline):
             "engine_version": available["engine_version"]
             + ("; " + handwriting_engine if handwriting_engine else ""),
             "assets_commit": available["assets_commit"],
+            "native_frame_width": canvas[0],
+            "native_frame_height": canvas[1],
+            "handwriting_requests": handwriting_requests,
+            "elapsed_seconds": time.monotonic() - started,
             "source": source["identity"].model_dump(mode="json"),
             "reference_operation_id": source["reference_operation_id"],
         },
@@ -1279,7 +1445,9 @@ def infer(
     region = match.Rectangle(
         x=left, y=top, width=min(1 - left, r.width + 0.04), height=min(1 - top, r.height + 0.04)
     )
-    font = fonts.Binding()
+    font = (
+        fonts.builtin("patrickhand-regular") if detected.recognizer == "trocr" else fonts.Binding()
+    )
     if any("\u0600" <= c <= "\u06ff" for c in detected.text):
         font = fonts.builtin("amiri-bold")
     base = captions.Style(
@@ -1305,6 +1473,14 @@ def infer(
             stage=(stage, deadline),
         )
         font = fonts.Binding.model_validate(result["ranked"][0]["font"])
+        if detected.recognizer == "trocr" and not any(
+            "\u0600" <= c <= "\u06ff" for c in detected.text
+        ):
+            font = fonts.builtin("patrickhand-regular")
+            messages.append(
+                "English handwriting uses the available Patrick Hand approximation; "
+                "raw mask ranking can favor printed fonts."
+            )
         match.review(
             project_id,
             match.Review(

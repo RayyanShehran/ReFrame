@@ -12,7 +12,7 @@ const bounded = (v: unknown, min: number, max: number, nullable = false) => (nul
 export function readStyle(value: unknown): CaptionStyle {
   if (!value || typeof value !== "object") throw new Error("Invalid caption style.");
   const s = { ...defaultStyle, ...value } as CaptionStyle;
-  if (!color(s.color) || !/^#[0-9a-f]{6}$/i.test(s.outline_color) || !/^#[0-9a-f]{6}$/i.test(s.shadow_color) || !["small", "medium", "large"].includes(s.size) || !["bottom-center", "center"].includes(s.placement) || !fontChoices.includes(s.font) || !["manual", "assisted"].includes(s.font_origin) || !["left", "center", "right"].includes(s.alignment) || !bounded(s.size_percent, 2, 15, true) || !bounded(s.outline_percent, 0, 2, true) || !bounded(s.shadow_percent, 0, 3) || !bounded(s.horizontal, 0, 1, true) || !bounded(s.vertical, 0, 1, true) || typeof s.bold !== "boolean" || typeof s.italic !== "boolean") throw new Error("Invalid caption style.");
+  if (!color(s.color) || !/^#[0-9a-f]{6}$/i.test(s.outline_color) || !/^#[0-9a-f]{6}$/i.test(s.shadow_color) || !["small", "medium", "large"].includes(s.size) || !["bottom-center", "center"].includes(s.placement) || !fontChoices.includes(s.font) || !["manual", "assisted"].includes(s.font_origin) || !["left", "center", "right"].includes(s.alignment) || !bounded(s.size_percent, .5, 15, true) || !bounded(s.outline_percent, 0, 2, true) || !bounded(s.shadow_percent, 0, 3) || !bounded(s.horizontal, 0, 1, true) || !bounded(s.vertical, 0, 1, true) || typeof s.bold !== "boolean" || typeof s.italic !== "boolean") throw new Error("Invalid caption style.");
   return s;
 }
 export function validFont(f: FontBinding): boolean {
@@ -79,7 +79,7 @@ export function StyleControls({ value, onChange }: { value: CaptionStyle; onChan
   return <fieldset className="caption-cue"><legend>Caption appearance</legend>
     <label>Text color<input type="color" value={s.color === "white" ? "#ffffff" : s.color === "yellow" ? "#ffff00" : s.color} onChange={e => set("color", e.target.value)} /></label>
     <label>Caption size <select value={s.size} onChange={e => onChange({ ...s, size: e.target.value as CaptionStyle["size"], size_percent: null })}>{["small", "medium", "large"].map(v => <option key={v} value={v}>{v}</option>)}</select></label>
-    {range("size_percent", "Text size (% of output height)", 2, 15, .1, { small: 3.5, medium: 5, large: 7 }[s.size])}
+    {range("size_percent", "Text size (% of output height)", .5, 15, .1, { small: 3.5, medium: 5, large: 7 }[s.size])}
     <label>Outline color<input type="color" value={s.outline_color} onChange={e => set("outline_color", e.target.value)} /></label>
     {range("outline_percent", "Outline width (% of output height)", 0, 2, .1, .3)}
     <label>Shadow color<input type="color" value={s.shadow_color} onChange={e => set("shadow_color", e.target.value)} /></label>

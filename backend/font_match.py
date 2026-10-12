@@ -22,7 +22,7 @@ import frame_preview as preview
 import projects
 from references import ReferenceError
 
-METHOD = "glyph-mask-dice-v1"
+METHOD = "glyph-mask-dice-v2"
 
 
 class Rectangle(color.Schema):
@@ -208,7 +208,11 @@ def similarity(reference, candidate):
     return round(score * 100, 3)
 
 
-def gray(path, width, height, directory, deadline, name):
+def chroma(raw):
+    return bytes(max(raw[i : i + 3]) - min(raw[i : i + 3]) for i in range(0, len(raw), 3))
+
+
+def gray(path, width, height, directory, deadline, name, *, color_contrast=False):
     target = directory / f"{name}.gray"
     preview.tool(
         [
@@ -219,7 +223,7 @@ def gray(path, width, height, directory, deadline, name):
             "-i",
             str(path),
             "-vf",
-            f"scale={width}:{height}:flags=area,format=gray",
+            f"scale={width}:{height}:flags=area,format={'rgb24' if color_contrast else 'gray'}",
             "-frames:v",
             "1",
             "-f",
@@ -231,9 +235,9 @@ def gray(path, width, height, directory, deadline, name):
         deadline,
     )
     raw = target.read_bytes()
-    if len(raw) != width * height:
+    if len(raw) != width * height * (3 if color_contrast else 1):
         no_ranking()
-    return raw
+    return chroma(raw) if color_contrast else raw
 
 
 def sample_png(normalized, directory, deadline, name):
@@ -305,9 +309,18 @@ def generate(project_id, request, *, stage=None):
         )
         scale = min(1, 512 / cw, 192 / ch)
         mw, mh = max(8, round(cw * scale)), max(8, round(ch * scale))
-        reference_mask = mask(
-            gray(crop, mw, mh, directory, deadline, "reference"), mw, mh, request.polarity
-        )
+        try:
+            reference_mask = mask(
+                gray(crop, mw, mh, directory, deadline, "reference"), mw, mh, request.polarity
+            )
+        except ReferenceError as error:
+            if error.code != "no_useful_font_match":
+                raise
+            reference_mask = mask(
+                gray(crop, mw, mh, directory, deadline, "reference-color", color_contrast=True),
+                mw,
+                mh,
+            )
         ranked, skipped = [], []
         cue = captions.Cue(start=0, end=1, text=request.text)
         for index, binding in enumerate(catalog):

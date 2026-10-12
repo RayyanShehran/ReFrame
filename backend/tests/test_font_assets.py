@@ -110,7 +110,7 @@ def test_legacy_style_ass_defaults_and_literal_text(tmp_path):
 @pytest.mark.parametrize(
     "style",
     [
-        {"size_percent": 1},
+        {"size_percent": 0.49},
         {"size_percent": 16},
         {"outline_percent": -1},
         {"shadow_percent": 4},

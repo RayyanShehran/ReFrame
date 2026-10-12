@@ -20,7 +20,7 @@ import frame_preview as preview
 import projects
 from references import ReferenceError
 
-METHOD = "static-fill-render-fit-v1"
+METHOD = "static-fill-render-fit-v2"
 MAX_FITS = 4
 FIELDS = ("size_percent", "horizontal", "vertical", "color", "outline_color", "outline_percent")
 UNSUPPORTED = ("bold", "italic", "shadow_color", "shadow_percent", "alignment", "placement")
@@ -212,10 +212,14 @@ def fill(raw, width, height, polarity):
     except ReferenceError as error:
         if error.code != "no_useful_font_match":
             raise
-        unusable(
-            "Fill could not be separated. Adjust crop/text/polarity; "
-            "gradients or heavy effects may be unsupported."
-        )
+        try:
+            _, _, points, _ = match.mask(match.chroma(raw), width, height, details=True)
+        except ReferenceError as color_error:
+            if color_error.code != "no_useful_font_match":
+                raise
+            unusable(
+                "Fill could not be separated. Gradients or complex backgrounds may be unsupported."
+            )
     buckets = Counter(tuple(raw[3 * i + c] // 16 for c in range(3)) for i in points)
     dominant = buckets.most_common(1)[0][0]
     core = {i for i in points if tuple(raw[3 * i + c] // 16 for c in range(3)) == dominant}
@@ -277,7 +281,9 @@ def outline(raw, points, width, height, canvas_height):
     return "measured", hex_color(ink), round(percent, 3)
 
 
-def render_sample(style, binding, text, width, height, directory, prepared, deadline, *, png=False):
+def render_sample(
+    style, binding, text, width, height, directory, prepared, deadline, *, png=False, with_mask=True
+):
     track = captions.Track(
         style=style, font_binding=binding, cues=[captions.Cue(start=0, end=1, text=text)]
     )
@@ -307,7 +313,9 @@ def render_sample(style, binding, text, width, height, directory, prepared, dead
     if len(raw) != width * height * 3:
         unusable("Caption calibration did not produce a complete frame.")
     points = {i for i in range(width * height) if raw[3 * i] > 127}
-    return bbox(points, width), match.mask(raw[::3], width, height, tight=False)
+    return bbox(points, width), (
+        match.mask(raw[::3], width, height, tight=False) if with_mask else None
+    )
 
 
 def generate(project_id, request, *, stage=None):

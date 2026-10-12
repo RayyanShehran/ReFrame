@@ -668,7 +668,14 @@ def prepare_captions(project_id, mode, stop, deadline, operation):
                     raise ReferenceError(
                         409, "caption_review_required", "Retry caption reading first."
                     )
-                cues, notices = review.cues, list(review.notices)
+                cues = automatic_captions.fit_review_width(
+                    project_id,
+                    review.cues,
+                    directory,
+                    stop,
+                    min(deadline, time.monotonic() + automatic_captions.TOTAL_SECONDS),
+                )
+                notices = list(review.notices)
                 evidence = review.evidence.model_dump(mode="json")
                 notices.append(
                     "Incomplete captions exported by explicit confirmation; some words are missing."

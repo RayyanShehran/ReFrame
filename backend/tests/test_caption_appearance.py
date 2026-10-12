@@ -132,8 +132,14 @@ def test_real_clean_outlined_compressed_fit_and_partial_uncertainty(local, sourc
         pid = selected(client, directory, source)
         response = suggest(client, pid)
         if index == 4:
-            assert response.status_code == 422, response.text
-            assert response.json()["error"]["code"] == "appearance_unusable"
+            assert response.status_code == 200, response.text
+            fitted = response.json()["suggestion"]
+            assert fitted["outline_status"] == "not_estimated"
+            assert fitted["values"]["outline_percent"] is None
+            assert abs(fitted["values"]["size_percent"] - KNOWN["size_percent"]) < 0.5
+            assert abs(fitted["values"]["horizontal"] - KNOWN["horizontal"]) * 640 < 4
+            assert abs(fitted["values"]["vertical"] - KNOWN["vertical"]) * 360 < 4
+            assert fitted["fitting_attempts"] <= 4
             continue
         assert response.status_code == 200, response.text
         data = response.json()

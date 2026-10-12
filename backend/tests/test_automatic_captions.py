@@ -411,3 +411,83 @@ def test_real_three_line_fixture_preserves_regions_and_flags_arabic_uncertainty(
     assert len(found.text.split("\n")) == 3
     # The installed reader misreads this Naskh word; it must remain unverified.
     assert not automatic.reliable_wording(found)
+
+
+def test_caption_width_fits_final_canvas_without_stretching_or_silent_clipping():
+    assert automatic.fit_width(8.0, 400, 0.5, (478, 850)) == pytest.approx(1.7995294)
+    assert automatic.fit_width(8.0, 100, 0.8, (1280, 720)) == 8.0
+    with pytest.raises(ReferenceError, match="cannot fit"):
+        automatic.fit_width(8.0, 10000, 0.5, (478, 850))
+
+
+def test_caption_native_geometry_keeps_source_detail_instead_of_export_downscaling():
+    video = {"width": 1920, "height": 1080, "sample_aspect_ratio": "1:1"}
+    assert automatic.native_geometry(video) == (1920, 1080)
+    assert automatic.native_geometry(video | {"width": 3840, "height": 2160}) == (1920, 1080)
+    assert automatic.native_geometry(
+        video | {"sample_aspect_ratio": "2:1", "tags": {"rotate": "90"}}
+    ) == (540, 1920)
+
+
+def test_real_wide_caption_measurement_is_not_rejected_as_a_font_matching_word(local):
+    client, directory, _ = local
+    stage = directory / "wide-caption-measurement"
+    stage.mkdir()
+    text = "A long visible caption is measured across the complete output canvas"
+    binding = fonts.Binding()
+    prepared = fonts.prepare(
+        "fixture",
+        binding,
+        [captions.Cue(start=0.0, end=1.0, text=text)],
+        stage,
+        time.monotonic() + 20,
+    )
+    box, mask = automatic.appearance.render_sample(
+        captions.Style(size_percent=10.0, outline_percent=0.0, placement="center"),
+        binding,
+        text,
+        4096,
+        256,
+        stage,
+        prepared,
+        time.monotonic() + 20,
+        with_mask=False,
+    )
+    assert box[2] / box[3] > 15 and box[2] < 4096
+    size = automatic.fit_width(8.0, box[2], 0.6, (478, 850))
+    assert box[2] * 850 / 256 * size / 10 <= 478 * 0.6 + 0.001
+    assert mask is None
+
+
+def test_color_contrast_can_measure_readable_glyphs_with_equal_luminance_background():
+    pixels = bytes(
+        v
+        for y in range(16)
+        for x in range(20)
+        for v in (
+            (200, 160, 0) if 4 <= x < 13 and 4 <= y < 12 and (x + y) % 2 == 0 else (154, 154, 154)
+        )
+    )
+    points, box, ink = automatic.appearance.fill(pixels, 20, 16, "light")
+    assert len(points) == 36 and box == (4, 4, 9, 8) and ink == (200, 160, 0)
+
+
+def test_refined_model_readings_are_recorded_for_stability_instead_of_dropped():
+    from collections import Counter
+
+    correct = detection("You know I want you to know.")
+    correct.recognizer = "trocr"
+    correct.needs_review = True
+    raw = detection("You know 1 want you to know,")
+    shape = bytes([255, 0, 255, 0] * 1024)
+    prototypes = [(0, correct.rectangle, shape, correct), (30, correct.rectangle, shape, correct)]
+    cache = {}
+    signatures = {f: [(correct.rectangle, shape)] for f in [0, 15, 30]}
+
+    def read(frame):
+        return automatic.read_tracked(frame, lambda _: [raw], cache, signatures, prototypes)
+
+    changes = automatic.track(read, [0, 15, 30], set())
+    stable = Counter(automatic.dominant(rows, set()).text for rows in cache.values())
+    assert changes[0][1].text == correct.text
+    assert stable[correct.text] == 3 and stable[raw.text] == 0

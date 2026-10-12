@@ -27,7 +27,9 @@ class Style(color.Schema):
     placement: Literal["bottom-center", "center"] = "bottom-center"
     font: Literal["default", "custom"] | font_catalog.Choice = "default"
     font_origin: Literal["manual", "assisted"] = "manual"
-    size_percent: float | None = Field(default=None, ge=2, le=15, strict=True, allow_inf_nan=False)
+    size_percent: float | None = Field(
+        default=None, ge=0.5, le=15, strict=True, allow_inf_nan=False
+    )
     outline_color: str = Field(default="#000000", pattern=r"^#[0-9a-fA-F]{6}$")
     outline_percent: float | None = Field(
         default=None, ge=0, le=2, strict=True, allow_inf_nan=False
@@ -145,6 +147,10 @@ class VisibleBinding(color.Schema):
     reads: int = Field(ge=1, le=600)
     engine_version: str = Field(max_length=256)
     assets_commit: str = Field(pattern=r"^[0-9a-f]{40}$")
+    native_frame_width: int | None = Field(default=None, ge=2, le=1920)
+    native_frame_height: int | None = Field(default=None, ge=2, le=1920)
+    handwriting_requests: int = Field(default=0, ge=0, le=96)
+    elapsed_seconds: float | None = Field(default=None, ge=0, le=600, allow_inf_nan=False)
 
 
 class Track(Choices):
