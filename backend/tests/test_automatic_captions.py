@@ -539,3 +539,31 @@ def test_unresolved_checkpoint_cannot_download_or_be_selected(tmp_path, monkeypa
     with pytest.raises(ValueError, match="permissions remain unresolved"):
         handwriting.setup(True)
     assert preserved.read_bytes() == b"existing user asset"
+
+
+def test_colored_caption_is_separated_from_a_tall_sign_and_remote_specks():
+    pytest.importorskip("numpy")
+    pytest.importorskip("PIL")
+    from PIL import Image, ImageDraw, ImageFont
+
+    image = Image.new("RGB", (960, 540), (35, 60, 50))
+    draw = ImageDraw.Draw(image)
+    draw.rectangle((750, 10, 959, 520), fill=(230, 160, 50))
+    font = ImageFont.truetype(str(fonts.BUNDLED), 28)
+    draw.text((270, 250), "A separate message", font=font, fill=(240, 220, 20))
+    for x in range(20, 90, 10):
+        draw.rectangle((x, 255, x + 2, 257), fill=(240, 220, 20))
+    found = automatic.retry_crops(image, [])
+    assert found
+    left, top, right, bottom = found[0][1]
+    assert left >= 250 and right < 750 and 240 < top < bottom < 310
+    assert len(automatic.handwriting.line_crops(image, found[0][0], found[0][1])) == 1
+
+
+def test_component_limit_fails_explicitly_instead_of_returning_a_partial_mask():
+    np = pytest.importorskip("numpy")
+    Image = pytest.importorskip("PIL.Image")
+    pixels = np.zeros((400, 400), dtype=np.uint8)
+    pixels[::3, ::3] = 255
+    with pytest.raises(ReferenceError, match="component budget"):
+        automatic.glyph_mask(Image.fromarray(pixels))

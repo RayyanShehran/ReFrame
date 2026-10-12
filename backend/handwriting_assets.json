@@ -1,36 +1,44 @@
 {
-  "model": "microsoft/trocr-small-handwritten",
-  "revision": "b4648cfa171985a6745f37ddd637e98c0da958ac",
+  "model": "microsoft/trocr-base-handwritten",
+  "revision": "eaacaf452b06415df8f10bb6fad3a4c11e609406",
+  "license_status": "permitted",
+  "license": "MIT (published model-card metadata)",
   "files": {
+    "README.md": {
+      "bytes": 2999,
+      "sha256": "9f808e1fc12dcb61c89a38f00303506dbc85db8ea988cec441a9324e0c8f2843"
+    },
     "config.json": {
-      "bytes": 4211,
-      "sha256": "2b6e06edec319984eca99c932d940bfa1f308db3f74d6279440b906c373bf727"
+      "bytes": 4165,
+      "sha256": "4c779f24e063c437c3dafd5b2e6c9f59f2fa2bd1dbb4ae6a30153bbbbf19e647"
     },
     "generation_config.json": {
       "bytes": 190,
       "sha256": "41149cdcffec4d657f32dfcddd9b208037f01286c9e07945c724908c58ed0193"
     },
+    "merges.txt": {
+      "bytes": 456318,
+      "sha256": "1ce1664773c50f3e0cc8842619a93edc4624525b728b188a9e0be33b7726adc5"
+    },
+    "model.safetensors": {
+      "bytes": 1333384464,
+      "sha256": "25a40cddc7e6120140a3d5b9e3dd3878a92ada7b4f312953ab22edc19c2a5acc"
+    },
     "preprocessor_config.json": {
-      "bytes": 272,
-      "sha256": "eec0c686d2e2ea6d5887f87e1c6a34ef5bf1ba5b2ac98b8675e131da646fa1d2"
-    },
-    "pytorch_model.bin": {
-      "bytes": 245933041,
-      "sha256": "1b83102cbc1520dee1c3937ac334da83da18cf4683d46ebd1bd4e93ebe584dd7"
-    },
-    "sentencepiece.bpe.model": {
-      "bytes": 1356293,
-      "sha256": "6f5e2fefcf793761a76a6bfb8ad35489f9c203b25557673284b6d032f41043f4"
+      "bytes": 224,
+      "sha256": "2fcc0da9466ee00be0403b26027373039e032820ebac409e207b32e52e52119d"
     },
     "special_tokens_map.json": {
-      "bytes": 238,
-      "sha256": "58dc0a3d15e3bad4861bcf2dee770ea327344d185182d4c5d2bf253285e53a83"
+      "bytes": 772,
+      "sha256": "c611b1f7d416eb001ee4f293d903ea8c88e703463f1d403f1866a0352743fd00"
     },
     "tokenizer_config.json": {
-      "bytes": 327,
-      "sha256": "e098c98c6834fbcd3f3e75215e3e8b8868f0fe5bf07aef93d28e4f7196db293c"
+      "bytes": 1118,
+      "sha256": "5a1356884c6ae736a621841535264ba7c5bebd52f169258add2c48fcbb32d50a"
+    },
+    "vocab.json": {
+      "bytes": 898822,
+      "sha256": "06b4d46c8e752d410213d9548eb27a54db70fda0319b6271fb8d59dead5e1cab"
     }
-  },
-  "license_status": "unresolved",
-  "license_evidence": "https://huggingface.co/microsoft/trocr-small-handwritten/tree/b4648cfa171985a6745f37ddd637e98c0da958ac"
+  }
 }

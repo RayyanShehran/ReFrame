@@ -574,7 +574,8 @@
           "enum": [
             "visible-tsv-adaptive-v1",
             "visible-tsv-adaptive-v2",
-            "visible-tsv-adaptive-v3"
+            "visible-tsv-adaptive-v3",
+            "visible-tsv-adaptive-v4"
           ],
           "title": "Method",
           "type": "string"

@@ -12,11 +12,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 ENV = ROOT / ".tools" / "handwriting"
-MODEL = ROOT / ".tools" / "handwriting-model"
+MODEL = ROOT / ".tools" / "handwriting-base-model"
 MANIFEST = json.loads(
     Path(__file__).with_name("handwriting_assets.json").read_text(encoding="utf-8")
 )
-MAX_LINES = 96
+MAX_LINES = 16
 
 
 def executable():
@@ -44,7 +44,7 @@ def verify():
 def setup(download):
     if not download:
         raise ValueError(
-            "Use setup --download to explicitly install 247 MB of model assets "
+            "Use setup --download to explicitly install 1.34 GB of MIT-labelled model assets "
             "and CPU dependencies (about 300 MB of wheels). No media is uploaded."
         )
     if MANIFEST.get("license_status") != "permitted":
@@ -134,8 +134,31 @@ def line_crops(image, mask, box):
         if bottom - top < 0.015 * image.height:
             continue
         bounds = foreground.crop((0, top, foreground.width, bottom)).getbbox()
-        x, right = box[0] + bounds[0], box[0] + bounds[2]
-        y, end = box[1] + top, box[1] + bottom
+        region = foreground.crop((bounds[0], top, bounds[2], bottom))
+        groups = []
+        left = last = None
+        for column in range(region.width):
+            ink = region.crop((column, 0, column + 1, region.height)).histogram()[255]
+            if ink >= max(2, region.height * 0.05):
+                if left is None:
+                    left = column
+                last = column
+            elif left is not None and column - last > region.height * 1.5:
+                groups.append((left, last + 1))
+                left = last = None
+        if left is not None:
+            groups.append((left, last + 1))
+        if not groups:
+            continue
+        left, right = max(groups, key=lambda pair: pair[1] - pair[0])
+        bounds = (bounds[0] + max(0, left - 4), top, min(bounds[2], bounds[0] + right + 4), bottom)
+        content = foreground.crop(bounds).getbbox()
+        x = box[0] + bounds[0] + content[0]
+        right = box[0] + bounds[0] + content[2]
+        y = box[1] + bounds[1] + content[1]
+        end = box[1] + bounds[1] + content[3]
+        top, bottom = y - box[1], end - box[1]
+        bounds = (x - box[0], top, right - box[0], bottom)
         if (right - x) / (end - y) < 3:
             continue
         binary = mask.crop((bounds[0], max(0, top - 5), bounds[2], min(mask.height, bottom + 5)))
@@ -215,7 +238,7 @@ def recognize(request_path):
         json.dumps(
             {
                 "results": results,
-                "engine": "TrOCR-small@"
+                "engine": "TrOCR-base-fp32@"
                 + MANIFEST["revision"]
                 + "/transformers-4.57.6/torch-2.7.1+cpu",
             }

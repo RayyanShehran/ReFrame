@@ -26,7 +26,7 @@ import reference_motion as motion
 import video_render as render
 from references import ReferenceError
 
-METHOD = "visible-tsv-adaptive-v3"
+METHOD = "visible-tsv-adaptive-v4"
 MAX_READS = 600
 MAX_APPEARANCES = 8
 TOTAL_SECONDS = 300
@@ -346,55 +346,159 @@ def reliable_wording(detection):
     )
 
 
-def retry_crops(image, uncertain):
-    """Two bounded native-resolution crops, retaining coordinates for timeline/style binding."""
-    from PIL import ImageChops, ImageOps
+def glyph_mask(mask):
+    import numpy as np
+    from PIL import Image
 
-    width, height = image.size
-    r, g, b = image.convert("RGB").split()
+    a = np.asarray(mask, dtype=np.uint8)
+    h, w = a.shape
+    parents = []
+    boxes = []
+    previous = []
+
+    def find(i):
+        while parents[i] != i:
+            parents[i] = parents[parents[i]]
+            i = parents[i]
+        return i
+
+    for y, row in enumerate(a):
+        edges = np.flatnonzero(np.diff(np.r_[False, row > 0, False])).tolist()
+        current = []
+        at = 0
+        for left, right in zip(edges[::2], edges[1::2]):
+            while at < len(previous) and previous[at][1] < left - 1:
+                at += 1
+            linked = []
+            j = at
+            while j < len(previous) and previous[j][0] <= right:
+                linked.append(find(previous[j][2]))
+                j += 1
+            if linked:
+                ident = linked[0]
+                for other in linked[1:]:
+                    if other != ident:
+                        parents[other] = ident
+                        b = boxes[other]
+                        old = boxes[ident]
+                        boxes[ident] = [
+                            min(old[0], b[0]),
+                            min(old[1], b[1]),
+                            max(old[2], b[2]),
+                            max(old[3], b[3]),
+                        ]
+                b = boxes[ident]
+                boxes[ident] = [min(b[0], left), min(b[1], y), max(b[2], right), y + 1]
+            else:
+                if len(parents) >= 16384:
+                    raise ReferenceError(
+                        413,
+                        "caption_region_limit",
+                        "Caption component budget reached; review the reference.",
+                    )
+                ident = len(parents)
+                parents.append(ident)
+                boxes.append([left, y, right, y + 1])
+            current.append((left, right, ident))
+        previous = current
+    removed = []
+    for i, box in enumerate(boxes):
+        if find(i) != i:
+            continue
+        x, y, right, bottom = box
+        if bottom - y > h * 0.15 or right - x > w * 0.95:
+            removed.append(box)
+    clean = a.copy()
+    # Reapply the original small glyphs after removing connected large scenery.
+    for x, y, right, bottom in removed:
+        clean[y:bottom, x:right] = 0
+    for i, (x, y, right, bottom) in enumerate(boxes):
+        if find(i) == i and (bottom - y <= h * 0.15 and right - x <= w * 0.95):
+            clean[y:bottom, x:right] = a[y:bottom, x:right]
+    return Image.fromarray(clean)
+
+
+def color_masks(image):
+    from PIL import ImageChops
+
+    channels = image.convert("RGB").split()
+    r, g, b = channels
+    hue = image.convert("HSV").getchannel("H")
     bright = ImageChops.lighter(ImageChops.lighter(r, g), b).point(lambda v: 255 if v > 130 else 0)
-    channels = (r, g, b)
-    candidates = []
     for i in range(3):
         first, second = channels[(i + 1) % 3], channels[(i + 2) % 3]
-        for foreground, background in (
+        for foreground, background in [
             (channels[i], ImageChops.lighter(first, second)),
             (ImageChops.darker(first, second), channels[i]),
-        ):
+        ]:
             mask = ImageChops.darker(
                 ImageChops.subtract(foreground, background).point(lambda v: 255 if v > 55 else 0),
                 bright,
             )
-            bands, start, last = [], None, None
-            for y in range(height):
-                box = mask.crop((0, y, width, y + 1)).getbbox()
-                if box and box[2] - box[0] >= width * 0.04:
-                    if start is None:
-                        start = y
-                    last = y
-                elif start is not None and y - last > 4:
-                    bands.append((start, last + 1))
-                    start = last = None
-            if start is not None:
+            yield glyph_mask(mask), False
+            histogram = ImageChops.darker(hue, mask).histogram()
+            buckets = [sum(histogram[j : j + 16]) for j in range(0, 256, 16)]
+            buckets[0] -= mask.histogram()[0]
+            for k in sorted(range(16), key=lambda k: buckets[k], reverse=True)[:3]:
+                if buckets[k] < 20:
+                    continue
+                yield (
+                    glyph_mask(
+                        ImageChops.darker(
+                            mask, hue.point(lambda v: 255 if k * 16 <= v < (k + 1) * 16 else 0)
+                        )
+                    ),
+                    True,
+                )
+
+
+def retry_crops(image, uncertain):
+    """Two bounded native-resolution crops, retaining coordinates for timeline/style binding."""
+    from PIL import ImageOps
+
+    width, height = image.size
+    candidates = []
+    for mask, partitioned in color_masks(image):
+        bands, start, last = [], None, None
+        for y in range(height):
+            box = mask.crop((0, y, width, y + 1)).getbbox()
+            if box and box[2] - box[0] >= width * 0.04:
+                if start is None:
+                    start = y
+                last = y
+            elif start is not None and y - last > 4:
                 bands.append((start, last + 1))
-            boxes = []
-            for top, bottom in bands:
-                if not 0.015 * height <= bottom - top <= 0.15 * height or top > 0.94 * height:
-                    continue
-                box = mask.crop((0, top, width, bottom)).getbbox()
-                if not box or not 0.06 * width <= box[2] - box[0] <= 0.95 * width:
-                    continue
-                region = mask.crop((box[0], top, box[2], bottom))
-                density = region.histogram()[255] / (region.width * region.height)
-                runs, active = 0, False
-                for x in range(region.width):
-                    present = bool(region.crop((x, 0, x + 1, region.height)).getbbox())
-                    if present and not active:
-                        runs += 1
-                    active = present
-                if 0.02 <= density <= 0.35 and runs >= 3 and region.width / region.height >= 3:
-                    boxes.append((box[0], top, box[2], bottom))
-                    candidates.append((region.width * min(runs, 40) * (1 - density), mask, boxes))
+                start = last = None
+        if start is not None:
+            bands.append((start, last + 1))
+        boxes = []
+        for top, bottom in bands:
+            if not 0.015 * height <= bottom - top <= 0.15 * height or top > 0.94 * height:
+                continue
+            box = mask.crop((0, top, width, bottom)).getbbox()
+            if not box or not 0.06 * width <= box[2] - box[0] <= 0.95 * width:
+                continue
+            region = mask.crop((box[0], top, box[2], bottom))
+            density = region.histogram()[255] / (region.width * region.height)
+            runs, active = 0, False
+            for x in range(region.width):
+                present = bool(region.crop((x, 0, x + 1, region.height)).getbbox())
+                if present and not active:
+                    runs += 1
+                active = present
+            if 0.02 <= density <= 0.35 and runs >= 3 and region.width / region.height >= 3:
+                boxes.append((box[0], top, box[2], bottom))
+                candidates.append(
+                    (
+                        region.width
+                        * min(runs, 40)
+                        * (1 - density)
+                        * (0.1 if box[0] <= width * 0.01 or box[2] >= width * 0.99 else 1)
+                        * (0.5 if partitioned else 1),
+                        mask,
+                        boxes,
+                    )
+                )
     if candidates:
         _, mask, boxes = max(candidates, key=lambda row: row[0])
     else:
@@ -410,6 +514,23 @@ def retry_crops(image, uncertain):
             max(r[2] for r in near),
             max(r[3] for r in near),
         )
+        lines = handwriting.line_crops(image, ImageOps.invert(mask.crop(box)), box)
+        if lines:
+            boxes = [
+                (
+                    round(r[0] * width),
+                    round(r[1] * height),
+                    round((r[0] + r[2]) * width),
+                    round((r[1] + r[3]) * height),
+                )
+                for r, _ in lines
+            ]
+            box = (
+                min(r[0] for r in boxes),
+                min(r[1] for r in boxes),
+                max(r[2] for r in boxes),
+                max(r[3] for r in boxes),
+            )
         margin = max(8, round(height * 0.01))
         box = (
             max(0, box[0] - margin),
@@ -976,6 +1097,11 @@ def detect(project_id, source, directory, stop, deadline):
                         )
                         signatures.setdefault(index, []).append((rectangle, shape))
                         if not handwriting_ready or index not in discovery:
+                            continue
+                        if any(
+                            reliable_wording(d) and overlaps_line(d.rectangle, rectangle)
+                            for d in detections
+                        ):
                             continue
                         names = []
                         for crop in variants:
