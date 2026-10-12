@@ -3,6 +3,7 @@
 import csv
 import hashlib
 import io
+import json
 import math
 import shutil
 import time
@@ -19,6 +20,7 @@ import color_analysis as color
 import font_assets as fonts
 import font_match as match
 import framing
+import handwriting_ocr as handwriting
 import reference_engine as engine
 import reference_motion as motion
 import video_render as render
@@ -42,6 +44,8 @@ class Detection:
     minimum_confidence: float = 100.0
     sharpness: float = 0.0
     frame_index: int | None = None
+    recognizer: str = "tesseract"
+    needs_review: bool = False
 
 
 def parse(raw, width, height, uncertain=None):
@@ -70,8 +74,23 @@ def parse(raw, width, height, uncertain=None):
             raise ValueError("Missing detector page")
         if len(rows) > 2048:
             raise ValueError("Too many words")
-        groups = {}
+        groups, line_boxes = {}, {}
         for row in rows:
+            if int(row["level"]) == 4:
+                x, y, w, h = (int(row[k]) for k in ("left", "top", "width", "height"))
+                if not (
+                    0 <= x < width
+                    and 0 <= y < height
+                    and 0 < w <= width - x
+                    and 0 < h <= height - y
+                ):
+                    raise ValueError("Invalid line geometry")
+                line_boxes[tuple(int(row[k]) for k in ("block_num", "par_num", "line_num"))] = (
+                    x,
+                    y,
+                    x + w,
+                    y + h,
+                )
             if int(row["level"]) != 5 or not row["text"].strip():
                 continue
             confidence = float(row["conf"])
@@ -88,12 +107,13 @@ def parse(raw, width, height, uncertain=None):
             key = tuple(int(row[k]) for k in ("block_num", "par_num", "line_num"))
             groups.setdefault(key, []).append((row["text"].strip(), x, y, w, h, confidence))
         detections = []
-        for words in groups.values():
+        for key, words in groups.items():
             text = " ".join(word[0] for word in words)
             confidence = sum(word[5] for word in words) / len(words)
             # This is a heuristic rejection rule, not a calibrated confidence threshold.
             x, y = min(w[1] for w in words), min(w[2] for w in words)
             right, bottom = max(w[1] + w[3] for w in words), max(w[2] + w[4] for w in words)
+            x, y, right, bottom = line_boxes.get(key, (x, y, right, bottom))
             if confidence < 35 or sum(c.isalnum() for c in text) < 2:
                 if (
                     10 <= confidence < 35
@@ -203,10 +223,10 @@ def dominant(rows, ignored):
             continue
         c = d.rectangle
         if (
-            abs(c.height - r.height) < r.height * 0.3
+            abs(c.height - r.height) < r.height * 0.6
             and abs(c.x + c.width / 2 - r.x - r.width / 2) < 0.08
             and all(abs(c.y - line.rectangle.y) > r.height * 0.5 for line in lines)
-            and any(abs(c.y - line.rectangle.y) <= r.height * 1.8 for line in lines)
+            and any(abs(c.y - line.rectangle.y) <= r.height * 4.0 for line in lines)
         ):
             lines.append(d)
     if len(lines) > 3:
@@ -318,7 +338,8 @@ def reliable_wording(detection):
     # Ambiguous letter/digit readings are retained for review, never repaired by guessing.
     tokens = [word.strip(".,!?;:") for word in detection.text.split()]
     return (
-        detection.minimum_confidence >= 75
+        not detection.needs_review
+        and detection.minimum_confidence >= 75
         and sum(c.isalnum() for c in detection.text) >= 4
         and not all(t.isdigit() for t in tokens)
         and not any(t in {"1", "0", "|"} for t in tokens)
@@ -331,34 +352,53 @@ def retry_crops(image, uncertain):
 
     width, height = image.size
     r, g, b = image.convert("RGB").split()
-    mask = ImageChops.subtract(
-        ImageChops.lighter(ImageChops.lighter(r, g), b),
-        ImageChops.darker(ImageChops.darker(r, g), b),
-    ).point(lambda v: 255 if v > 55 else 0)
-    bright = ImageChops.lighter(ImageChops.lighter(r, g), b).point(lambda v: 255 if v > 180 else 0)
-    mask = ImageChops.darker(mask, bright)
-    bands, start, last = [], None, None
-    for y in range(height):
-        box = mask.crop((0, y, width, y + 1)).getbbox()
-        if box and box[2] - box[0] >= width * 0.04:
-            if start is None:
-                start = y
-            last = y
-        elif start is not None and y - last > 4:
-            bands.append((start, last + 1))
-            start = last = None
-    if start is not None:
-        bands.append((start, last + 1))
-    boxes = []
-    for top, bottom in bands:
-        if not 0.015 * height <= bottom - top <= 0.15 * height or top > 0.94 * height:
-            continue
-        box = mask.crop((0, top, width, bottom)).getbbox()
-        if box and 0.06 * width <= box[2] - box[0] <= 0.95 * width:
-            region = mask.crop((box[0], top, box[2], bottom))
-            density = region.histogram()[255] / (region.width * region.height)
-            if 0.02 <= density <= 0.35:
-                boxes.append((box[0], top, box[2], bottom))
+    bright = ImageChops.lighter(ImageChops.lighter(r, g), b).point(lambda v: 255 if v > 130 else 0)
+    channels = (r, g, b)
+    candidates = []
+    for i in range(3):
+        first, second = channels[(i + 1) % 3], channels[(i + 2) % 3]
+        for foreground, background in (
+            (channels[i], ImageChops.lighter(first, second)),
+            (ImageChops.darker(first, second), channels[i]),
+        ):
+            mask = ImageChops.darker(
+                ImageChops.subtract(foreground, background).point(lambda v: 255 if v > 55 else 0),
+                bright,
+            )
+            bands, start, last = [], None, None
+            for y in range(height):
+                box = mask.crop((0, y, width, y + 1)).getbbox()
+                if box and box[2] - box[0] >= width * 0.04:
+                    if start is None:
+                        start = y
+                    last = y
+                elif start is not None and y - last > 4:
+                    bands.append((start, last + 1))
+                    start = last = None
+            if start is not None:
+                bands.append((start, last + 1))
+            boxes = []
+            for top, bottom in bands:
+                if not 0.015 * height <= bottom - top <= 0.15 * height or top > 0.94 * height:
+                    continue
+                box = mask.crop((0, top, width, bottom)).getbbox()
+                if not box or not 0.06 * width <= box[2] - box[0] <= 0.95 * width:
+                    continue
+                region = mask.crop((box[0], top, box[2], bottom))
+                density = region.histogram()[255] / (region.width * region.height)
+                runs, active = 0, False
+                for x in range(region.width):
+                    present = bool(region.crop((x, 0, x + 1, region.height)).getbbox())
+                    if present and not active:
+                        runs += 1
+                    active = present
+                if 0.02 <= density <= 0.35 and runs >= 3 and region.width / region.height >= 3:
+                    boxes.append((box[0], top, box[2], bottom))
+                    candidates.append((region.width * min(runs, 40) * (1 - density), mask, boxes))
+    if candidates:
+        _, mask, boxes = max(candidates, key=lambda row: row[0])
+    else:
+        mask, boxes = None, []
     crops = []
     if boxes:
         # Preserve all lines in the selected block; up to three lines retain top-to-bottom ordering.
@@ -424,6 +464,93 @@ def frame_seek(video, index):
     return [], f"setpts=PTS-STARTPTS,select='gte(t,{index}/30)',trim=end_frame=1,"
 
 
+def glyph_similarity(a, b):
+    mass = sum(a) + sum(b)
+    return 2 * sum(min(x, y) for x, y in zip(a, b)) / mass if mass else 0.0
+
+
+def recover_lines(index, signatures, prototypes, fallback):
+    recovered = []
+    for rectangle, signature in signatures:
+        candidates = [
+            (f, d)
+            for f, r, shape, d in prototypes
+            if abs(f - index) <= 90
+            and abs(rectangle.y - r.y) < 0.025
+            and 0.8 <= rectangle.width / r.width <= 1.25
+            and glyph_similarity(signature, shape) >= 0.8
+        ]
+        model = [(f, d) for f, d in candidates if d.recognizer == "trocr"]
+        if len({f for f, _ in model}) >= 2:
+            candidates = model
+        if candidates:
+            counts = Counter(d.text for _, d in candidates)
+            chosen = max(
+                (d for _, d in candidates),
+                key=lambda d: (counts[d.text], d.confidence, d.sharpness),
+            )
+            recovered.append(
+                replace(
+                    chosen,
+                    rectangle=rectangle,
+                    glyph_height=rectangle.height,
+                    sample_rectangle=None,
+                    sample_text=None,
+                    frame_index=index,
+                )
+            )
+    if not recovered:
+        return fallback
+    return recovered + [
+        d for d in fallback if not any(overlaps_line(d.rectangle, r.rectangle) for r in recovered)
+    ]
+
+
+def select_handwriting(rows, limit):
+    count = min(len(rows), limit)
+    if count == 1:
+        return [rows[len(rows) // 2]]
+    return [rows[round(i * (len(rows) - 1) / (count - 1))] for i in range(count)]
+
+
+def overlaps_line(a, b):
+    intersection = max(0, min(a.x + a.width, b.x + b.width) - max(a.x, b.x)) * max(
+        0, min(a.y + a.height, b.y + b.height) - max(a.y, b.y)
+    )
+    return intersection / min(a.width * a.height, b.width * b.height) >= 0.5
+
+
+def validate_handwriting(raw, names):
+    try:
+        value = json.loads(raw)
+        rows = value["results"]
+        if (
+            not isinstance(rows, list)
+            or len(rows) != len(names)
+            or {r["name"] for r in rows} != set(names)
+            or not isinstance(value["engine"], str)
+            or len(value["engine"]) > 180
+        ):
+            raise ValueError("Missing handwriting output")
+        for row in rows:
+            if (
+                not isinstance(row["text"], str)
+                or len(row["text"]) > 200
+                or type(row["score"]) not in {int, float}
+                or not math.isfinite(row["score"])
+                or not 0 <= row["score"] <= 1
+                or type(row["capped"]) is not bool
+            ):
+                raise ValueError("Invalid handwriting values")
+            if row["text"].strip():
+                captions.Cue(start=0.0, end=1.0, text=row["text"])
+        return value
+    except (KeyError, TypeError, ValueError, UnicodeError):
+        raise ReferenceError(
+            422, "ocr_output_invalid", "Handwriting output could not be read safely."
+        ) from None
+
+
 def detect(project_id, source, directory, stop, deadline):
     overall_deadline = deadline
     deadline = min(deadline, time.monotonic() + TOTAL_SECONDS)
@@ -449,6 +576,13 @@ def detect(project_id, source, directory, stop, deadline):
     unresolved = {}
     script_votes = Counter()
     crop_cache = {}
+    handwriting_ready = handwriting.available()
+    handwriting_images, handwriting_rows = {}, []
+    handwriting_bytes = 0
+    handwriting_engine = None
+    signatures = {}
+    prototypes = []
+    discovery = set(frames)
 
     def cached_ocr(args, stage, name):
         key = (
@@ -468,9 +602,10 @@ def detect(project_id, source, directory, stop, deadline):
         return result
 
     def read_frame(index):
-        color.guard(stop, deadline)
+        nonlocal handwriting_bytes
         if index in cache:
             return cache[index]
+        color.guard(stop, deadline)
         if reads[0] >= MAX_READS or deadline - time.monotonic() < 20:
             unresolved[index] = "OCR work budget reached"
             cache[index] = []
@@ -580,7 +715,12 @@ def detect(project_id, source, directory, stop, deadline):
 
             with Image.open(target) as image:
                 native = image.convert("RGB")
-            if uncertain or not detections or any(not reliable_wording(d) for d in detections):
+            if (
+                uncertain
+                or not detections
+                or any(not reliable_wording(d) for d in detections)
+                or (handwriting_ready and colored_region)
+            ):
                 native_target = stage / "native.png"
                 native_width = min(1920, canvas[0])
                 native_height = max(2, round(canvas[1] * native_width / canvas[0]))
@@ -694,6 +834,56 @@ def detect(project_id, source, directory, stop, deadline):
                         detections = readable
                     if len(reliable) == len(found) and reliable:
                         break
+            if handwriting_ready or colored_region:
+                candidates = retry_crops(native, [])
+                if candidates:
+                    mask, box, _ = candidates[0]
+                    lines = handwriting.line_crops(native, mask, box)
+                    if len(lines) > 3:
+                        unresolved[index] = "More than three visible lines require review"
+                        lines = []
+                    for rect, variants in lines:
+                        rectangle = match.Rectangle(
+                            x=rect[0], y=rect[1], width=rect[2], height=rect[3]
+                        )
+                        if any(
+                            any("\u0600" <= c <= "\u06ff" for c in d.text)
+                            and overlaps_line(d.rectangle, rectangle)
+                            for d in detections
+                        ):
+                            continue
+                        from PIL import ImageOps
+
+                        binary = variants[0]
+                        shape = (
+                            ImageOps.invert(
+                                binary.crop((16, 16, binary.width - 16, binary.height - 16))
+                            )
+                            .resize((128, 32))
+                            .tobytes()
+                        )
+                        signatures.setdefault(index, []).append((rectangle, shape))
+                        if not handwriting_ready or index not in discovery:
+                            continue
+                        names = []
+                        for crop in variants:
+                            crop.thumbnail((2048, 256))
+                            encoded = io.BytesIO()
+                            crop.save(encoded, format="PNG")
+                            raw = encoded.getvalue()
+                            name = hashlib.sha256(raw).hexdigest() + ".png"
+                            if name not in handwriting_images:
+                                if (
+                                    len(raw) > 256 * 1024
+                                    or handwriting_bytes + len(raw) > 8 * 1024 * 1024
+                                ):
+                                    unresolved[index] = "Handwriting crop memory bound reached"
+                                    break
+                                handwriting_images[name] = raw
+                                handwriting_bytes += len(raw)
+                            names.append(name)
+                        if len(names) == 2:
+                            handwriting_rows.append((index, rect, names))
             # Do not export isolated texture-like glyphs or low-confidence word fragments.
             reliable = [d for d in detections if reliable_wording(d)]
             if uncertain and not reliable or ambiguous:
@@ -759,14 +949,139 @@ def detect(project_id, source, directory, stop, deadline):
 
     def read(index):
         try:
-            return read_frame(index)
+            found = read_frame(index)
+            return (
+                recover_lines(index, signatures.get(index, []), prototypes, found)
+                if prototypes
+                else found
+            )
         except engine.ProbeTimeout:
             # The contained runner confirms termination before raising a timeout.
             unresolved[index] = "Caption reading deadline reached"
             cache[index] = []
             return []
 
+    for f in frames:
+        read(f)
+    if handwriting_rows and script_votes["latin"] > script_votes["arabic"]:
+        allowed = min(handwriting.MAX_LINES // 2, (MAX_READS - reads[0]) // 2)
+        selected = select_handwriting(handwriting_rows, allowed)
+        names = list(dict.fromkeys(name for _, _, variants in selected for name in variants))
+        if names and deadline - time.monotonic() > 30:
+            with temporary(directory / "handwriting") as stage:
+                for name in names:
+                    (stage / name).write_bytes(handwriting_images[name])
+                request = stage / "request.json"
+                request.write_text(json.dumps(names), encoding="utf-8")
+                try:
+                    result = engine.run_command(
+                        [
+                            str(handwriting.executable()),
+                            str(Path(handwriting.__file__)),
+                            "recognize",
+                            str(request),
+                        ],
+                        stage,
+                        "caption-handwriting",
+                        deadline,
+                        70,
+                        output_limit=128 * 1024,
+                        temp_budget=16 * 1024 * 1024,
+                    )
+                    if result.returncode:
+                        raise ReferenceError(
+                            503,
+                            "handwriting_unavailable",
+                            "Local handwriting reading failed. Run its explicit setup "
+                            "or continue without captions.",
+                        )
+                    payload = validate_handwriting(result.stdout, names)
+                    handwriting_engine = payload["engine"]
+                    reads[0] += len(names)
+                    results = {row["name"]: row for row in payload["results"]}
+                    observed = []
+                    for index, rect, variants in selected:
+                        choices = [results[name] for name in variants]
+                        chosen = max(choices, key=lambda row: row["score"])
+                        text = chosen["text"]
+                        if (
+                            not text.strip()
+                            or sum(c.isalnum() for c in text) < 4
+                            or chosen["capped"]
+                        ):
+                            unresolved[index] = (
+                                "Handwriting reading was empty or reached its token bound"
+                            )
+                            continue
+                        d = Detection(
+                            text,
+                            match.Rectangle(x=rect[0], y=rect[1], width=rect[2], height=rect[3]),
+                            chosen["score"] * 100,
+                            minimum_confidence=100,
+                            frame_index=index,
+                            recognizer="trocr",
+                            needs_review=choices[0]["text"] != choices[1]["text"]
+                            or chosen["score"] < 0.85,
+                        )
+                        observed.append((index, d))
+                    for index, d in observed:
+                        agreement = len(
+                            {
+                                f
+                                for f, other in observed
+                                if other.text == d.text
+                                and abs(other.rectangle.y - d.rectangle.y) < 0.08
+                                and abs(f - index) <= 90
+                            }
+                        )
+                        d.needs_review = d.needs_review or agreement < 2
+                        cache[index] = merge_readings(
+                            [
+                                existing
+                                for existing in cache[index]
+                                if not overlaps_line(existing.rectangle, d.rectangle)
+                            ],
+                            [d],
+                        )
+                        if d.needs_review or not reliable_wording(d):
+                            unresolved[index] = "Handwriting variants or adjacent frames disagree"
+                    # Selected frames retain their own geometry/color; uncertainty stays disclosed.
+                    for index in {f for f, _ in observed}:
+                        rows = cache[index]
+                        if rows and all(reliable_wording(d) for d in rows):
+                            unresolved.pop(index, None)
+                        for d in rows:
+                            if d.recognizer == "trocr":
+                                nearest = [
+                                    other
+                                    for values in cache.values()
+                                    for other in values
+                                    if other.recognizer == "tesseract"
+                                    and abs(other.rectangle.y - d.rectangle.y) < 0.08
+                                ]
+                                if nearest:
+                                    d.ink = min(
+                                        nearest,
+                                        key=lambda other: abs(other.rectangle.x - d.rectangle.x),
+                                    ).ink
+                                d.glyph_height = d.rectangle.height
+                except engine.ProbeTimeout:
+                    unresolved[0] = "Handwriting reading reached its contained deadline"
+        else:
+            unresolved[0] = "Handwriting inference budget unavailable"
+    handwriting_images.clear()
+    for index, shapes in signatures.items():
+        for rectangle, shape in shapes:
+            for d in cache.get(index, []):
+                if (
+                    overlaps_line(d.rectangle, rectangle)
+                    and d.rectangle.width / rectangle.width >= 0.8
+                ):
+                    prototypes.append((index, rectangle, shape, d))
+    for index in cache:
+        cache[index] = recover_lines(index, signatures.get(index, []), prototypes, cache[index])
     counts = Counter(d.text for f in frames for d in read(f))
+
     # Read nearby frames at their own timestamps; never assign recovered text to an earlier frame.
     nearby = sorted({min(total - 1, f + 3) for f in list(unresolved)[:8]} - set(frames))
     for f in nearby:
@@ -930,7 +1245,8 @@ def detect(project_id, source, directory, stop, deadline):
             "unreadable_samples": len(unresolved),
             "method": METHOD,
             "reads": reads[0],
-            "engine_version": available["engine_version"],
+            "engine_version": available["engine_version"]
+            + ("; " + handwriting_engine if handwriting_engine else ""),
             "assets_commit": available["assets_commit"],
             "source": source["identity"].model_dump(mode="json"),
             "reference_operation_id": source["reference_operation_id"],

@@ -255,3 +255,159 @@ def test_temporal_reading_keeps_persistent_legitimate_caption_but_excludes_known
     watermark = detection("@creator")
     result = automatic.track(lambda f: [caption, watermark], [0, 15, 30], {"@creator"})
     assert len(result) == 1 and result[0][1].text == caption.text
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        b"bad",
+        b"{}",
+        b'{"engine":"local","results":[]}',
+        b'{"engine":"local","results":[{"name":"owned.png","text":"words","score":NaN,"capped":false}]}',
+    ],
+)
+def test_handwriting_output_requires_complete_finite_owned_results(value):
+    with pytest.raises(ReferenceError) as error:
+        automatic.validate_handwriting(value, ["owned.png"])
+    assert error.value.code == "ocr_output_invalid"
+
+
+def test_handwriting_disagreement_is_retained_as_review_not_verified_words():
+    found = detection("Readable hypothesis")
+    found.recognizer = "trocr"
+    found.needs_review = True
+    assert not automatic.reliable_wording(found)
+    assert automatic.dominant([found], set()).text == found.text
+
+
+def test_handwriting_assets_are_explicit():
+    import handwriting_ocr as handwriting
+
+    with pytest.raises(ValueError, match="explicitly install"):
+        handwriting.setup(False)
+
+
+def test_handwriting_source_crops_are_bounded():
+    import handwriting_ocr as handwriting
+
+    pytest.importorskip("PIL")
+    from PIL import Image, ImageDraw, ImageFont
+
+    image = Image.new("RGB", (640, 360), (40, 40, 40))
+    drawing = ImageDraw.Draw(image)
+    font = ImageFont.truetype(str(fonts.BUNDLED), 32)
+    drawing.text((100, 100), "Different caption", font=font, fill=(255, 0, 255))
+    crops = automatic.retry_crops(image, [])
+    assert crops
+    lines = handwriting.line_crops(image, *[crops[0][i] for i in (0, 1)])
+    assert lines and len(lines) <= 3
+    for rect, variants in lines:
+        assert 0 <= rect[0] < 1 and rect[2] > 0
+        assert len(variants) == 2
+        assert all(v.width <= 2048 and v.height <= 256 for v in variants)
+
+
+def test_handwriting_budget_uses_unique_rows_and_covers_late_frames():
+    assert automatic.select_handwriting(list(range(6)), 48) == list(range(6))
+    selected = automatic.select_handwriting(list(range(200)), 48)
+    assert len(selected) == len(set(selected)) == 48
+    assert selected[0] == 0 and selected[-1] == 199
+    assert automatic.select_handwriting([], 48) == []
+    assert automatic.select_handwriting([1, 2], 0) == []
+
+
+def test_temporal_glyph_recovery_uses_observed_model_words_only_for_matching_pixels():
+    known = detection("You know I want you to know,")
+    known.recognizer = "trocr"
+    known.needs_review = True
+    wrong = detection("You know 1 want you to know,")
+    shape = bytes([255, 0, 255, 0] * 1024)
+    prototypes = [(0, known.rectangle, shape, known), (30, known.rectangle, shape, known)]
+    recovered = automatic.recover_lines(15, [(wrong.rectangle, shape)], prototypes, [wrong])
+    assert recovered[0].text == known.text and recovered[0].needs_review
+    different = bytes([0, 255, 0, 255] * 1024)
+    assert automatic.recover_lines(15, [(wrong.rectangle, different)], prototypes, [wrong]) == [
+        wrong
+    ]
+    assert automatic.recover_lines(15, [], prototypes, []) == []
+    assert automatic.recover_lines(180, [(wrong.rectangle, shape)], prototypes, [wrong]) == [wrong]
+
+
+def test_multiline_recovery_cannot_add_a_line_without_visible_glyphs():
+    lines = [detection("First line"), detection("Second line"), detection("مرحبا بالعالم")]
+    for i, line in enumerate(lines):
+        line.rectangle = line.rectangle.model_copy(update={"y": 0.3 + i * 0.12})
+    shape = bytes([255, 0, 255, 0] * 1024)
+    prototypes = [(0, d.rectangle, shape, d) for d in lines]
+    recovered = automatic.recover_lines(15, [(d.rectangle, shape) for d in lines], prototypes, [])
+    assert automatic.dominant(recovered, set()).text == "First line\nSecond line\nمرحبا بالعالم"
+    missing = automatic.recover_lines(15, [(d.rectangle, shape) for d in lines[:2]], prototypes, [])
+    assert automatic.dominant(missing, set()).text == "First line\nSecond line"
+
+
+def test_real_three_line_fixture_preserves_regions_and_flags_arabic_uncertainty(local):
+    client, directory, _ = local
+    stage = directory / "three-line-caption"
+    stage.mkdir()
+    if not automatic.ocr.inspect_capability(stage, time.monotonic() + 10)["available"]:
+        pytest.skip("Pinned English/Arabic OCR assets absent")
+    font = fonts.builtin("amiri-bold")
+    text = "A different story\nمرحبا\nAnother line"
+    track = captions.Track(
+        schema_version=2,
+        enabled=True,
+        style=captions.Style(
+            font=font.choice, size_percent=15.0, placement="center", outline_percent=0.0
+        ),
+        font_binding=font,
+        cues=[captions.Cue(start=0.0, end=1.0, text=text)],
+    )
+    ready = fonts.prepare_track("fixture", track, stage, time.monotonic() + 20)
+    target = stage / "frame.png"
+    subtitle = captions.subtitle_filter(track, stage, 1280, 720, ready[:2])
+    subprocess.run(
+        [
+            shutil.which("ffmpeg"),
+            "-v",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=black:s=1280x720:r=30:d=1",
+            "-vf",
+            subtitle,
+            "-frames:v",
+            "1",
+            str(target),
+        ],
+        check=True,
+        capture_output=True,
+        timeout=20,
+    )
+    readings = []
+    for language in ("eng", "ara"):
+        result = subprocess.run(
+            [
+                str(automatic.ocr.executable()),
+                str(target),
+                "stdout",
+                "--tessdata-dir",
+                str(automatic.ocr.DATA),
+                "-l",
+                language,
+                "--psm",
+                "6",
+                "-c",
+                "tessedit_create_tsv=1",
+            ],
+            check=True,
+            capture_output=True,
+            timeout=15,
+        )
+        readings = automatic.merge_readings(readings, automatic.parse(result.stdout, 1280, 720, []))
+    found = automatic.dominant(readings, set())
+    assert found is not None
+    assert found.text.split("\n")[::2] == ["A different story", "Another line"]
+    assert len(found.text.split("\n")) == 3
+    # The installed reader misreads this Naskh word; it must remain unverified.
+    assert not automatic.reliable_wording(found)

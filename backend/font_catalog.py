@@ -5,12 +5,6 @@ from typing import Literal
 
 ROOT = Path(__file__).resolve().parent / "fonts" / "candidates"
 FACES = {
-    "patrickhand-regular": (
-        "PatrickHand-Regular.ttf",
-        "Patrick Hand",
-        "Regular (400)",
-        "0f173b3e6cb6d1af25babf7f0057c5ac4ee11f9992b0469bb817e967ef4ad0fc",
-    ),
     "amiri-regular": (
         "Amiri-Regular.ttf",
         "Amiri",
@@ -106,6 +100,12 @@ FACES = {
         "Crimson Text",
         "Italic (400)",
         "4ed1699ac7c64e8b3d33f6bb8323c3d7206b0d7bacb9ee2d65c697e6014d29de",
+    ),
+    "patrickhand-regular": (
+        "PatrickHand-Regular.ttf",
+        "Patrick Hand",
+        "Regular (400)",
+        "0f173b3e6cb6d1af25babf7f0057c5ac4ee11f9992b0469bb817e967ef4ad0fc",
     ),
 }
 

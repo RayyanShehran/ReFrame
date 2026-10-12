@@ -41,7 +41,7 @@ def test_catalog_structure_hashes_and_actual_faces(local):
 def test_expanded_variants_are_real_static_faces():
     from fontTools.ttLib import TTFont
 
-    assert len(font_catalog.FACES) == 16
+    assert len(font_catalog.FACES) == 17
     for choice, (name, _, style, _) in font_catalog.FACES.items():
         with TTFont(font_catalog.ROOT / name) as face:
             assert "fvar" not in face

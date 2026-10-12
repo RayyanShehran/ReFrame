@@ -230,3 +230,9 @@ footer { color: var(--secondary); padding-top: 40px; font-size: 12px; }
 .automatic-result > video { width: 100%; max-height: 72vh; background: #000; }
 .automatic-result > :is(button,a) { margin: 16px 12px 16px 0; }
 @media(max-width:600px) { .automatic-options { grid-template-columns: minmax(0,1fr); gap: 16px; } .automatic-creation > .button-primary { width: 100%; } }
+
+.caption-correction-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; margin: 1rem 0; }
+.caption-correction-grid img { width: 100%; height: auto; }
+.caption-correction-grid fieldset { min-width: 0; }
+.caption-correction-grid textarea { width: 100%; white-space: pre-wrap; }
+@media (max-width: 640px) { .caption-correction-grid { grid-template-columns: 1fr; } }

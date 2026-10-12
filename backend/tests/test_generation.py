@@ -613,3 +613,95 @@ def test_user_corrected_cues_survive_overlapping_retry_until_explicit_replacemen
         review,
         {"identity": source["identity"].model_copy(update={"media_sha256": "b" * 64})},
     ) == ([wrong], [])
+
+
+def test_ready_generation_caption_retry_preserves_completed_media_work(monkeypatch):
+    bound = {"revisions": {"caption_tracks": 1}, "reference": {}, "clips": {}}
+    previous = generation.Operation(
+        project_id="fixture",
+        operation_id="existing",
+        revision=3,
+        status="ready",
+        completed=["slots", "sequence", "grading", "audio", "captions"],
+        options=generation.Request(captions="off"),
+    )
+    monkeypatch.setattr(generation, "get_operation", lambda _: previous)
+    monkeypatch.setattr(
+        generation, "record", lambda _: {"snapshot": json.dumps(bound), "cleanup_safe": True}
+    )
+    monkeypatch.setattr(generation, "snapshot", lambda _: bound)
+    from contextlib import contextmanager
+
+    @contextmanager
+    def db():
+        class Connection:
+            def execute(self, *args):
+                pass
+
+        yield Connection()
+
+    monkeypatch.setattr(generation.projects, "database", db)
+    resumed, _ = generation.begin_operation(
+        "fixture", generation.Request(expected_revision=3, captions="reference")
+    )
+    assert resumed.completed == ["slots", "sequence", "grading", "audio"]
+
+
+def test_short_user_verified_cue_survives_saved_review_roundtrip():
+    import captions
+
+    cue = captions.Cue(start=0.5, end=0.55, text="Verified short cue")
+    source = generation.color.Source(
+        canonical_url="https://www.tiktok.com/@test/video/6718335390845095173",
+        video_id="6718335390845095173",
+        media_sha256="a" * 64,
+    )
+    review = generation.CaptionReview(
+        cues=[cue],
+        verified_cues=[cue],
+        notices=[],
+        unreadable_samples=0,
+        evidence=captions.VisibleBinding(
+            source=source,
+            reference_operation_id=str(__import__("uuid").uuid4()),
+            method=generation.automatic_captions.METHOD,
+            reads=1,
+            engine_version="test",
+            assets_commit="a" * 40,
+        ),
+    )
+    restored = generation.CaptionReview.model_validate_json(review.model_dump_json())
+    assert restored.cues == restored.verified_cues == [cue]
+
+
+def test_saved_user_correction_survives_retry_without_claiming_verification():
+    import captions
+
+    source = {
+        "identity": generation.color.Source(
+            canonical_url="https://www.tiktok.com/@test/video/6718335390845095173",
+            video_id="6718335390845095173",
+            media_sha256="a" * 64,
+        )
+    }
+    corrected = captions.Cue(start=0.5, end=1.0, text="User corrected words")
+    review = generation.CaptionReview(
+        cues=[corrected],
+        corrected_cues=[corrected],
+        notices=[],
+        unreadable_samples=1,
+        evidence=captions.VisibleBinding(
+            source=source["identity"],
+            reference_operation_id=str(__import__("uuid").uuid4()),
+            method=generation.automatic_captions.METHOD,
+            reads=1,
+            engine_version="test",
+            assets_commit="a" * 40,
+        ),
+    )
+    wrong = captions.Cue(start=0.5, end=1.0, text="New incorrect reading")
+    assert generation.retain_reviewed([wrong], review, source) == ([corrected], [])
+    assert generation.retain_reviewed([wrong], review, source, replace_verified=True) == (
+        [wrong],
+        [],
+    )

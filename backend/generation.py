@@ -65,22 +65,18 @@ class CaptionReview(color.Schema):
     cues: list[captions.Cue] = Field(max_length=200)
     notices: list[str] = Field(max_length=30)
     evidence: captions.VisibleBinding
-    unreadable_samples: int = Field(ge=1, le=3600)
+    unreadable_samples: int = Field(ge=0, le=3600)
     verified_cues: list[captions.Cue] = Field(default_factory=list, max_length=200)
-
-    @field_validator("cues")
-    @classmethod
-    def stable_intervals(cls, cues):
-        # Earlier partial drafts may contain one-frame OCR flicker, not stable caption words.
-        return [cue for cue in cues if cue.end - cue.start >= 0.1 - 0.000001]
+    corrected_cues: list[captions.Cue] = Field(default_factory=list, max_length=200)
 
 
 class ReviewRequest(color.Schema):
     expected_revision: int = Field(ge=1, strict=True)
     cues: list[captions.Cue] = Field(max_length=200)
     verified_indices: list[int] = Field(max_length=200)
+    corrected_indices: list[int] = Field(default_factory=list, max_length=200)
 
-    @field_validator("verified_indices")
+    @field_validator("verified_indices", "corrected_indices")
     @classmethod
     def indices(cls, values):
         if any(type(i) is not int or not 0 <= i < 200 for i in values) or len(set(values)) != len(
@@ -154,13 +150,14 @@ def review_captions(project_id, request):
         ) from None
     duration = sequence.read(project_id).sequence.output_frames / 30
     if any(c.end > duration + 0.000001 for c in request.cues) or any(
-        i >= len(request.cues) for i in request.verified_indices
+        i >= len(request.cues) for i in [*request.verified_indices, *request.corrected_indices]
     ):
         raise ReferenceError(
             422, "invalid_caption", "Keep every cue inside the output and verify an existing cue."
         )
     review.cues = request.cues
     review.verified_cues = [request.cues[i] for i in request.verified_indices]
+    review.corrected_cues = [request.cues[i] for i in request.corrected_indices]
     operation.revision += 1
     with projects.database() as db:
         changed = db.execute(
@@ -184,10 +181,13 @@ def retain_reviewed(cues, review, source, replace_verified=False, incomplete=Fal
     if not review or review.evidence.source != source["identity"] or replace_verified:
         return cues, []
     verified = review.verified_cues
+    protected = list(
+        {(c.start, c.end, c.text): c for c in [*review.corrected_cues, *verified]}.values()
+    )
     result = [
-        c for c in cues if not any(c.start < v.end and v.start < c.end for v in verified)
-    ] + verified
-    if incomplete and review.evidence.method == automatic_captions.METHOD:
+        c for c in cues if not any(c.start < v.end and v.start < c.end for v in protected)
+    ] + protected
+    if incomplete:
         result += [
             c for c in review.cues if not any(c.start < n.end and n.start < c.end for n in result)
         ]
@@ -693,6 +693,15 @@ def prepare_captions(project_id, mode, stop, deadline, operation):
                         evidence=captions.VisibleBinding.model_validate(evidence),
                         unreadable_samples=incomplete,
                         verified_cues=verified,
+                        corrected_cues=[
+                            c
+                            for c in (
+                                review.corrected_cues
+                                if review and not operation.options.replace_verified_captions
+                                else []
+                            )
+                            if c in cues
+                        ],
                     )
                     raise ReferenceError(
                         422,
@@ -700,7 +709,34 @@ def prepare_captions(project_id, mode, stop, deadline, operation):
                         f"Caption reading is incomplete. {len(cues)} detected cues are saved; "
                         "retry reading or continue without captions.",
                     )
-                operation.caption_review = None
+                operation.caption_review = (
+                    CaptionReview(
+                        cues=cues,
+                        notices=notices[:30],
+                        evidence=captions.VisibleBinding.model_validate(evidence),
+                        unreadable_samples=0,
+                        verified_cues=verified,
+                        corrected_cues=[
+                            c
+                            for c in (
+                                review.corrected_cues
+                                if review and not operation.options.replace_verified_captions
+                                else []
+                            )
+                            if c in cues
+                        ],
+                    )
+                    if mode == "reference"
+                    and (
+                        verified
+                        or (
+                            review
+                            and review.corrected_cues
+                            and not operation.options.replace_verified_captions
+                        )
+                    )
+                    else None
+                )
         selected_sequence = sequence.read(project_id).sequence
         values = dict(
             expected_revision=previous.revision,
