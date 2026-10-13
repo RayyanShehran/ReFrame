@@ -27,7 +27,7 @@ import reference_motion as motion
 import video_render as render
 from references import ReferenceError
 
-METHOD = "visible-tsv-adaptive-v6"
+METHOD = "visible-tsv-adaptive-v7"
 MAX_READS = 600
 MAX_APPEARANCES = 8
 TOTAL_SECONDS = 300
@@ -289,21 +289,28 @@ def consolidate(observations):
 
 
 def track(read, frames, ignored):
-    observations = consolidate([(f, dominant(read(f), ignored)) for f in frames])
+    known = {}
+
+    def observe(frame):
+        detected = dominant(read(frame), ignored)
+        known[frame] = detected
+        return detected
+
+    observations = consolidate([(f, observe(f)) for f in frames])
 
     def refine(left, a, right, b):
         if same(a, b):
             if right - left <= 2:
                 return []
             middle = (left + right) // 2
-            detected = dominant(read(middle), ignored)
+            detected = observe(middle)
             if same(detected, a):
                 return []
             return refine(left, a, middle, detected) + refine(middle, detected, right, b)
         if right - left <= 1:
             return [(right, b)]
         middle = (left + right) // 2
-        detected = dominant(read(middle), ignored)
+        detected = observe(middle)
         if same(detected, a):
             detected = a
         elif same(detected, b):
@@ -311,8 +318,15 @@ def track(read, frames, ignored):
         return refine(left, a, middle, detected) + refine(middle, detected, right, b)
 
     refined = [observations[0]]
-    for (left, a), (right, b) in zip(observations, observations[1:]):
-        refined.extend(refine(left, a, right, b))
+    try:
+        for (left, a), (right, b) in zip(observations, observations[1:]):
+            refined.extend(refine(left, a, right, b))
+    except engine.ProbeTimeout:
+        # Unknown frames are not absence: keep only completed pixel observations for review.
+        refined = []
+        for frame, detected in consolidate(sorted(known.items())):
+            if not refined or not same(refined[-1][1], detected):
+                refined.append((frame, detected))
     return refined
 
 
@@ -1064,9 +1078,8 @@ def detect(project_id, source, directory, stop, deadline):
             return cache[index]
         color.guard(stop, reading_deadline)
         if reads[0] >= MAX_READS or reading_deadline - time.monotonic() < 20:
-            unresolved[index] = "OCR work budget reached"
-            cache[index] = []
-            return []
+            unresolved[index] = "Frame not observed: caption reading budget reached"
+            raise engine.ProbeTimeout("Caption reading budget reached")
         stage = directory / f"read-{index}"
         with temporary(stage):
             ambiguous = False
@@ -1429,12 +1442,19 @@ def detect(project_id, source, directory, stop, deadline):
             return read_tracked(index, read_frame, cache, signatures, prototypes)
         except engine.ProbeTimeout:
             # The contained runner confirms termination before raising a timeout.
-            unresolved[index] = "Caption reading deadline reached"
-            cache[index] = []
-            return []
+            unresolved[index] = "Frame not observed: caption reading deadline reached"
+            raise
 
     for f in frames:
-        read(f)
+        try:
+            read(f)
+        except engine.ProbeTimeout:
+            frames = [frame for frame in frames if frame in cache]
+            break
+    if not frames:
+        raise ReferenceError(
+            422, "caption_unreadable", "Caption frames could not be observed. Retry reading."
+        )
     if handwriting_rows and script_votes["latin"] > script_votes["arabic"]:
         allowed = min(handwriting.MAX_LINES // 2, (MAX_READS - reads[0]) // 2)
         selected = select_handwriting(
@@ -1568,8 +1588,11 @@ def detect(project_id, source, directory, stop, deadline):
     # Read nearby frames at their own timestamps; never assign recovered text to an earlier frame.
     nearby = sorted({min(total - 1, f + 3) for f in list(unresolved)[:8]} - set(frames))
     for f in nearby:
-        read(f)
-    frames = sorted(set(frames) | set(nearby))
+        try:
+            read(f)
+        except engine.ProbeTimeout:
+            break
+    frames = sorted(set(frames) | {f for f in nearby if f in cache})
     ignored = set()
     for values in cache.values():
         for d in values:

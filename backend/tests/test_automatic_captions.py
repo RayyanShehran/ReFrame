@@ -684,6 +684,8 @@ def test_same_words_do_not_bridge_a_visible_gap_or_fade():
 
 
 def test_visible_shape_follows_fade_but_not_black_or_different_glyphs():
+    pytest.importorskip("numpy")
+    pytest.importorskip("PIL")
     from PIL import Image, ImageDraw
 
     rect = automatic.match.Rectangle(x=0.1, y=0.2, width=0.7, height=0.3)
@@ -727,3 +729,19 @@ def test_punctuation_requires_agreeing_pixel_readings_and_does_not_guess_words()
         automatic.observed_punctuation("You know I want", "You know 1 went,") == "You know I want"
     )
     assert automatic.observed_punctuation("There are 10", "There are IO!") == "There are 10"
+
+
+def test_tracking_deadline_preserves_observed_words_and_does_not_invent_disappearance():
+    observed = detection("Recognized I stays in the checkpoint")
+
+    def read(frame):
+        if frame == 22:
+            raise automatic.engine.ProbeTimeout("No observation completed")
+        return [] if 7 <= frame < 10 else [observed]
+
+    changes = automatic.track(read, [0, 15, 30], set())
+    assert [(f, d.text if d else None) for f, d in changes] == [
+        (0, observed.text),
+        (7, None),
+        (10, observed.text),
+    ]
