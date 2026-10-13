@@ -241,7 +241,7 @@ def persist(project_id, operation, bound, cleanup_safe=True):
     with projects.database() as db:
         db.execute(
             "UPDATE generation_operations SET state=?,operation=?,snapshot=?,cleanup_safe=? "
-            "WHERE project_id=? AND operation_id=?",
+            "WHERE project_id=? AND operation_id=? AND revision=?",
             (
                 operation.status,
                 operation.model_dump_json(),
@@ -249,6 +249,7 @@ def persist(project_id, operation, bound, cleanup_safe=True):
                 int(cleanup_safe),
                 project_id,
                 operation.operation_id,
+                operation.revision,
             ),
         )
 

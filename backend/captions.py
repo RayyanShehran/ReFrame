@@ -148,13 +148,16 @@ class VisibleBinding(color.Schema):
         "visible-tsv-adaptive-v2",
         "visible-tsv-adaptive-v3",
         "visible-tsv-adaptive-v4",
+        "visible-tsv-adaptive-v5",
     ]
-    reads: int = Field(ge=1, le=600)
+    reads: int = Field(ge=0, le=600)
     engine_version: str = Field(max_length=256)
     assets_commit: str = Field(pattern=r"^[0-9a-f]{40}$")
     native_frame_width: int | None = Field(default=None, ge=2, le=1920)
     native_frame_height: int | None = Field(default=None, ge=2, le=1920)
     handwriting_requests: int = Field(default=0, ge=0, le=96)
+    cached_ocr_reads: int = Field(default=0, ge=0, le=3600)
+    cached_handwriting_requests: int = Field(default=0, ge=0, le=96)
     handwriting_completed_requests: int | None = Field(default=None, ge=0, le=96)
     elapsed_seconds: float | None = Field(default=None, ge=0, le=600, allow_inf_nan=False)
 

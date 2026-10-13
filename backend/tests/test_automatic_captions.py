@@ -620,3 +620,51 @@ def test_partial_handwriting_progress_rejects_unowned_duplicate_or_invalid_rows(
             ["owned"],
             allow_partial=True,
         )
+
+
+def test_interruption_persists_completed_reads_before_propagating(tmp_path):
+    import json
+    import sys
+
+    names = ["a" * 64 + ".png"]
+    raw = json.dumps(
+        {
+            "engine": "local-test",
+            "results": [
+                {"name": names[0], "text": "Observed words", "score": 0.9, "capped": False}
+            ],
+        }
+    )
+    helper = tmp_path / "helper.py"
+    path = tmp_path / "progress.json"
+    helper.write_text(
+        "import time\nfrom pathlib import Path\n"
+        + f"Path({str(path)!r}).write_text({raw!r})\n"
+        + "while True: time.sleep(.01)\n"
+    )
+    stop = threading.Event()
+    previous = getattr(automatic.engine._control, "stop", None)
+    automatic.engine._control.stop = stop
+    collected = []
+
+    def cancel():
+        while not path.exists() and not stop.wait(0.01):
+            pass
+        stop.set()
+
+    thread = threading.Thread(target=cancel)
+    thread.start()
+    try:
+        with pytest.raises(automatic.engine.ProbeInterrupted):
+            automatic.run_handwriting(
+                [sys.executable, str(helper)],
+                tmp_path,
+                names,
+                time.monotonic() + 5,
+                persist=collected.append,
+            )
+        assert len(collected) == 1 and collected[0]["results"][0]["text"] == "Observed words"
+    finally:
+        stop.set()
+        thread.join(timeout=5)
+        automatic.engine._control.stop = previous

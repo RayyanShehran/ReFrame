@@ -15,6 +15,7 @@ from pathlib import Path
 
 import caption_appearance as appearance
 import caption_ocr as ocr
+import caption_readings
 import captions
 import color_analysis as color
 import font_assets as fonts
@@ -26,7 +27,7 @@ import reference_motion as motion
 import video_render as render
 from references import ReferenceError
 
-METHOD = "visible-tsv-adaptive-v4"
+METHOD = "visible-tsv-adaptive-v5"
 MAX_READS = 600
 MAX_APPEARANCES = 8
 TOTAL_SECONDS = 300
@@ -654,7 +655,16 @@ def fit_review_width(project_id, cues, directory, stop, deadline):
     return result
 
 
-def run_handwriting(args, stage, names, deadline, stage_limit=70):
+def handwriting_progress(stage, names):
+    progress = stage / "progress.json"
+    if not progress.is_file():
+        return {"results": [], "engine": ""}
+    if progress.stat().st_size > 128 * 1024:
+        raise ReferenceError(422, "ocr_output_invalid", "Handwriting progress exceeds its bound.")
+    return validate_handwriting(progress.read_bytes(), names, allow_partial=True)
+
+
+def run_handwriting(args, stage, names, deadline, stage_limit=70, *, persist=None):
     try:
         result = engine.run_command(
             args,
@@ -665,24 +675,62 @@ def run_handwriting(args, stage, names, deadline, stage_limit=70):
             output_limit=128 * 1024,
             temp_budget=16 * 1024 * 1024,
         )
-    except engine.ProbeTimeout:
-        # The runner confirms termination before this owned checkpoint is read.
-        progress = stage / "progress.json"
-        if not progress.is_file():
-            return {"results": [], "engine": ""}, True
-        if progress.stat().st_size > 128 * 1024:
-            raise ReferenceError(
-                422, "ocr_output_invalid", "Handwriting progress exceeds its bound."
-            )
-        return validate_handwriting(progress.read_bytes(), names, allow_partial=True), True
+    except (engine.ProbeTimeout, engine.ProbeInterrupted) as error:
+        # Owned termination is confirmed before reading or persisting its checkpoint.
+        payload = handwriting_progress(stage, names)
+        if persist:
+            persist(payload)
+        if isinstance(error, engine.ProbeInterrupted):
+            raise
+        return payload, True
     if result.returncode:
         raise ReferenceError(
             503,
             "handwriting_unavailable",
-            "Local handwriting reading failed. Run its explicit setup "
-            "or continue without captions.",
+            "Local handwriting reading failed. "
+            "Run its explicit setup or continue without captions.",
         )
-    return validate_handwriting(result.stdout, names), False
+    payload = validate_handwriting(result.stdout, names)
+    if persist:
+        persist(payload)
+    return payload, False
+
+
+def cached_handwriting(project_id, namespace, stage, names, deadline):
+    saved_results, saved_engine = [], ""
+    for name in names:
+        value = caption_readings.read(project_id, "handwriting", namespace, name)
+        if value is not None:
+            saved = validate_handwriting(value, [name])
+            saved_results.extend(saved["results"])
+            saved_engine = saved["engine"]
+    cached_names = {row["name"] for row in saved_results}
+    pending = [name for name in names if name not in cached_names]
+
+    def persist(payload):
+        for row in payload["results"]:
+            value = json.dumps({"engine": payload["engine"], "results": [row]}).encode()
+            caption_readings.save(project_id, "handwriting", namespace, row["name"], value)
+
+    if pending:
+        request = stage / "request.json"
+        request.write_text(json.dumps(pending), encoding="utf-8")
+        payload, timed_out = run_handwriting(
+            [
+                str(handwriting.executable()),
+                str(Path(handwriting.__file__)),
+                "recognize",
+                str(request),
+            ],
+            stage,
+            pending,
+            deadline,
+            persist=persist,
+        )
+    else:
+        payload, timed_out = {"results": [], "engine": saved_engine}, False
+    payload["results"].extend(saved_results)
+    return payload, timed_out, len(pending), len(saved_results)
 
 
 def native_geometry(video):
@@ -835,6 +883,20 @@ def detect(project_id, source, directory, stop, deadline):
     unresolved = {}
     script_votes = Counter()
     crop_cache = {}
+    source_identity = source["identity"].model_dump(mode="json")
+    ocr_namespace = caption_readings.identity(
+        source_identity,
+        {
+            "engine": available["engine_version"],
+            "assets": ocr.MANIFEST,
+            "method": "tsv-v1",
+        },
+    )
+    model_namespace = caption_readings.identity(
+        source_identity, {"assets": handwriting.MANIFEST, "algorithm": "fp32-greedy80-v1"}
+    )
+    cached_ocr_reads = 0
+    cached_handwriting_requests = 0
     handwriting_ready = handwriting.available()
     handwriting_images, handwriting_rows = {}, []
     handwriting_bytes = 0
@@ -846,12 +908,22 @@ def detect(project_id, source, directory, stop, deadline):
     discovery = set(frames)
 
     def cached_ocr(args, stage, name):
-        key = (
-            args[args.index("-l") + 1],
-            hashlib.sha256(Path(args[1]).read_bytes()).digest(),
-        )
+        nonlocal cached_ocr_reads
+        key = hashlib.sha256(
+            json.dumps([args[2:], hashlib.sha256(Path(args[1]).read_bytes()).hexdigest()]).encode()
+        ).hexdigest()
         if key in crop_cache:
             return crop_cache[key]
+        saved = caption_readings.read(project_id, "ocr", ocr_namespace, key)
+        if saved is not None:
+            cached_ocr_reads += 1
+            import subprocess
+
+            result = subprocess.CompletedProcess(args, 0, saved, b"")
+            if len(crop_cache) >= 32:
+                crop_cache.pop(next(iter(crop_cache)))
+            crop_cache[key] = result
+            return result
         reads[0] += 1
         result = engine.run_command(
             args,
@@ -863,6 +935,11 @@ def detect(project_id, source, directory, stop, deadline):
             temp_budget=16 * 1024 * 1024,
         )
         if result.returncode == 0:
+            from PIL import Image
+
+            with Image.open(args[1]) as image:
+                parse(result.stdout, image.width, image.height, [])
+            caption_readings.save(project_id, "ocr", ocr_namespace, key, result.stdout)
             if len(crop_cache) >= 32:
                 crop_cache.pop(next(iter(crop_cache)))
             crop_cache[key] = result
@@ -1241,19 +1318,16 @@ def detect(project_id, source, directory, stop, deadline):
                 request = stage / "request.json"
                 request.write_text(json.dumps(names), encoding="utf-8")
                 try:
-                    handwriting_requests = len(names)
-                    reads[0] += len(names)
-                    payload, timed_out = run_handwriting(
-                        [
-                            str(handwriting.executable()),
-                            str(Path(handwriting.__file__)),
-                            "recognize",
-                            str(request),
-                        ],
+                    payload, timed_out, attempted, restored = cached_handwriting(
+                        project_id,
+                        model_namespace,
                         stage,
                         names,
                         reading_deadline,
                     )
+                    handwriting_requests = attempted
+                    cached_handwriting_requests += restored
+                    reads[0] += attempted
                     if timed_out:
                         unresolved[0] = (
                             "Handwriting deadline reached; completed readings retained for review"
@@ -1574,6 +1648,8 @@ def detect(project_id, source, directory, stop, deadline):
             "native_frame_height": canvas[1],
             "handwriting_requests": handwriting_requests,
             "handwriting_completed_requests": handwriting_completed_requests,
+            "cached_ocr_reads": cached_ocr_reads,
+            "cached_handwriting_requests": cached_handwriting_requests,
             "elapsed_seconds": time.monotonic() - started,
             "source": source["identity"].model_dump(mode="json"),
             "reference_operation_id": source["reference_operation_id"],

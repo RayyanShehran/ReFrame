@@ -575,14 +575,15 @@
             "visible-tsv-adaptive-v1",
             "visible-tsv-adaptive-v2",
             "visible-tsv-adaptive-v3",
-            "visible-tsv-adaptive-v4"
+            "visible-tsv-adaptive-v4",
+            "visible-tsv-adaptive-v5"
           ],
           "title": "Method",
           "type": "string"
         },
         "reads": {
           "maximum": 600,
-          "minimum": 1,
+          "minimum": 0,
           "title": "Reads",
           "type": "integer"
         },
@@ -629,6 +630,20 @@
           "maximum": 96,
           "minimum": 0,
           "title": "Handwriting Requests",
+          "type": "integer"
+        },
+        "cached_ocr_reads": {
+          "default": 0,
+          "maximum": 3600,
+          "minimum": 0,
+          "title": "Cached Ocr Reads",
+          "type": "integer"
+        },
+        "cached_handwriting_requests": {
+          "default": 0,
+          "maximum": 96,
+          "minimum": 0,
+          "title": "Cached Handwriting Requests",
           "type": "integer"
         },
         "handwriting_completed_requests": {
