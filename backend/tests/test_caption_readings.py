@@ -28,12 +28,12 @@ def test_readings_bind_source_and_tool_without_altering_project(local):
 def test_cache_is_bounded_and_cascades_without_resurrecting_deleted_projects(local):
     client, _, _ = local
     pid = create(client)["id"]
-    for i in range(34):
+    for i in range(602):
         readings.save(pid, "ocr", "namespace", str(i), b"safe TSV")
     assert readings.read(pid, "ocr", "namespace", "0") is None
-    assert readings.read(pid, "ocr", "namespace", "33") == b"safe TSV"
+    assert readings.read(pid, "ocr", "namespace", "601") == b"safe TSV"
     with projects.database() as db:
-        assert db.execute("SELECT count(*) FROM caption_readings").fetchone()[0] == 32
+        assert db.execute("SELECT count(*) FROM caption_readings").fetchone()[0] == 600
         db.execute("DELETE FROM projects WHERE id=?", (pid,))
     readings.save(pid, "ocr", "namespace", "late", b"late worker")
     assert readings.read(pid, "ocr", "namespace", "late") is None
@@ -102,3 +102,18 @@ def test_retry_reuses_completed_model_facts_and_only_submits_missing_crops(local
     assert second[1:] == (False, 1, 2) and calls == [names, names[2:]]
     assert {r["name"] for r in second[0]["results"]} == set(names)
     assert json.loads((directory / "request.json").read_text()) == names[2:]
+
+
+def test_raw_cache_keeps_the_existing_aggregate_byte_budget(local):
+    client, _, _ = local
+    pid = create(client)["id"]
+    for i in range(33):
+        readings.save(pid, "ocr", "namespace", f"{i:03}", b"x" * readings.MAX_PAYLOAD)
+    with projects.database() as db:
+        assert (
+            db.execute(
+                "SELECT sum(length(payload)) FROM caption_readings WHERE kind='ocr'"
+            ).fetchone()[0]
+            == 4 * 1024 * 1024
+        )
+    assert readings.read(pid, "ocr", "namespace", "000") is None

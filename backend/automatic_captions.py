@@ -11,6 +11,7 @@ from collections import Counter
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from difflib import SequenceMatcher
+from itertools import islice
 from pathlib import Path
 
 import caption_appearance as appearance
@@ -27,7 +28,7 @@ import reference_motion as motion
 import video_render as render
 from references import ReferenceError
 
-METHOD = "visible-tsv-adaptive-v7"
+METHOD = "visible-tsv-adaptive-v8"
 MAX_READS = 600
 MAX_APPEARANCES = 8
 TOTAL_SECONDS = 300
@@ -246,6 +247,8 @@ def dominant(rows, ignored):
         text=text,
         rectangle=match.Rectangle(x=left, y=top, width=right - left, height=bottom - top),
         minimum_confidence=min(d.minimum_confidence for d in lines),
+        needs_review=any(d.needs_review for d in lines),
+        recognizer="trocr" if all(d.recognizer == "trocr" for d in lines) else "tesseract",
         glyph_height=selected.glyph_height or selected.rectangle.height,
         sample_text=selected.sample_text or selected.text[:80],
         sample_rectangle=selected.sample_rectangle or selected.rectangle,
@@ -281,7 +284,13 @@ def consolidate(observations):
             counts = Counter(d.text for d in readings)
             winner = max(
                 readings,
-                key=lambda d: (counts[d.text], reliable_wording(d), d.confidence, d.sharpness),
+                key=lambda d: (
+                    reliable_wording(d),
+                    d.recognizer == "trocr" and not d.needs_review,
+                    counts[d.text],
+                    d.confidence,
+                    d.sharpness,
+                ),
             )
             rows[start:end] = [(f, winner) for f, _ in rows[start:end]]
         start = end
@@ -444,6 +453,12 @@ def color_masks(image):
 
     channels = image.convert("RGB").split()
     r, g, b = channels
+    yield (
+        glyph_mask(
+            ImageChops.darker(ImageChops.darker(r, g), b).point(lambda v: 255 if v > 200 else 0)
+        ),
+        "neutral",
+    )
     hue = image.convert("HSV").getchannel("H")
     bright = ImageChops.lighter(ImageChops.lighter(r, g), b).point(lambda v: 255 if v > 130 else 0)
     for i in range(3):
@@ -479,7 +494,7 @@ def retry_crops(image, uncertain):
 
     width, height = image.size
     candidates = []
-    for mask, partitioned in color_masks(image):
+    for mask, partitioned in islice(color_masks(image), 24):
         bands, start, last = [], None, None
         for y in range(height):
             box = mask.crop((0, y, width, y + 1)).getbbox()
@@ -507,7 +522,8 @@ def retry_crops(image, uncertain):
                 if present and not active:
                     runs += 1
                 active = present
-            if 0.02 <= density <= 0.35 and runs >= 3 and region.width / region.height >= 3:
+            density_limit = 0.65 if partitioned == "neutral" else 0.35
+            if 0.02 <= density <= density_limit and runs >= 3 and region.width / region.height >= 3:
                 boxes.append((box[0], top, box[2], bottom))
                 candidates.append(
                     (
@@ -857,7 +873,7 @@ def recover_lines(index, signatures, prototypes, fallback):
     ]
 
 
-def select_handwriting(rows, limit, *, signatures=None, readings=None):
+def select_handwriting(rows, limit, *, signatures=None, readings=None, cached_names=None):
     if signatures is None:
         count = min(len(rows), limit)
         if count == 1:
@@ -901,16 +917,25 @@ def select_handwriting(rows, limit, *, signatures=None, readings=None):
         return ambiguous, len({row[0] for row in group})
 
     chosen = []
+    pending = set()
     for group in sorted(groups, key=priority, reverse=True):
 
         def sharp(row):
-            return max((d.sharpness for d in (readings or {}).get(row[0], [])), default=0)
+            return (
+                sum(name in (cached_names or set()) for name in row[2]),
+                max((d.sharpness for d in (readings or {}).get(row[0], [])), default=0),
+            )
 
         first = max(group, key=sharp)
         others = [row for row in group if abs(row[0] - first[0]) >= 3]
         pair = [first] + ([max(others, key=sharp)] if others else [])
-        if len(chosen) + len(pair) > limit:
+        missing = {name for row in pair for name in row[2]} - (cached_names or set())
+        if cached_names is None:
+            if len(chosen) + len(pair) > limit:
+                continue
+        elif len(pending | missing) > limit * 2 or len(chosen) + len(pair) > 48:
             continue
+        pending.update(missing)
         chosen.extend(tuple(row[:3]) for row in pair)
     return chosen
 
@@ -977,7 +1002,7 @@ def validate_handwriting(raw, names, *, allow_partial=False):
         ) from None
 
 
-def detect(project_id, source, directory, stop, deadline):
+def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
     started = time.monotonic()
     overall_deadline = deadline
     deadline = min(deadline, time.monotonic() + TOTAL_SECONDS)
@@ -1004,7 +1029,18 @@ def detect(project_id, source, directory, stop, deadline):
     factor = 960 / max(canvas)
     width, height = (max(2, math.floor(v * factor / 2) * 2) for v in canvas)
     total = max(1, math.floor(duration * 30 + 0.00001))
-    frames = sorted(set([0, *range(15, total, 15), total - 1]))
+    first = 0
+    if frame_window is not None:
+        start, end = frame_window
+        if (
+            not all(type(v) in {int, float} and math.isfinite(v) for v in frame_window)
+            or not 0 <= start < end <= duration
+        ):
+            raise ValueError("Diagnostic window must lie inside the reference timeline")
+        first, total = math.ceil(start * 30), min(total, math.floor(end * 30))
+        if total <= first:
+            raise ValueError("Diagnostic window must contain a frame")
+    frames = sorted(set([first, *range((first // 15 + 1) * 15, total, 15), total - 1]))
     cache = {}
     reads = [0]
     unresolved = {}
@@ -1082,6 +1118,64 @@ def detect(project_id, source, directory, stop, deadline):
             raise engine.ProbeTimeout("Caption reading budget reached")
         stage = directory / f"read-{index}"
         with temporary(stage):
+            if prototypes:
+                target = stage / "visibility.png"
+                seek, timing_filter = frame_seek(video, index)
+                render.tool(
+                    [
+                        shutil.which("ffmpeg") or "ffmpeg",
+                        "-v",
+                        "error",
+                        "-nostdin",
+                        "-xerror",
+                        "-threads",
+                        "2",
+                        "-protocol_whitelist",
+                        "file",
+                        *seek,
+                        "-i",
+                        str(source["path"]),
+                        "-vf",
+                        timing_filter + render.resize_filter(*canvas, color.inspect_colors(video)),
+                        "-frames:v",
+                        "1",
+                        str(target),
+                    ],
+                    stage,
+                    "caption-visibility",
+                    reading_deadline,
+                    15,
+                    temp_budget=16 * 1024 * 1024,
+                )
+                from PIL import Image
+
+                with Image.open(target) as image:
+                    crops = retry_crops(image, [])
+                    lines = handwriting.line_crops(image, crops[0][0], crops[0][1]) if crops else []
+                    observed = []
+                    for rect, _ in lines:
+                        rectangle = match.Rectangle(
+                            x=rect[0], y=rect[1], width=rect[2], height=rect[3]
+                        )
+                        nearby = [
+                            (f, r, shape, d)
+                            for f, r, shape, d in prototypes
+                            if abs(f - index) <= 90
+                            and overlaps_line(r, rectangle)
+                            and reliable_wording(d)
+                        ]
+                        for _, _, _, d in nearby:
+                            observed.append((rectangle, visible_shape(image, rectangle, d.ink)))
+                    found = recover_lines(index, observed, prototypes, [])
+                    unique = merge_readings([], found)
+                    if (
+                        lines
+                        and len(lines) == len(unique)
+                        and all(reliable_wording(d) for d in unique)
+                    ):
+                        signatures[index] = observed
+                        cache[index] = unique
+                        return unique
             ambiguous = False
             uncertain = []
             seek, timing_filter = frame_seek(video, index)
@@ -1457,8 +1551,18 @@ def detect(project_id, source, directory, stop, deadline):
         )
     if handwriting_rows and script_votes["latin"] > script_votes["arabic"]:
         allowed = min(handwriting.MAX_LINES // 2, (MAX_READS - reads[0]) // 2)
+        cached_names = {
+            name
+            for _, _, variants in handwriting_rows
+            for name in variants
+            if caption_readings.read(project_id, "handwriting", model_namespace, name) is not None
+        }
         selected = select_handwriting(
-            handwriting_rows, allowed, signatures=signatures, readings=cache
+            handwriting_rows,
+            allowed,
+            signatures=signatures,
+            readings=cache,
+            cached_names=cached_names,
         )
         names = list(dict.fromkeys(name for _, _, variants in selected for name in variants))
         if names and reading_deadline - time.monotonic() > 30:
@@ -1605,12 +1709,14 @@ def detect(project_id, source, directory, stop, deadline):
             ignored.add(text)
     changes = track(read, frames, ignored)
     stable = Counter(
-        d.text
-        for _, d in consolidate(
-            [(f, dominant(values, ignored)) for f, values in sorted(cache.items())]
-        )
-        if d
+        word_key(d.text)
+        for _, values in sorted(cache.items())
+        if (d := dominant(values, ignored)) is not None
     )
+    if frame_window is not None:
+        unresolved[first] = (
+            "Only a diagnostic interval was observed; the full track is not certified"
+        )
     cues, notes = [], []
     if ignored:
         notes.append(
@@ -1624,7 +1730,7 @@ def detect(project_id, source, directory, stop, deadline):
         end = changes[i + 1][0] if i + 1 < len(changes) else total
         if detected is None or end <= start:
             continue
-        if end - start < 3 or stable[detected.text] < 2:
+        if end - start < 3 or stable[word_key(detected.text)] < 2:
             unresolved[start] = "Brief or isolated wording needs review"
             continue
         if len(cues) >= 200:
@@ -1672,7 +1778,8 @@ def detect(project_id, source, directory, stop, deadline):
                 )
                 baselines[key] = 0.025
                 if (
-                    partial_fits < 2
+                    frame_window is None
+                    and partial_fits < 2
                     and sum(c.isalnum() for c in (detected.sample_text or detected.text)) >= 4
                     and deadline - time.monotonic() >= 40
                 ):
@@ -1775,6 +1882,10 @@ def detect(project_id, source, directory, stop, deadline):
         cues.append(
             captions.Cue(start=start / 30, end=end / 30, text=detected.text, appearance=fitted)
         )
+    if frame_window is not None:
+        unresolved[first] = (
+            "Only a diagnostic interval was observed; the full track is not certified"
+        )
     if not cues and not unresolved:
         notes.append("No readable changing reference captions were detected; none were invented.")
     if unresolved:
@@ -1797,6 +1908,7 @@ def detect(project_id, source, directory, stop, deadline):
         cues,
         list(dict.fromkeys(notes)),
         {
+            **({"observed_window": frame_window} if frame_window is not None else {}),
             "unreadable_samples": len(unresolved),
             "method": METHOD,
             "reads": reads[0],

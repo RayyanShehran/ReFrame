@@ -745,3 +745,57 @@ def test_tracking_deadline_preserves_observed_words_and_does_not_invent_disappea
         (7, None),
         (10, observed.text),
     ]
+
+
+def test_reliable_completed_model_block_beats_more_frequent_noisy_refinement():
+    reliable = detection("You know I want\nyou can talk\nAs you get older")
+    reliable.recognizer = "trocr"
+    noisy = detection("You know I want\nyou can talk\n\\S You get older")
+    noisy.minimum_confidence = 60
+    observations = [(f, reliable if f in {0, 15, 30} else noisy) for f in range(31)]
+    assert all(d.text == reliable.text for _, d in automatic.consolidate(observations))
+
+
+def test_block_does_not_inherit_one_good_lines_review_status():
+    first = detection("A trusted model line")
+    first.recognizer = "trocr"
+    other = detection("A line needing review")
+    other.rectangle = other.rectangle.model_copy(update={"y": 0.72})
+    other.needs_review = True
+    block = automatic.dominant([first, other], set())
+    assert block.needs_review and block.recognizer == "tesseract"
+
+
+def test_cached_pairs_do_not_consume_the_unfinished_inference_budget():
+    d = detection("You know 1")
+    r = (d.rectangle.x, d.rectangle.y, d.rectangle.width, d.rectangle.height)
+    rows = [(f, r, [f"{f}-a", f"{f}-b"]) for f in [0, 15, 150, 165]]
+    cached = {name for _, _, names in rows[:2] for name in names}
+    shape = bytes([255, 0] * 2048)
+    selected = automatic.select_handwriting(
+        rows,
+        2,
+        signatures={f: [(d.rectangle, shape)] for f, _, _ in rows},
+        readings={f: [d] for f, _, _ in rows},
+        cached_names=cached,
+    )
+    assert {f for f, _, _ in selected} == {0, 15, 150, 165}
+    assert len({name for _, _, names in selected for name in names} - cached) == 4
+
+
+def test_neutral_title_crop_excludes_dark_railing_like_scenery():
+    pytest.importorskip("numpy")
+    pytest.importorskip("PIL")
+    from PIL import Image, ImageDraw, ImageFont
+
+    image = Image.new("RGB", (960, 540), (80, 130, 140))
+    draw = ImageDraw.Draw(image)
+    draw.text(
+        (330, 240), "Visible title", font=ImageFont.truetype(str(fonts.BUNDLED), 42), fill="white"
+    )
+    for x in range(0, 960, 80):
+        draw.line((x, 410, x + 40, 539), fill="black", width=8)
+    crops = automatic.retry_crops(image, [])
+    assert crops
+    left, top, right, bottom = crops[0][1]
+    assert 310 < left < right < 640 and 230 < top < bottom < 310

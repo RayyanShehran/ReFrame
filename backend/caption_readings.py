@@ -6,7 +6,8 @@ import json
 import projects
 from references import ReferenceError
 
-LIMITS = {"ocr": 32, "handwriting": 128}
+LIMITS = {"ocr": 600, "handwriting": 128}
+BYTE_LIMITS = {"ocr": 4 * 1024 * 1024, "handwriting": 128 * 2048}
 MAX_PAYLOAD = 128 * 1024
 PAYLOAD_LIMITS = {"ocr": MAX_PAYLOAD, "handwriting": 2048}
 
@@ -47,7 +48,9 @@ def save(project_id, kind, namespace, key, payload):
         )
         db.execute(
             "DELETE FROM caption_readings WHERE project_id=? AND kind=? AND rowid NOT IN "
-            "(SELECT rowid FROM caption_readings WHERE project_id=? AND kind=? "
-            "ORDER BY saved_at DESC, key DESC LIMIT ?)",
-            (project_id, kind, project_id, kind, LIMITS[kind]),
+            "(SELECT rowid FROM (SELECT rowid, ROW_NUMBER() OVER "
+            "(ORDER BY saved_at DESC,key DESC) AS position, SUM(length(payload)) OVER "
+            "(ORDER BY saved_at DESC,key DESC) AS bytes FROM caption_readings "
+            "WHERE project_id=? AND kind=?) WHERE position<=? AND bytes<=?)",
+            (project_id, kind, project_id, kind, LIMITS[kind], BYTE_LIMITS[kind]),
         )

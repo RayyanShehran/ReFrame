@@ -151,6 +151,7 @@ class VisibleBinding(color.Schema):
         "visible-tsv-adaptive-v5",
         "visible-tsv-adaptive-v6",
         "visible-tsv-adaptive-v7",
+        "visible-tsv-adaptive-v8",
     ]
     reads: int = Field(ge=0, le=600)
     engine_version: str = Field(max_length=256)

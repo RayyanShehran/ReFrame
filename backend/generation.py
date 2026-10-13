@@ -177,7 +177,9 @@ def review_captions(project_id, request):
     return operation
 
 
-def retain_reviewed(cues, review, source, replace_verified=False, incomplete=False):
+def retain_reviewed(
+    cues, review, source, replace_verified=False, incomplete=False, *, observed_window=None
+):
     if not review or review.evidence.source != source["identity"] or replace_verified:
         return cues, []
     verified = review.verified_cues
@@ -188,9 +190,25 @@ def retain_reviewed(cues, review, source, replace_verified=False, incomplete=Fal
         c for c in cues if not any(c.start < v.end and v.start < c.end for v in protected)
     ] + protected
     if incomplete:
-        result += [
-            c for c in review.cues if not any(c.start < n.end and n.start < c.end for n in result)
-        ]
+        prior = review.cues
+        if observed_window is not None:
+            pieces = []
+            for old in prior:
+                remaining = [old]
+                for new in result:
+                    next_parts = []
+                    for part in remaining:
+                        if part.start >= new.end or new.start >= part.end:
+                            next_parts.append(part)
+                        else:
+                            if part.start < new.start:
+                                next_parts.append(part.model_copy(update={"end": new.start}))
+                            if part.end > new.end:
+                                next_parts.append(part.model_copy(update={"start": new.end}))
+                    remaining = next_parts
+                pieces.extend(remaining)
+            prior = pieces
+        result += [c for c in prior if not any(c.start < n.end and n.start < c.end for n in result)]
     if len(result) > 200:
         raise ReferenceError(
             413, "caption_cue_limit", "More than 200 retained cues need correction."
@@ -686,6 +704,7 @@ def prepare_captions(project_id, mode, stop, deadline, operation):
                     project_id, source, directory, stop, deadline
                 )
                 incomplete = evidence.pop("unreadable_samples", 0)
+                observed_window = evidence.pop("observed_window", None)
                 if mode == "reference":
                     cues, verified = retain_reviewed(
                         cues,
@@ -693,6 +712,7 @@ def prepare_captions(project_id, mode, stop, deadline, operation):
                         source,
                         operation.options.replace_verified_captions,
                         bool(incomplete),
+                        observed_window=observed_window,
                     )
                 if mode == "reference" and incomplete:
                     operation.caption_review = CaptionReview(

@@ -745,3 +745,39 @@ def test_continuous_observed_retry_supersedes_old_fragments_but_keeps_manual_and
         [continuous, wrong], review, source, incomplete=True
     )
     assert result == [continuous, unrelated, manual] and verified == []
+
+
+def test_scoped_partial_reconciliation_preserves_unobserved_cue_portions():
+    import uuid
+
+    import captions
+
+    source = {
+        "identity": generation.color.Source(
+            canonical_url="https://www.tiktok.com/@test/video/6718335390845095173",
+            video_id="6718335390845095173",
+            media_sha256="a" * 64,
+        )
+    }
+    old = captions.Cue(start=1.0, end=5.0, text="Existing valid words")
+    new = captions.Cue(start=4.0, end=5.0, text="Improved words")
+    review = generation.CaptionReview(
+        cues=[old],
+        notices=[],
+        unreadable_samples=1,
+        evidence=captions.VisibleBinding(
+            source=source["identity"],
+            reference_operation_id=str(uuid.uuid4()),
+            method=generation.automatic_captions.METHOD,
+            reads=1,
+            engine_version="test",
+            assets_commit="a" * 40,
+        ),
+    )
+    result, _ = generation.retain_reviewed(
+        [new], review, source, incomplete=True, observed_window=(4.0, 6.0)
+    )
+    assert [(c.start, c.end, c.text) for c in result] == [
+        (1.0, 4.0, old.text),
+        (4.0, 5.0, new.text),
+    ]
