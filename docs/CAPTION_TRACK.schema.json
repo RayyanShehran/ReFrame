@@ -576,7 +576,8 @@
             "visible-tsv-adaptive-v2",
             "visible-tsv-adaptive-v3",
             "visible-tsv-adaptive-v4",
-            "visible-tsv-adaptive-v5"
+            "visible-tsv-adaptive-v5",
+            "visible-tsv-adaptive-v6"
           ],
           "title": "Method",
           "type": "string"

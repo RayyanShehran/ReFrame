@@ -705,3 +705,43 @@ def test_saved_user_correction_survives_retry_without_claiming_verification():
         [wrong],
         [],
     )
+
+
+def test_continuous_observed_retry_supersedes_old_fragments_but_keeps_manual_and_other_cues():
+    import uuid
+
+    import captions
+
+    source = {
+        "identity": generation.color.Source(
+            canonical_url="https://www.tiktok.com/@test/video/6718335390845095173",
+            video_id="6718335390845095173",
+            media_sha256="a" * 64,
+        )
+    }
+    fragments = [
+        captions.Cue(start=1.0, end=1.3, text="Partial"),
+        captions.Cue(start=1.6, end=1.8, text="Noisy partial"),
+    ]
+    unrelated = captions.Cue(start=4.0, end=5.0, text="Other caption")
+    manual = captions.Cue(start=6.0, end=7.0, text="User correction")
+    review = generation.CaptionReview(
+        cues=[*fragments, unrelated, manual],
+        corrected_cues=[manual],
+        notices=[],
+        unreadable_samples=1,
+        evidence=captions.VisibleBinding(
+            source=source["identity"],
+            reference_operation_id=str(uuid.uuid4()),
+            method=generation.automatic_captions.METHOD,
+            reads=2,
+            engine_version="test",
+            assets_commit="a" * 40,
+        ),
+    )
+    continuous = captions.Cue(start=1.0, end=2.0, text="Observed continuous words")
+    wrong = captions.Cue(start=6.0, end=7.0, text="Automatic misreading")
+    result, verified = generation.retain_reviewed(
+        [continuous, wrong], review, source, incomplete=True
+    )
+    assert result == [continuous, unrelated, manual] and verified == []

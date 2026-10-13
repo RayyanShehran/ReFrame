@@ -482,7 +482,7 @@ def test_refined_model_readings_are_recorded_for_stability_instead_of_dropped():
     shape = bytes([255, 0, 255, 0] * 1024)
     prototypes = [(0, correct.rectangle, shape, correct), (30, correct.rectangle, shape, correct)]
     cache = {}
-    signatures = {f: [(correct.rectangle, shape)] for f in [0, 15, 30]}
+    signatures = {f: [(correct.rectangle, shape)] for f in range(31)}
 
     def read(frame):
         return automatic.read_tracked(frame, lambda _: [raw], cache, signatures, prototypes)
@@ -490,7 +490,7 @@ def test_refined_model_readings_are_recorded_for_stability_instead_of_dropped():
     changes = automatic.track(read, [0, 15, 30], set())
     stable = Counter(automatic.dominant(rows, set()).text for rows in cache.values())
     assert changes[0][1].text == correct.text
-    assert stable[correct.text] == 3 and stable[raw.text] == 0
+    assert stable[correct.text] == len(cache) and stable[raw.text] == 0
 
 
 def test_unknown_outline_does_not_add_a_dark_border_to_assisted_handwriting(tmp_path, monkeypatch):
@@ -668,3 +668,62 @@ def test_interruption_persists_completed_reads_before_propagating(tmp_path):
         stop.set()
         thread.join(timeout=5)
         automatic.engine._control.stop = previous
+
+
+def test_same_words_do_not_bridge_a_visible_gap_or_fade():
+    def read(frame):
+        return [] if 6 <= frame < 10 or frame >= 25 else [detection("Same words")]
+
+    result = automatic.track(read, [0, 15, 29], set())
+    assert [(f, d.text if d else None) for f, d in result] == [
+        (0, "Same words"),
+        (6, None),
+        (10, "Same words"),
+        (25, None),
+    ]
+
+
+def test_visible_shape_follows_fade_but_not_black_or_different_glyphs():
+    from PIL import Image, ImageDraw
+
+    rect = automatic.match.Rectangle(x=0.1, y=0.2, width=0.7, height=0.3)
+    image = Image.new("RGB", (200, 100))
+    draw = ImageDraw.Draw(image)
+    for x in range(24, 150, 16):
+        draw.line((x, 24, x, 45), fill=(240, 220, 20), width=3)
+    original = automatic.visible_shape(image, rect, "#f0dc14")
+    faded = image.point(lambda v: round(v * 0.2))
+    assert (
+        automatic.glyph_similarity(original, automatic.visible_shape(faded, rect, "#f0dc14")) > 0.99
+    )
+    assert (
+        automatic.glyph_similarity(
+            original, automatic.visible_shape(Image.new("RGB", image.size), rect, "#f0dc14")
+        )
+        == 0
+    )
+    other = image.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
+    assert (
+        automatic.glyph_similarity(original, automatic.visible_shape(other, rect, "#f0dc14")) < 0.9
+    )
+
+
+def test_handwriting_selection_pairs_distinct_frames_within_budget():
+    d = detection("You know 1 want")
+    rect = (d.rectangle.x, d.rectangle.y, d.rectangle.width, d.rectangle.height)
+    shape = bytes([255, 0] * 2048)
+    rows = [(f, rect, [str(f)]) for f in [0, 1, 15, 30]]
+    selected = automatic.select_handwriting(
+        rows, 2, signatures={f: [(d.rectangle, shape)] for f, _, _ in rows}, readings={0: [d]}
+    )
+    assert len(selected) == 2 and abs(selected[0][0] - selected[1][0]) >= 3
+
+
+def test_punctuation_requires_agreeing_pixel_readings_and_does_not_guess_words():
+    assert (
+        automatic.observed_punctuation("You know I want", "You know 1 want,") == "You know I want,"
+    )
+    assert (
+        automatic.observed_punctuation("You know I want", "You know 1 went,") == "You know I want"
+    )
+    assert automatic.observed_punctuation("There are 10", "There are IO!") == "There are 10"

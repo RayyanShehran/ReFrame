@@ -27,7 +27,7 @@ import reference_motion as motion
 import video_render as render
 from references import ReferenceError
 
-METHOD = "visible-tsv-adaptive-v5"
+METHOD = "visible-tsv-adaptive-v6"
 MAX_READS = 600
 MAX_APPEARANCES = 8
 TOTAL_SECONDS = 300
@@ -293,7 +293,13 @@ def track(read, frames, ignored):
 
     def refine(left, a, right, b):
         if same(a, b):
-            return []
+            if right - left <= 2:
+                return []
+            middle = (left + right) // 2
+            detected = dominant(read(middle), ignored)
+            if same(detected, a):
+                return []
+            return refine(left, a, middle, detected) + refine(middle, detected, right, b)
         if right - left <= 1:
             return [(right, b)]
         middle = (left + right) // 2
@@ -758,6 +764,31 @@ def glyph_similarity(a, b):
     return 2 * sum(min(x, y) for x, y in zip(a, b)) / mass if mass else 0.0
 
 
+def visible_shape(image, rectangle, ink):
+    """Match observed glyph pixels independently of a fresh word recognition."""
+    import colorsys
+
+    import numpy as np
+    from PIL import Image
+
+    x, y = round(rectangle.x * image.width), round(rectangle.y * image.height)
+    right = round((rectangle.x + rectangle.width) * image.width)
+    bottom = round((rectangle.y + rectangle.height) * image.height)
+    crop = image.crop((x, max(0, y - 5), right, min(image.height, bottom + 5)))
+    hsv = np.asarray(crop.convert("HSV"))
+    rgb = tuple(int(ink[i : i + 2], 16) / 255 for i in (1, 3, 5))
+    hue, saturation, _ = colorsys.rgb_to_hsv(*rgb)
+    if saturation > 0.2:
+        distance = np.abs(hsv[:, :, 0].astype(float) - hue * 255)
+        mask = (np.minimum(distance, 255 - distance) < 16) & (hsv[:, :, 1] > 40)
+    else:
+        mask = hsv[:, :, 1] < 40
+    # Below this floor the pixels cannot establish readable glyph continuity.
+    peak = float(np.quantile(hsv[:, :, 2][mask], 0.99)) if mask.any() else 0.0
+    mask &= hsv[:, :, 2] > max(20, peak * 0.7)
+    return Image.fromarray((mask * 255).astype("uint8")).resize((128, 32)).convert("RGB").tobytes()
+
+
 def read_tracked(index, read_frame, cache, signatures, prototypes):
     found = read_frame(index)
     cache[index] = (
@@ -775,7 +806,7 @@ def recover_lines(index, signatures, prototypes, fallback):
             if abs(f - index) <= 90
             and abs(rectangle.y - r.y) < 0.025
             and 0.8 <= rectangle.width / r.width <= 1.25
-            and glyph_similarity(signature, shape) >= 0.8
+            and glyph_similarity(signature, shape) >= 0.9
         ]
         model = [(f, d) for f, d in candidates if d.recognizer == "trocr"]
         if len({f for f, _ in model}) >= 2:
@@ -786,6 +817,15 @@ def recover_lines(index, signatures, prototypes, fallback):
                 (d for _, d in candidates),
                 key=lambda d: (counts[d.text], d.confidence, d.sharpness),
             )
+            conflicting = [
+                d
+                for d in fallback
+                if overlaps_line(d.rectangle, rectangle)
+                and reliable_wording(d)
+                and word_key(d.text) != word_key(chosen.text)
+            ]
+            if conflicting:
+                continue
             recovered.append(
                 replace(
                     chosen,
@@ -803,11 +843,84 @@ def recover_lines(index, signatures, prototypes, fallback):
     ]
 
 
-def select_handwriting(rows, limit):
-    count = min(len(rows), limit)
-    if count == 1:
-        return [rows[len(rows) // 2]]
-    return [rows[round(i * (len(rows) - 1) / (count - 1))] for i in range(count)]
+def select_handwriting(rows, limit, *, signatures=None, readings=None):
+    if signatures is None:
+        count = min(len(rows), limit)
+        if count == 1:
+            return [rows[len(rows) // 2]]
+        return [rows[round(i * (len(rows) - 1) / (count - 1))] for i in range(count)]
+    groups = []
+    for row in rows:
+        index, rect, _ = row
+        rectangle = match.Rectangle(x=rect[0], y=rect[1], width=rect[2], height=rect[3])
+        shapes = [
+            shape for box, shape in signatures.get(index, []) if overlaps_line(box, rectangle)
+        ]
+        if not shapes:
+            continue
+        shape = shapes[0]
+        group = next(
+            (
+                g
+                for g in groups
+                if abs(g[0][0] - index) <= 90
+                and abs(g[0][1][1] - rect[1]) < 0.025
+                and 0.9 <= rect[2] / g[0][1][2] <= 1.1
+                and glyph_similarity(g[0][3], shape) >= 0.9
+            ),
+            None,
+        )
+        item = (*row, shape)
+        if group is None:
+            groups.append([item])
+        else:
+            group.append(item)
+
+    def priority(group):
+        ambiguous = any(
+            any(
+                not reliable_wording(d) and any(t in {"1", "0", "|"} for t in d.text.split())
+                for d in (readings or {}).get(row[0], [])
+            )
+            for row in group
+        )
+        return ambiguous, len({row[0] for row in group})
+
+    chosen = []
+    for group in sorted(groups, key=priority, reverse=True):
+
+        def sharp(row):
+            return max((d.sharpness for d in (readings or {}).get(row[0], [])), default=0)
+
+        first = max(group, key=sharp)
+        others = [row for row in group if abs(row[0] - first[0]) >= 3]
+        pair = [first] + ([max(others, key=sharp)] if others else [])
+        if len(chosen) + len(pair) > limit:
+            continue
+        chosen.extend(tuple(row[:3]) for row in pair)
+    return chosen
+
+
+def word_key(text):
+    import re
+
+    return tuple(re.findall(r"[^\W_]+(?:['’][^\W_]+)*", text.casefold().replace("’", "'")))
+
+
+def observed_punctuation(model, reader):
+    """Use punctuation read from the same pixels only when word positions agree."""
+    import re
+
+    model_words = re.findall(r"[^\W_]+(?:['’][^\W_]+)*", model)
+    reader_words = re.findall(r"[^\W_]+(?:['’][^\W_]+)*", reader)
+    if len(model_words) != len(reader_words) or not all(
+        a.casefold().replace("’", "'") == b.casefold().replace("’", "'")
+        or (b in {"1", "0"} and len(a) == 1 and a.isalpha())
+        for a, b in zip(model_words, reader_words)
+    ):
+        return model
+    words = iter(model_words)
+    return re.sub(r"[^\W_]+(?:['’][^\W_]+)*", lambda _: next(words), reader)
 
 
 def overlaps_line(a, b):
@@ -1293,6 +1406,21 @@ def detect(project_id, source, directory, stop, deadline):
                             if max(crop[i : i + 3]) > 200
                         ]
                         detected.glyph_height = (max(glyph_rows) - min(glyph_rows) + 1) / height
+            if index in signatures:
+                normalized = []
+                for rectangle, shape in signatures[index]:
+                    related = [d for d in detections if overlaps_line(d.rectangle, rectangle)]
+                    if related:
+                        ink = max(related, key=lambda d: d.confidence).ink
+                        shape = visible_shape(native, rectangle, ink)
+                    normalized.append((rectangle, shape))
+                signatures[index] = normalized
+            # Word failure does not imply disappearance: verify the same glyphs in this frame.
+            for frame, rectangle, _, detected in prototypes:
+                if abs(frame - index) <= 90 and reliable_wording(detected):
+                    signatures.setdefault(index, []).append(
+                        (rectangle, visible_shape(native, rectangle, detected.ink))
+                    )
             cache[index] = detections
             return detections
 
@@ -1309,7 +1437,9 @@ def detect(project_id, source, directory, stop, deadline):
         read(f)
     if handwriting_rows and script_votes["latin"] > script_votes["arabic"]:
         allowed = min(handwriting.MAX_LINES // 2, (MAX_READS - reads[0]) // 2)
-        selected = select_handwriting(handwriting_rows, allowed)
+        selected = select_handwriting(
+            handwriting_rows, allowed, signatures=signatures, readings=cache
+        )
         names = list(dict.fromkeys(name for _, _, variants in selected for name in variants))
         if names and reading_deadline - time.monotonic() > 30:
             with temporary(directory / "handwriting") as stage:
@@ -1360,7 +1490,7 @@ def detect(project_id, source, directory, stop, deadline):
                             frame_index=index,
                             recognizer="trocr",
                             needs_review=len(choices) < len(variants)
-                            or len({row["text"] for row in choices}) != 1
+                            or len({word_key(row["text"]) for row in choices}) != 1
                             or chosen["score"] < 0.85,
                         )
                         observed.append((index, d))
@@ -1369,12 +1499,18 @@ def detect(project_id, source, directory, stop, deadline):
                             {
                                 f
                                 for f, other in observed
-                                if other.text == d.text
+                                if word_key(other.text) == word_key(d.text)
                                 and abs(other.rectangle.y - d.rectangle.y) < 0.08
                                 and abs(f - index) <= 90
                             }
                         )
                         d.needs_review = d.needs_review or agreement < 2
+                        related = [
+                            old for old in cache[index] if overlaps_line(old.rectangle, d.rectangle)
+                        ]
+                        if not d.needs_review and related:
+                            reader = max(related, key=lambda old: old.confidence)
+                            d.text = observed_punctuation(d.text, reader.text)
                         if any(
                             reliable_wording(old)
                             and old.minimum_confidence >= 90
