@@ -28,7 +28,7 @@ import reference_motion as motion
 import video_render as render
 from references import ReferenceError
 
-METHOD = "visible-tsv-adaptive-v10"
+METHOD = "visible-tsv-adaptive-v11"
 MAX_READS = 600
 MAX_APPEARANCES = 8
 TOTAL_SECONDS = 300
@@ -317,7 +317,7 @@ def consolidate(observations):
     return rows
 
 
-def track(read, frames, ignored):
+def track(read, frames, ignored, *, boundaries=None, absence=None, verified_absence=None):
     known = {}
 
     def observe(frame):
@@ -356,6 +356,27 @@ def track(read, frames, ignored):
         for frame, detected in consolidate(sorted(known.items())):
             if not refined or not same(refined[-1][1], detected):
                 refined.append((frame, detected))
+    if boundaries is not None:
+        observed = sorted(known)
+        for frame, _ in refined:
+            left = max((f for f in observed if f < frame), default=frame)
+            boundaries[frame] = (left / 30, frame / 30)
+    if absence is not None:
+        for (left, a), (right, b) in zip(sorted(known.items()), sorted(known.items())[1:]):
+            if (
+                a is None
+                and b is None
+                and right - left <= 15
+                and (
+                    verified_absence is None
+                    or left in verified_absence
+                    and right in verified_absence
+                )
+            ):
+                if absence and absence[-1][1] == left / 30:
+                    absence[-1] = (absence[-1][0], right / 30)
+                else:
+                    absence.append((left / 30, right / 30))
     return refined
 
 
@@ -389,6 +410,7 @@ def reliable_wording(detection):
     tokens = [word.strip(".,!?;:") for word in detection.text.split()]
     return (
         not detection.needs_review
+        and "\ufffd" not in detection.text
         and detection.minimum_confidence >= 75
         and sum(c.isalnum() for c in detection.text) >= 4
         and not all(t.isdigit() for t in tokens)
@@ -1050,9 +1072,9 @@ def validate_handwriting(raw, names, *, allow_partial=False):
 def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
     started = time.monotonic()
     overall_deadline = deadline
-    deadline = min(deadline, time.monotonic() + TOTAL_SECONDS)
+    deadline = min(deadline - 10, started + TOTAL_SECONDS - 10)
     engine._control.stop = stop
-    reading_deadline = min(deadline, time.monotonic() + 220)
+    reading_deadline = min(deadline - 45, started + 200)
     available = ocr.inspect_capability(directory, deadline)
     if not available["available"]:
         raise ReferenceError(
@@ -1108,6 +1130,7 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
     )
     cached_ocr_reads = 0
     cached_handwriting_requests = 0
+    cached_handwriting_found = 0
     handwriting_ready = handwriting.available()
     handwriting_images, handwriting_rows = {}, []
     handwriting_bytes = 0
@@ -1116,6 +1139,7 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
     handwriting_completed_requests = 0
     signatures = {}
     prototypes = []
+    visibility_levels, absent_frames = {}, set()
     discovery = set(frames)
 
     def cached_ocr(args, stage, name):
@@ -1198,6 +1222,9 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
                 from PIL import Image
 
                 with Image.open(target) as image:
+                    from PIL import ImageStat
+
+                    visibility_levels[index] = ImageStat.Stat(image.convert("L")).mean[0]
                     crops = retry_crops(image, [])
                     lines = handwriting.line_crops(image, crops[0][0], crops[0][1]) if crops else []
                     observed = []
@@ -1331,6 +1358,9 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
 
             with Image.open(target) as image:
                 native = image.convert("RGB")
+                from PIL import ImageStat
+
+                visibility_levels[index] = ImageStat.Stat(native.convert("L")).mean[0]
             if (
                 uncertain
                 or not detections
@@ -1597,6 +1627,24 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
                         prior["start"] = min(prior["start"], index / 30)
                         prior["end"] = max(prior["end"], (index + 1) / 30)
                         excluded[d.text] = prior
+            if dominant(result, ignored) is None and visibility_levels.get(index, 0) >= 30:
+                nearby = [
+                    (box, shape)
+                    for f, box, shape, d in prototypes
+                    if abs(f - index) <= 90 and reliable_wording(d) and d.text not in ignored
+                ]
+                checked = [
+                    (box, shape)
+                    for box, shape in signatures.get(index, [])
+                    if any(overlaps_line(box, old) for old, _ in nearby)
+                ]
+                # Dark/faint frames and unchecked regions remain unknown, not disappearance.
+                if checked and not any(
+                    overlaps_line(box, old) and glyph_similarity(shape, before) >= 0.65
+                    for box, shape in checked
+                    for old, before in nearby
+                ):
+                    absent_frames.add(index)
             return result
         except engine.ProbeTimeout:
             # The contained runner confirms termination before raising a timeout.
@@ -1629,6 +1677,7 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
             cached_names=cached_names,
         )
         names = list(dict.fromkeys(variants[i] for i in (1, 0) for _, _, variants in selected))
+        cached_handwriting_found = sum(name in cached_names for name in names)
         if names:
             with temporary(directory / "handwriting") as stage:
                 for name in names:
@@ -1762,7 +1811,7 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
     counts = Counter(d.text for f in frames for d in read(f))
 
     # Read nearby frames at their own timestamps; never assign recovered text to an earlier frame.
-    nearby = sorted({min(total - 1, f + 3) for f in list(unresolved)[:8]} - set(frames))
+    nearby = sorted({min(total - 1, max(first, f + 3)) for f in list(unresolved)[:8]} - set(frames))
     for f in nearby:
         try:
             read(f)
@@ -1778,7 +1827,16 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
         compact = "".join(c for c in text.casefold() if c.isalnum())
         if creator and SequenceMatcher(None, compact, creator).ratio() >= 0.85:
             ignored.add(text)
-    changes = track(read, frames, ignored)
+    color.guard(stop, deadline)
+    boundaries, absence = {}, []
+    changes = track(
+        read,
+        frames,
+        ignored,
+        boundaries=boundaries,
+        absence=absence,
+        verified_absence=absent_frames,
+    )
     stable = Counter(
         word_key(d.text)
         for _, values in sorted(cache.items())
@@ -1788,8 +1846,15 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
         unresolved[first] = (
             "Only a diagnostic interval was observed; the full track is not certified"
         )
+
+    def supports(frame):
+        d = dominant(cache.get(frame, []), ignored)
+        return (
+            frame in {0, total} or frame in absent_frames or d is not None and reliable_wording(d)
+        )
+
     preserve_saved_analysis = match.read(project_id, deadline)["revision"] > 0
-    cues, notes = [], []
+    cues, notes, observations = [], [], []
     if ignored:
         notes.append(
             "Persistent edge text was excluded as likely logos/usernames; check Customize."
@@ -1799,9 +1864,12 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
     partial_fits = 0
     width_cache = {}
     for i, (start, detected) in enumerate(changes):
+        color.guard(stop, deadline)
         end = changes[i + 1][0] if i + 1 < len(changes) else total
         if detected is None or end <= start:
             continue
+        if not reliable_wording(detected):
+            unresolved[start] = "Wording is unresolved; no missing words were supplied"
         if end - start < 3 or stable[word_key(detected.text)] < 2:
             unresolved[start] = "Brief or isolated wording needs review"
             continue
@@ -1976,6 +2044,24 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
         cues.append(
             captions.Cue(start=start / 30, end=end / 30, text=detected.text, appearance=fitted)
         )
+        observations.append(
+            {
+                "start": start / 30,
+                "end": end / 30,
+                "text": detected.text,
+                "start_window": boundaries.get(start, (start / 30, start / 30)),
+                "start_supported": supports(start),
+                "end_supported": supports(end),
+                "end_window": boundaries.get(end, ((total - 1) / 30, total / 30)),
+                "wording": (
+                    "unresolved"
+                    if not reliable_wording(detected)
+                    else "paired_model"
+                    if detected.recognizer == "trocr"
+                    else "ocr"
+                ),
+            }
+        )
     if frame_window is not None:
         unresolved[first] = (
             "Only a diagnostic interval was observed; the full track is not certified"
@@ -2004,6 +2090,9 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
         {
             **({"observed_window": frame_window} if frame_window is not None else {}),
             "excluded_intervals": list(excluded.values()),
+            "observations": observations,
+            "observed_absence": absence,
+            "reading_budget_exhausted": time.monotonic() >= reading_deadline,
             "unreadable_samples": len(unresolved),
             "method": METHOD,
             "reads": reads[0],
@@ -2016,6 +2105,7 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
             "handwriting_completed_requests": handwriting_completed_requests,
             "cached_ocr_reads": cached_ocr_reads,
             "cached_handwriting_requests": cached_handwriting_requests,
+            "cached_handwriting_found": cached_handwriting_found,
             "elapsed_seconds": time.monotonic() - started,
             "source": source["identity"].model_dump(mode="json"),
             "reference_operation_id": source["reference_operation_id"],

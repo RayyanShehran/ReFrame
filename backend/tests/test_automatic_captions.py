@@ -858,3 +858,39 @@ def test_partial_faded_reappearance_is_not_certified_as_a_complete_new_sentence(
     assert not automatic.partial_reappearance(before, detection("A different reply"))
     short.rectangle = short.rectangle.model_copy(update={"y": 0.2})
     assert not automatic.partial_reappearance(before, short)
+
+
+def test_tracking_records_refined_visibility_brackets_and_observed_absence():
+    boundaries, absence = {}, []
+    result = automatic.track(
+        lambda f: [detection("Observed words")] if 7 <= f < 22 else [],
+        [0, 15, 29, 44],
+        set(),
+        boundaries=boundaries,
+        absence=absence,
+    )
+    assert [(f, d.text if d else None) for f, d in result] == [
+        (0, None),
+        (7, "Observed words"),
+        (22, None),
+    ]
+    assert boundaries[7] == (6 / 30, 7 / 30) and boundaries[22] == (21 / 30, 22 / 30)
+    assert any(left <= 29 / 30 and right >= 44 / 30 for left, right in absence)
+
+
+def test_budget_failure_cannot_become_observed_absence():
+    def read(f):
+        if f not in {0, 15}:
+            raise automatic.engine.ProbeTimeout("Fixture budget exhausted")
+        return [detection("Observed words")] if f == 15 else []
+
+    boundaries, absence = {}, []
+    result = automatic.track(read, [0, 15], set(), boundaries=boundaries, absence=absence)
+    assert [(f, d.text if d else None) for f, d in result] == [(0, None), (15, "Observed words")]
+    assert boundaries[15] == (0, 0.5) and absence == []
+
+
+def test_ocr_silence_without_supported_visibility_cannot_remove_old_cues():
+    absence = []
+    automatic.track(lambda f: [], [0, 15, 29], set(), absence=absence, verified_absence=set())
+    assert absence == []

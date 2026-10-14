@@ -888,3 +888,183 @@ def test_observed_replacement_does_not_leave_the_superseded_automatic_tail():
         [fresh], review, source, incomplete=True, observed_window=(0, 6)
     )
     assert result == [fresh]
+
+
+def evidence_review(cues, observations, *, protected=()):
+    import uuid
+
+    import captions
+
+    source = {
+        "identity": generation.color.Source(
+            canonical_url="https://www.tiktok.com/@test/video/6718335390845095173",
+            video_id="6718335390845095173",
+            media_sha256="a" * 64,
+        )
+    }
+    review = generation.CaptionReview(
+        cues=cues,
+        observations=observations,
+        corrected_cues=list(protected),
+        notices=[],
+        unreadable_samples=1,
+        evidence=captions.VisibleBinding(
+            source=source["identity"],
+            reference_operation_id=str(uuid.uuid4()),
+            method=generation.automatic_captions.METHOD,
+            reads=2,
+            engine_version="test",
+            assets_commit="a" * 40,
+        ),
+    )
+    return review, source
+
+
+def observation(cue, step, wording="ocr", supported=True):
+    return generation.CaptionObservation(
+        start=cue.start,
+        end=cue.end,
+        text=cue.text,
+        start_window=(max(0, cue.start - step), cue.start),
+        end_window=(max(0, cue.end - step), cue.end),
+        wording=wording,
+        start_supported=supported,
+        end_supported=supported,
+    )
+
+
+def test_coarse_full_run_preserves_refined_boundaries_but_accepts_better_words():
+    import captions
+
+    old = captions.Cue(start=1.233333, end=2.466667, text="Really observed sentence.")
+    fresh = captions.Cue(start=1.5, end=2.5, text="Really observed sentence!")
+    review, source = evidence_review([old], [observation(old, 1 / 30)])
+    facts = [observation(fresh, 0.5, "paired_model")]
+    result, _ = generation.retain_reviewed(
+        [fresh], review, source, incomplete=True, observations=facts
+    )
+    assert [(c.start, c.end, c.text) for c in result] == [(old.start, old.end, fresh.text)]
+    assert (
+        facts[0].wording == "paired_model"
+        and facts[0].start_window == review.observations[0].start_window
+    )
+
+
+def test_stronger_observations_correct_timing_without_weaker_text_replacing_model_words():
+    import captions
+
+    old = captions.Cue(start=1.5, end=2.5, text="I read the words correctly")
+    fresh = captions.Cue(start=1.2, end=2.4, text="1 read the words correctly")
+    review, source = evidence_review([old], [observation(old, 0.5, "paired_model")])
+    facts = [observation(fresh, 1 / 30, "unresolved")]
+    result, _ = generation.retain_reviewed(
+        [fresh], review, source, incomplete=True, observations=facts
+    )
+    assert [(c.start, c.end, c.text) for c in result] == [(fresh.start, fresh.end, old.text)]
+    assert facts[0].wording == "paired_model"
+
+
+def test_observed_absence_removes_stale_tail_not_neighbor_or_manual_correction():
+    import captions
+
+    tail = captions.Cue(start=2.4, end=2.8, text="Previously split fragment")
+    neighbor = captions.Cue(start=3, end=4, text="Distinct reply")
+    manual = captions.Cue(start=5, end=6, text="Protected wording")
+    fresh = captions.Cue(start=1, end=2.4, text="Complete replacement")
+    review, source = evidence_review([tail, neighbor, manual], [], protected=[manual])
+    result, _ = generation.retain_reviewed(
+        [fresh],
+        review,
+        source,
+        incomplete=True,
+        observed_absence=[(2.4, 2.9), (5, 6)],
+    )
+    assert result == [fresh, neighbor, manual]
+
+
+def test_changed_source_cannot_reuse_boundary_or_absence_evidence():
+    import captions
+
+    old = captions.Cue(start=1.2, end=2.4, text="Observed words")
+    fresh = captions.Cue(start=1.5, end=2.5, text=old.text)
+    review, source = evidence_review([old], [observation(old, 1 / 30)])
+    source["identity"] = source["identity"].model_copy(update={"media_sha256": "b" * 64})
+    result, _ = generation.retain_reviewed(
+        [fresh],
+        review,
+        source,
+        incomplete=True,
+        observations=[observation(fresh, 0.5)],
+        observed_absence=[(1, 3)],
+    )
+    assert result == [fresh]
+
+
+def test_unconfirmed_ocr_cutoff_cannot_replace_supported_visibility_boundary():
+    import captions
+
+    old = captions.Cue(start=1.2, end=2.4, text="Observed words")
+    fresh = captions.Cue(start=1.3, end=2.2, text=old.text)
+    review, source = evidence_review([old], [observation(old, 0.1)])
+    facts = [observation(fresh, 1 / 30, supported=False)]
+    result, _ = generation.retain_reviewed(
+        [fresh], review, source, incomplete=True, observations=facts
+    )
+    assert result == [old]
+    assert facts[0].end_supported and facts[0].end_window == review.observations[0].end_window
+
+
+def test_normal_generation_retry_persists_independent_word_and_boundary_evidence(
+    local, monkeypatch
+):
+    import captions
+
+    client, directory, _ = local
+    pid = seed(client, directory)
+    calls = []
+
+    def detector(project_id, source, *args):
+        cue = captions.Cue(
+            start=0.5 if not calls else 0.7,
+            end=1.2 if not calls else 1.3,
+            text="Actually observed words." if not calls else "Actually observed words!",
+        )
+        fact = observation(
+            cue, 1 / 30 if not calls else 0.5, "ocr" if not calls else "paired_model"
+        )
+        calls.append(cue)
+        return (
+            [cue],
+            [],
+            {
+                "unreadable_samples": 1,
+                "observations": [fact.model_dump()],
+                "source": source["identity"].model_dump(),
+                "reference_operation_id": source["reference_operation_id"],
+                "method": generation.automatic_captions.METHOD,
+                "reads": 2,
+                "engine_version": "fixture",
+                "assets_commit": "a" * 40,
+            },
+        )
+
+    monkeypatch.setattr(generation.automatic_captions, "detect", detector)
+    url = f"/api/projects/{pid}/generation"
+    options = {
+        "captions": "reference",
+        "audio": "mute",
+        "replace_customized": True,
+        "matching_mode": "measurements",
+    }
+    for revision in (0, 1):
+        response = client.post(url, json=options | {"expected_revision": revision})
+        assert response.status_code == 202, response.text
+        saved = wait(client, url)
+        assert saved["failure_code"] == "caption_partial", saved
+    cue = saved["caption_review"]["cues"][0]
+    assert (cue["start"], cue["end"], cue["text"]) == (0.5, 1.2, calls[1].text)
+    fact = saved["caption_review"]["observations"][0]
+    assert fact["wording"] == "paired_model" and fact["end_window"] == pytest.approx(
+        [1.2 - 1 / 30, 1.2]
+    )
+    assert client.get(url).json() == saved

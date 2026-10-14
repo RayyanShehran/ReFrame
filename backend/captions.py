@@ -154,6 +154,7 @@ class VisibleBinding(color.Schema):
         "visible-tsv-adaptive-v8",
         "visible-tsv-adaptive-v9",
         "visible-tsv-adaptive-v10",
+        "visible-tsv-adaptive-v11",
     ]
     reads: int = Field(ge=0, le=600)
     engine_version: str = Field(max_length=256)
@@ -163,6 +164,8 @@ class VisibleBinding(color.Schema):
     handwriting_requests: int = Field(default=0, ge=0, le=96)
     cached_ocr_reads: int = Field(default=0, ge=0, le=3600)
     cached_handwriting_requests: int = Field(default=0, ge=0, le=96)
+    cached_handwriting_found: int = Field(default=0, ge=0, le=96)
+    reading_budget_exhausted: bool = False
     handwriting_completed_requests: int | None = Field(default=None, ge=0, le=96)
     elapsed_seconds: float | None = Field(default=None, ge=0, le=600, allow_inf_nan=False)
 

@@ -6,9 +6,10 @@ import logging
 import shutil
 import time
 import uuid
+from difflib import SequenceMatcher
 from typing import Literal
 
-from pydantic import Field, ValidationError, field_validator
+from pydantic import Field, ValidationError, field_validator, model_validator
 
 import assembly
 import audio_settings
@@ -61,6 +62,36 @@ class Request(color.Schema):
     replace_verified_captions: bool = Field(default=False, strict=True)
 
 
+class CaptionObservation(color.Schema):
+    start: float = Field(ge=0, lt=120, allow_inf_nan=False)
+    end: float = Field(gt=0, le=120, allow_inf_nan=False)
+    text: str = Field(min_length=1, max_length=200)
+    start_window: tuple[float, float]
+    end_window: tuple[float, float]
+    start_supported: bool = False
+    end_supported: bool = False
+    wording: Literal["unresolved", "ocr", "paired_model"]
+
+    @field_validator("start_window", "end_window")
+    @classmethod
+    def window(cls, values):
+        import math
+
+        if not all(math.isfinite(v) for v in values) or not 0 <= values[0] <= values[1] <= 120:
+            raise ValueError("Boundary observations must be finite and ordered")
+        return values
+
+    @model_validator(mode="after")
+    def supported(self):
+        if (
+            self.start >= self.end
+            or not self.start_window[0] <= self.start <= self.start_window[1]
+            or not self.end_window[0] <= self.end <= self.end_window[1]
+        ):
+            raise ValueError("Cue boundaries must lie inside their observed brackets")
+        return self
+
+
 class CaptionReview(color.Schema):
     cues: list[captions.Cue] = Field(max_length=200)
     notices: list[str] = Field(max_length=30)
@@ -68,6 +99,7 @@ class CaptionReview(color.Schema):
     unreadable_samples: int = Field(ge=0, le=3600)
     verified_cues: list[captions.Cue] = Field(default_factory=list, max_length=200)
     corrected_cues: list[captions.Cue] = Field(default_factory=list, max_length=200)
+    observations: list[CaptionObservation] = Field(default_factory=list, max_length=200)
 
 
 class ReviewRequest(color.Schema):
@@ -193,9 +225,85 @@ def retain_reviewed(
     *,
     observed_window=None,
     excluded_intervals=(),
+    observations=None,
+    observed_absence=(),
 ):
-    if not review or review.evidence.source != source["identity"] or replace_verified:
+    if (
+        not review
+        or review.evidence.source != source["identity"]
+        or replace_verified
+        or (
+            source.get("reference_operation_id") is not None
+            and str(review.evidence.reference_operation_id) != str(source["reference_operation_id"])
+        )
+    ):
         return cues, []
+    observations = observations if observations is not None else []
+
+    def key(c):
+        return c.start, c.end, c.text
+
+    old_facts = {key(c): c for c in review.observations}
+    new_facts = {key(c): c for c in observations}
+    selected_facts = dict(old_facts)
+    ranks = {"unresolved": 0, "ocr": 1, "paired_model": 2}
+    reconciled = []
+    for fresh in cues:
+        candidates = [
+            old
+            for old in review.cues
+            if old.start < fresh.end
+            and fresh.start < old.end
+            and key(old) in old_facts
+            and key(fresh) in new_facts
+            and SequenceMatcher(
+                None,
+                automatic_captions.word_key(old.text),
+                automatic_captions.word_key(fresh.text),
+            ).ratio()
+            >= 0.8
+        ]
+        fact = new_facts.get(key(fresh))
+        if len(candidates) == 1:
+            old = candidates[0]
+            # A split/added neighboring cue needs its own boundaries, not the old whole interval.
+            if sum(c.start < old.end and old.start < c.end for c in cues) == 1:
+                before = old_facts[key(old)]
+                text = old.text if ranks[before.wording] > ranks[fact.wording] else fresh.text
+                values = {"text": text}
+                windows = {}
+                for edge in ("start", "end"):
+                    previous, current = (
+                        getattr(before, edge + "_window"),
+                        getattr(fact, edge + "_window"),
+                    )
+                    old_supported = getattr(before, edge + "_supported")
+                    new_supported = getattr(fact, edge + "_supported")
+                    stronger = (old_supported and not new_supported) or (
+                        old_supported == new_supported
+                        and previous[1] - previous[0] < current[1] - current[0] - 0.000001
+                    )
+                    values[edge] = getattr(old if stronger else fresh, edge)
+                    windows[edge + "_window"] = previous if stronger else current
+                    windows[edge + "_supported"] = old_supported if stronger else new_supported
+                if values["start"] < values["end"] and not any(
+                    other is not fresh
+                    and values["start"] < other.end
+                    and other.start < values["end"]
+                    for other in cues
+                ):
+                    fresh = fresh.model_copy(update=values)
+                    fact = fact.model_copy(
+                        update={
+                            **values,
+                            **windows,
+                            "wording": before.wording if text == old.text else fact.wording,
+                        }
+                    )
+        reconciled.append(fresh)
+        if fact:
+            selected_facts[key(fresh)] = fact
+    cues = reconciled
     verified = review.verified_cues
     protected = list(
         {(c.start, c.end, c.text): c for c in [*review.corrected_cues, *verified]}.values()
@@ -208,11 +316,18 @@ def retain_reviewed(
             c
             for c in review.cues
             if c in protected
-            or not any(
-                c.start < e["end"]
-                and e["start"] < c.end
-                and automatic_captions.word_key(c.text) == automatic_captions.word_key(e["text"])
-                for e in excluded_intervals
+            or (
+                not any(
+                    left <= c.start + 0.000001 and right >= c.end - 0.000001
+                    for left, right in observed_absence
+                )
+                and not any(
+                    c.start < e["end"]
+                    and e["start"] < c.end
+                    and automatic_captions.word_key(c.text)
+                    == automatic_captions.word_key(e["text"])
+                    for e in excluded_intervals
+                )
             )
         ]
         if observed_window is not None:
@@ -232,6 +347,7 @@ def retain_reviewed(
         raise ReferenceError(
             413, "caption_cue_limit", "More than 200 retained cues need correction."
         )
+    observations[:] = [selected_facts[key(c)] for c in result if key(c) in selected_facts]
     return sorted(result, key=lambda c: c.start), verified
 
 
@@ -726,6 +842,11 @@ def prepare_captions(project_id, mode, stop, deadline, operation):
                 incomplete = evidence.pop("unreadable_samples", 0)
                 observed_window = evidence.pop("observed_window", None)
                 excluded_intervals = evidence.pop("excluded_intervals", [])
+                observations = [
+                    CaptionObservation.model_validate(c) for c in evidence.pop("observations", [])
+                ]
+                observed_absence = evidence.pop("observed_absence", [])
+                color.guard(stop, deadline)
                 if mode == "reference":
                     cues, verified = retain_reviewed(
                         cues,
@@ -735,6 +856,8 @@ def prepare_captions(project_id, mode, stop, deadline, operation):
                         bool(incomplete),
                         observed_window=observed_window,
                         excluded_intervals=excluded_intervals,
+                        observations=observations,
+                        observed_absence=observed_absence,
                     )
                 if mode == "reference" and incomplete:
                     operation.caption_review = CaptionReview(
@@ -742,6 +865,7 @@ def prepare_captions(project_id, mode, stop, deadline, operation):
                         notices=notices[:30],
                         evidence=captions.VisibleBinding.model_validate(evidence),
                         unreadable_samples=incomplete,
+                        observations=observations,
                         verified_cues=verified,
                         corrected_cues=[
                             c
@@ -765,6 +889,7 @@ def prepare_captions(project_id, mode, stop, deadline, operation):
                         notices=notices[:30],
                         evidence=captions.VisibleBinding.model_validate(evidence),
                         unreadable_samples=0,
+                        observations=observations,
                         verified_cues=verified,
                         corrected_cues=[
                             c
