@@ -66,8 +66,8 @@ class CaptionObservation(color.Schema):
     start: float = Field(ge=0, lt=120, allow_inf_nan=False)
     end: float = Field(gt=0, le=120, allow_inf_nan=False)
     text: str = Field(min_length=1, max_length=200)
-    start_window: tuple[float, float]
-    end_window: tuple[float, float]
+    start_window: tuple[float, float] | None
+    end_window: tuple[float, float] | None
     start_supported: bool | None = None
     end_supported: bool | None = None
     wording: Literal["unresolved", "ocr", "paired_model"]
@@ -77,6 +77,8 @@ class CaptionObservation(color.Schema):
     def window(cls, values):
         import math
 
+        if values is None:
+            return values
         if not all(math.isfinite(v) for v in values) or not 0 <= values[0] <= values[1] <= 120:
             raise ValueError("Boundary observations must be finite and ordered")
         return values
@@ -85,8 +87,10 @@ class CaptionObservation(color.Schema):
     def supported(self):
         if (
             self.start >= self.end
-            or not self.start_window[0] <= self.start <= self.start_window[1]
-            or not self.end_window[0] <= self.end <= self.end_window[1]
+            or self.start_window is not None
+            and not self.start_window[0] <= self.start <= self.start_window[1]
+            or self.end_window is not None
+            and not self.end_window[0] <= self.end <= self.end_window[1]
         ):
             raise ValueError("Cue boundaries must lie inside their observed brackets")
         return self
@@ -195,6 +199,11 @@ def review_captions(project_id, request):
             422, "invalid_caption", "Keep every cue inside the output and verify an existing cue."
         )
     review.cues = request.cues
+    review.observations = [
+        o
+        for o in review.observations
+        if any((o.start, o.end, o.text) == (c.start, c.end, c.text) for c in request.cues)
+    ]
     review.verified_cues = [request.cues[i] for i in request.verified_indices]
     review.corrected_cues = [request.cues[i] for i in request.corrected_indices]
     operation.revision += 1
@@ -254,7 +263,6 @@ def retain_reviewed(
             for old in review.cues
             if old.start < fresh.end
             and fresh.start < old.end
-            and key(old) in old_facts
             and key(fresh) in new_facts
             and SequenceMatcher(
                 None,
@@ -268,20 +276,35 @@ def retain_reviewed(
             old = candidates[0]
             # A split/added neighboring cue needs its own boundaries, not the old whole interval.
             if sum(c.start < old.end and old.start < c.end for c in cues) == 1:
-                before = old_facts[key(old)]
-                text = old.text if ranks[before.wording] > ranks[fact.wording] else fresh.text
+                before = old_facts.get(key(old))
+                text = (
+                    old.text
+                    if before and ranks[before.wording] > ranks[fact.wording]
+                    else fresh.text
+                )
                 values = {"text": text}
                 windows = {}
                 for edge in ("start", "end"):
                     previous, current = (
-                        getattr(before, edge + "_window"),
+                        getattr(before, edge + "_window", None),
                         getattr(fact, edge + "_window"),
                     )
-                    old_supported = getattr(before, edge + "_supported")
+                    old_supported = getattr(before, edge + "_supported", None)
                     new_supported = getattr(fact, edge + "_supported")
-                    stronger = (old_supported is True and new_supported is False) or (
-                        previous[1] - previous[0] < current[1] - current[0] - 0.000001
-                    )
+                    if previous is None:
+                        # Legacy timing is unknown; a coarse retry cannot certify its replacement.
+                        stronger = (
+                            current is None
+                            or new_supported is not True
+                            or current[1] - current[0] > 1 / 30 + 0.000001
+                        )
+                    else:
+                        stronger = (
+                            current is None
+                            or old_supported is True
+                            and new_supported is False
+                            or previous[1] - previous[0] < current[1] - current[0] - 0.000001
+                        )
                     values[edge] = getattr(old if stronger else fresh, edge)
                     windows[edge + "_window"] = previous if stronger else current
                     windows[edge + "_supported"] = old_supported if stronger else new_supported
@@ -296,7 +319,9 @@ def retain_reviewed(
                         update={
                             **values,
                             **windows,
-                            "wording": before.wording if text == old.text else fact.wording,
+                            "wording": before.wording
+                            if before and text == old.text
+                            else fact.wording,
                         }
                     )
         reconciled.append(fresh)
@@ -329,7 +354,9 @@ def retain_reviewed(
                 )
                 and key(fresh) in new_facts
                 and all(
-                    getattr(new_facts[key(fresh)], edge + "_window")[1]
+                    getattr(new_facts[key(fresh)], edge + "_window") is not None
+                    and getattr(old_facts[key(old)], edge + "_window") is not None
+                    and getattr(new_facts[key(fresh)], edge + "_window")[1]
                     - getattr(new_facts[key(fresh)], edge + "_window")[0]
                     >= getattr(old_facts[key(old)], edge + "_window")[1]
                     - getattr(old_facts[key(old)], edge + "_window")[0]

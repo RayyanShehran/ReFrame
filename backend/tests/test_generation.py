@@ -1132,3 +1132,27 @@ def test_pinned_multiline_evidence_cannot_duplicate_a_manual_correction():
         [fresh], review, source, incomplete=True, observations=[observation(fresh, 0.5)]
     )
     assert result == [old]
+
+
+@pytest.mark.parametrize(
+    "step,supported,expected_old", [(0.5, True, True), (1 / 30, False, True), (1 / 30, True, False)]
+)
+def test_legacy_cue_needs_supported_fine_observations_before_timing_replacement(
+    step, supported, expected_old
+):
+    import captions
+
+    old = captions.Cue(start=1.233333, end=2.466667, text="Observed words.")
+    fresh = captions.Cue(start=1.5, end=2.5, text="Observed words!")
+    review, source = evidence_review([old], [])
+    facts = [observation(fresh, step, "paired_model", supported)]
+    result, _ = generation.retain_reviewed(
+        [fresh], review, source, incomplete=True, observations=facts
+    )
+    assert result[0].text == fresh.text
+    assert (result[0].start, result[0].end) == (
+        (old.start, old.end) if expected_old else (fresh.start, fresh.end)
+    )
+    if expected_old:
+        assert facts[0].start_window is None and facts[0].end_window is None
+    assert generation.CaptionObservation.model_validate_json(facts[0].model_dump_json()) == facts[0]
