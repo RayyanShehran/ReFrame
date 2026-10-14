@@ -28,7 +28,7 @@ import reference_motion as motion
 import video_render as render
 from references import ReferenceError
 
-METHOD = "visible-tsv-adaptive-v8"
+METHOD = "visible-tsv-adaptive-v9"
 MAX_READS = 600
 MAX_APPEARANCES = 8
 TOTAL_SECONDS = 300
@@ -199,6 +199,16 @@ def merge_readings(detections, candidates):
     return result
 
 
+def partial_reappearance(previous, current):
+    before, after = word_key(previous.text), word_key(current.text)
+    return (
+        len(after) < len(before)
+        and before[: len(after)] == after
+        and abs(previous.rectangle.y - current.rectangle.y) < 0.025
+        and overlaps_line(previous.rectangle, current.rectangle)
+    )
+
+
 def same(a, b):
     if a is None or b is None:
         return a is b
@@ -226,7 +236,17 @@ def dominant(rows, ignored):
         c = d.rectangle
         if (
             abs(c.height - r.height) < r.height * 0.6
-            and abs(c.x + c.width / 2 - r.x - r.width / 2) < 0.08
+            and (
+                abs(c.x + c.width / 2 - r.x - r.width / 2) < 0.08
+                or (
+                    math.dist(
+                        tuple(int(d.ink[i : i + 2], 16) for i in (1, 3, 5)),
+                        tuple(int(selected.ink[i : i + 2], 16) for i in (1, 3, 5)),
+                    )
+                    <= 80
+                    and (d.ink != "#FFFFFF" or selected.ink != "#FFFFFF")
+                )
+            )
             and all(abs(c.y - line.rectangle.y) > r.height * 0.5 for line in lines)
             and any(abs(c.y - line.rectangle.y) <= r.height * 4.0 for line in lines)
         ):
@@ -544,7 +564,21 @@ def retry_crops(image, uncertain):
     if boxes:
         # Preserve all lines in the selected block; up to three lines retain top-to-bottom ordering.
         best = max(boxes, key=lambda r: r[2] - r[0])
-        near = [r for r in boxes if abs(r[1] - best[1]) < height * 0.18]
+        near = [best]
+        while True:
+            connected = [
+                r
+                for r in boxes
+                if r not in near
+                and any(
+                    abs((r[3] - r[1]) - (n[3] - n[1])) < max(r[3] - r[1], n[3] - n[1]) * 0.6
+                    and abs(r[1] - n[1]) <= max(r[3] - r[1], n[3] - n[1]) * 4
+                    for n in near
+                )
+            ]
+            if not connected:
+                break
+            near.extend(connected)
         box = (
             min(r[0] for r in near),
             min(r[1] for r in near),
@@ -592,22 +626,29 @@ def retry_crops(image, uncertain):
 
 
 def map_crop_detection(detection, box, crop_size, factor, native_size):
-    r = detection.rectangle
-    left = box[0] + (r.x * crop_size[0] - 16) / factor
-    top = box[1] + (r.y * crop_size[1] - 16) / factor
-    right = left + r.width * crop_size[0] / factor
-    bottom = top + r.height * crop_size[1] / factor
-    # OCR can interpret the crop padding as text; it has no corresponding source pixels.
-    if not (box[0] <= left < right <= box[2] and box[1] <= top < bottom <= box[3]):
+    def map_rectangle(r):
+        left = box[0] + (r.x * crop_size[0] - 16) / factor
+        top = box[1] + (r.y * crop_size[1] - 16) / factor
+        right = left + r.width * crop_size[0] / factor
+        bottom = top + r.height * crop_size[1] / factor
+        # Padding has no corresponding source pixels and cannot calibrate appearance.
+        if not (box[0] <= left < right <= box[2] and box[1] <= top < bottom <= box[3]):
+            return None
+        return match.Rectangle(
+            x=left / native_size[0],
+            y=top / native_size[1],
+            width=(right - left) / native_size[0],
+            height=(bottom - top) / native_size[1],
+        )
+
+    rectangle = map_rectangle(detection.rectangle)
+    if rectangle is None:
         return None
-    detection.rectangle = match.Rectangle(
-        x=left / native_size[0],
-        y=top / native_size[1],
-        width=(right - left) / native_size[0],
-        height=(bottom - top) / native_size[1],
-    )
-    detection.sample_text = None
-    detection.sample_rectangle = None
+    sample = map_rectangle(detection.sample_rectangle) if detection.sample_rectangle else None
+    detection.rectangle = rectangle
+    detection.sample_rectangle = sample
+    if sample is None:
+        detection.sample_text = None
     return detection
 
 
@@ -860,10 +901,10 @@ def recover_lines(index, signatures, prototypes, fallback):
                 replace(
                     chosen,
                     rectangle=rectangle,
-                    glyph_height=rectangle.height,
-                    sample_rectangle=None,
-                    sample_text=None,
-                    frame_index=index,
+                    glyph_height=chosen.glyph_height or rectangle.height,
+                    sample_rectangle=chosen.sample_rectangle,
+                    sample_text=chosen.sample_text,
+                    frame_index=chosen.frame_index if chosen.sample_rectangle else index,
                 )
             )
     if not recovered:
@@ -1044,6 +1085,9 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
     cache = {}
     reads = [0]
     unresolved = {}
+    ignored = set()
+    excluded = {}
+    creator = source["identity"].canonical_url.split("/@")[-1].split("/")[0].casefold()
     script_votes = Counter()
     crop_cache = {}
     source_identity = source["identity"].model_dump(mode="json")
@@ -1165,6 +1209,10 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
                             and reliable_wording(d)
                         ]
                         for _, _, _, d in nearby:
+                            observed.append((rectangle, visible_shape(image, rectangle, d.ink)))
+                    # A missing crop is not disappearance: check previously observed regions too.
+                    for frame, rectangle, _, d in prototypes:
+                        if abs(frame - index) <= 90 and reliable_wording(d):
                             observed.append((rectangle, visible_shape(image, rectangle, d.ink)))
                     found = recover_lines(index, observed, prototypes, [])
                     unique = merge_readings([], found)
@@ -1533,7 +1581,19 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
 
     def read(index):
         try:
-            return read_tracked(index, read_frame, cache, signatures, prototypes)
+            result = read_tracked(index, read_frame, cache, signatures, prototypes)
+            for d in result:
+                compact = "".join(c for c in d.text.casefold() if c.isalnum())
+                if creator and SequenceMatcher(None, compact, creator).ratio() >= 0.85:
+                    ignored.add(d.text)
+                    if d.text in excluded or len(excluded) < 30:
+                        prior = excluded.get(
+                            d.text, {"start": index / 30, "end": (index + 1) / 30, "text": d.text}
+                        )
+                        prior["start"] = min(prior["start"], index / 30)
+                        prior["end"] = max(prior["end"], (index + 1) / 30)
+                        excluded[d.text] = prior
+            return result
         except engine.ProbeTimeout:
             # The contained runner confirms termination before raising a timeout.
             unresolved[index] = "Frame not observed: caption reading deadline reached"
@@ -1564,7 +1624,7 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
             readings=cache,
             cached_names=cached_names,
         )
-        names = list(dict.fromkeys(name for _, _, variants in selected for name in variants))
+        names = list(dict.fromkeys(variants[i] for i in (1, 0) for _, _, variants in selected))
         if names and reading_deadline - time.monotonic() > 30:
             with temporary(directory / "handwriting") as stage:
                 for name in names:
@@ -1595,7 +1655,12 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
                         if not choices:
                             unresolved[index] = "Handwriting reading did not complete"
                             continue
-                        chosen = max(choices, key=lambda row: row["score"])
+                        usable = [
+                            row
+                            for row in choices
+                            if row["score"] >= 0.85 and not row["capped"] and row["text"].strip()
+                        ]
+                        chosen = max(usable or choices, key=lambda row: row["score"])
                         text = chosen["text"]
                         if (
                             not text.strip()
@@ -1613,8 +1678,8 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
                             minimum_confidence=100,
                             frame_index=index,
                             recognizer="trocr",
-                            needs_review=len(choices) < len(variants)
-                            or len({word_key(row["text"]) for row in choices}) != 1
+                            needs_review=not usable
+                            or len({word_key(row["text"]) for row in usable}) != 1
                             or chosen["score"] < 0.85,
                         )
                         observed.append((index, d))
@@ -1697,7 +1762,6 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
         except engine.ProbeTimeout:
             break
     frames = sorted(set(frames) | {f for f in nearby if f in cache})
-    ignored = set()
     for values in cache.values():
         for d in values:
             if counts[d.text] < 2:
@@ -1737,6 +1801,18 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
             raise ReferenceError(
                 413, "caption_cue_limit", "More than 200 captions were detected. Open Customize."
             )
+        if i and changes[i - 1][1] is None:
+            prior = next(
+                ((j, d) for j, (_, d) in reversed(list(enumerate(changes[:i]))) if d), None
+            )
+            if (
+                prior
+                and start - changes[prior[0] + 1][0] <= 15
+                and partial_reappearance(prior[1], detected)
+            ):
+                unresolved[start] = (
+                    "Partial wording reappeared after a visibility gap; remaining words need review"
+                )
         rectangle = detected.rectangle
         # Similar text height/anchor share a fit; color is estimated separately for each cue.
         key = (
@@ -1909,6 +1985,7 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
         list(dict.fromkeys(notes)),
         {
             **({"observed_window": frame_window} if frame_window is not None else {}),
+            "excluded_intervals": list(excluded.values()),
             "unreadable_samples": len(unresolved),
             "method": METHOD,
             "reads": reads[0],

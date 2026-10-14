@@ -799,3 +799,49 @@ def test_neutral_title_crop_excludes_dark_railing_like_scenery():
     assert crops
     left, top, right, bottom = crops[0][1]
     assert 310 < left < right < 640 and 230 < top < bottom < 310
+
+
+def test_visibility_reuse_keeps_the_actual_word_sample_for_appearance_calibration():
+    prototype = detection("A real sampled word")
+    prototype.frame_index = 15
+    prototype.sample_text = "sampled"
+    prototype.sample_rectangle = prototype.rectangle
+    shape = bytes([255, 0] * 2048)
+    result = automatic.recover_lines(
+        30, [(prototype.rectangle, shape)], [(15, prototype.rectangle, shape, prototype)], []
+    )
+    assert result[0].sample_text == "sampled"
+    assert result[0].sample_rectangle == prototype.sample_rectangle and result[0].frame_index == 15
+
+
+def test_crop_mapping_retains_a_valid_word_sample_in_source_coordinates():
+    d = detection("A valid word sample")
+    d.rectangle = automatic.match.Rectangle(x=0.2, y=0.2, width=0.4, height=0.2)
+    d.sample_rectangle = automatic.match.Rectangle(x=0.3, y=0.3, width=0.1, height=0.05)
+    d.sample_text = "sample"
+    mapped = automatic.map_crop_detection(d, (0, 0, 100, 100), (232, 232), 2, (960, 540))
+    assert mapped.sample_text == "sample"
+    assert mapped.sample_rectangle.x == pytest.approx((0.3 * 232 - 16) / 2 / 960)
+    assert mapped.sample_rectangle.width == pytest.approx(0.1 * 232 / 2 / 960)
+
+
+def test_same_ink_reply_can_join_nearby_lines_with_different_horizontal_anchors():
+    first = detection("The upper reply")
+    second = detection("An additional response")
+    first.ink = second.ink = "#eed120"
+    first.rectangle = first.rectangle.model_copy(
+        update={"x": 0.6, "width": 0.3, "height": 0.05, "y": 0.3}
+    )
+    second.rectangle = second.rectangle.model_copy(
+        update={"x": 0.15, "width": 0.3, "height": 0.05, "y": 0.46}
+    )
+    assert automatic.dominant([first, second], set()).text == first.text + "\n" + second.text
+
+
+def test_partial_faded_reappearance_is_not_certified_as_a_complete_new_sentence():
+    before = detection("But if you do remember okay")
+    short = detection("But if")
+    assert automatic.partial_reappearance(before, short)
+    assert not automatic.partial_reappearance(before, detection("A different reply"))
+    short.rectangle = short.rectangle.model_copy(update={"y": 0.2})
+    assert not automatic.partial_reappearance(before, short)

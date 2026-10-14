@@ -781,3 +781,77 @@ def test_scoped_partial_reconciliation_preserves_unobserved_cue_portions():
         (1.0, 4.0, old.text),
         (4.0, 5.0, new.text),
     ]
+
+
+def test_repeated_retry_notices_cannot_poison_operation_restoration(local):
+    import uuid
+
+    from tests.test_projects import create
+
+    client, _, _ = local
+    pid = create(client)["id"]
+    operation = generation.Operation(
+        project_id=pid, operation_id=str(uuid.uuid4()), revision=1, status="failed"
+    )
+    operation.notices = ["Completed work preserved"] * 40
+    with projects.database() as db:
+        db.execute(
+            "INSERT INTO generation_operations VALUES(?,?,?,?,?,?,?)",
+            (pid, operation.operation_id, 1, "failed", operation.model_dump_json(), "{}", 1),
+        )
+    restored = generation.get_operation(pid)
+    assert restored.notices == ["Completed work preserved"]
+    generation.persist(pid, operation, {})
+    with projects.database() as db:
+        assert (
+            len(
+                json.loads(
+                    db.execute(
+                        "SELECT operation FROM generation_operations WHERE project_id=?", (pid,)
+                    ).fetchone()[0]
+                )["notices"]
+            )
+            == 1
+        )
+
+
+def test_observed_source_label_removes_only_matching_unprotected_old_interval():
+    import uuid
+
+    import captions
+
+    source = {
+        "identity": generation.color.Source(
+            canonical_url="https://www.tiktok.com/@test/video/6718335390845095173",
+            video_id="6718335390845095173",
+            media_sha256="a" * 64,
+        )
+    }
+    label = captions.Cue(start=1.0, end=2.0, text="CreatorLabel")
+    other = captions.Cue(start=3.0, end=4.0, text="CreatorLabel")
+    protected = captions.Cue(start=5.0, end=6.0, text="CreatorLabel")
+    review = generation.CaptionReview(
+        cues=[label, other, protected],
+        corrected_cues=[protected],
+        notices=[],
+        unreadable_samples=1,
+        evidence=captions.VisibleBinding(
+            source=source["identity"],
+            reference_operation_id=str(uuid.uuid4()),
+            method=generation.automatic_captions.METHOD,
+            reads=1,
+            engine_version="test",
+            assets_commit="a" * 40,
+        ),
+    )
+    result, _ = generation.retain_reviewed(
+        [],
+        review,
+        source,
+        incomplete=True,
+        excluded_intervals=[
+            {"start": 1.2, "end": 1.3, "text": "CreatorLabel"},
+            {"start": 5.2, "end": 5.3, "text": "CreatorLabel"},
+        ],
+    )
+    assert result == [other, protected]

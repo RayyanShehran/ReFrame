@@ -101,6 +101,13 @@ class Operation(color.Schema):
     output_id: str | None = None
     caption_review: CaptionReview | None = None
 
+    @field_validator("notices", mode="before")
+    @classmethod
+    def bounded_notices(cls, value):
+        if isinstance(value, list) and all(isinstance(item, str) for item in value):
+            return list(dict.fromkeys(value))[-30:]
+        return value
+
 
 def record(project_id):
     projects.get_project(project_id)
@@ -178,7 +185,14 @@ def review_captions(project_id, request):
 
 
 def retain_reviewed(
-    cues, review, source, replace_verified=False, incomplete=False, *, observed_window=None
+    cues,
+    review,
+    source,
+    replace_verified=False,
+    incomplete=False,
+    *,
+    observed_window=None,
+    excluded_intervals=(),
 ):
     if not review or review.evidence.source != source["identity"] or replace_verified:
         return cues, []
@@ -190,7 +204,17 @@ def retain_reviewed(
         c for c in cues if not any(c.start < v.end and v.start < c.end for v in protected)
     ] + protected
     if incomplete:
-        prior = review.cues
+        prior = [
+            c
+            for c in review.cues
+            if c in protected
+            or not any(
+                c.start < e["end"]
+                and e["start"] < c.end
+                and automatic_captions.word_key(c.text) == automatic_captions.word_key(e["text"])
+                for e in excluded_intervals
+            )
+        ]
         if observed_window is not None:
             pieces = []
             for old in prior:
@@ -256,6 +280,7 @@ def snapshot(project_id, stop=None, deadline=None):
 
 
 def persist(project_id, operation, bound, cleanup_safe=True):
+    operation.notices = Operation.bounded_notices(operation.notices)
     with projects.database() as db:
         db.execute(
             "UPDATE generation_operations SET state=?,operation=?,snapshot=?,cleanup_safe=? "
@@ -705,6 +730,7 @@ def prepare_captions(project_id, mode, stop, deadline, operation):
                 )
                 incomplete = evidence.pop("unreadable_samples", 0)
                 observed_window = evidence.pop("observed_window", None)
+                excluded_intervals = evidence.pop("excluded_intervals", [])
                 if mode == "reference":
                     cues, verified = retain_reviewed(
                         cues,
@@ -713,6 +739,7 @@ def prepare_captions(project_id, mode, stop, deadline, operation):
                         operation.options.replace_verified_captions,
                         bool(incomplete),
                         observed_window=observed_window,
+                        excluded_intervals=excluded_intervals,
                     )
                 if mode == "reference" and incomplete:
                     operation.caption_review = CaptionReview(
