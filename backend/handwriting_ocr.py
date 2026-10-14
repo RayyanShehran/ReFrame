@@ -167,6 +167,22 @@ def line_crops(image, mask, box):
                 image.crop((x, max(0, y - 5), right, min(image.height, end + 5))).convert("L")
             )
         )
+        # Color masks can omit low-contrast edge glyphs; retain neighboring source pixels.
+        padding = max(8, round((end - y) / 2))
+        context = ImageOps.autocontrast(
+            ImageOps.invert(
+                image.crop(
+                    (
+                        max(0, x - padding),
+                        max(0, y - 8),
+                        min(image.width, right + padding),
+                        min(image.height, end + 8),
+                    )
+                ).convert("L")
+            )
+        )
+        context = context.resize((context.width * 2, context.height * 2))
+        context.thumbnail((2016, 224))
         result.append(
             (
                 (
@@ -177,7 +193,7 @@ def line_crops(image, mask, box):
                 ),
                 [
                     ImageOps.expand(crop, border=16, fill=255).convert("RGB")
-                    for crop in (binary, gray)
+                    for crop in (binary, gray, context)
                 ],
             )
         )

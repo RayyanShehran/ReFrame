@@ -28,7 +28,7 @@ import reference_motion as motion
 import video_render as render
 from references import ReferenceError
 
-METHOD = "visible-tsv-adaptive-v12"
+METHOD = "visible-tsv-adaptive-v13"
 MAX_READS = 600
 MAX_APPEARANCES = 8
 TOTAL_SECONDS = 300
@@ -216,6 +216,8 @@ def same(a, b):
         a.text.count("\n") == b.text.count("\n")
         and SequenceMatcher(None, a.text.casefold(), b.text.casefold()).ratio() >= 0.85
         and abs(a.rectangle.y - b.rectangle.y) < 0.08
+        and abs(a.rectangle.x - b.rectangle.x) < 0.08
+        and max(abs(int(a.ink[i : i + 2], 16) - int(b.ink[i : i + 2], 16)) for i in (1, 3, 5)) <= 96
     )
 
 
@@ -880,9 +882,9 @@ def visible_shape(image, rectangle, ink):
         mask = (np.minimum(distance, 255 - distance) < 16) & (hsv[:, :, 1] > 40)
     else:
         mask = hsv[:, :, 1] < 40
-    # Below this floor the pixels cannot establish readable glyph continuity.
+    # Relative contrast follows fades; zero/quantization-only pixels remain unknown.
     peak = float(np.quantile(hsv[:, :, 2][mask], 0.99)) if mask.any() else 0.0
-    mask &= hsv[:, :, 2] > max(20, peak * 0.7)
+    mask &= (peak >= 4) & (hsv[:, :, 2] > max(2, peak * 0.7))
     return Image.fromarray((mask * 255).astype("uint8")).resize((128, 32)).convert("RGB").tobytes()
 
 
@@ -1174,7 +1176,7 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
     handwriting_completed_requests = 0
     signatures = {}
     prototypes = []
-    visibility_levels, absent_frames = {}, set()
+    absent_frames = set()
     discovery = set(frames)
 
     def cached_ocr(args, stage, name):
@@ -1218,7 +1220,14 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
     def read_frame(index):
         nonlocal handwriting_bytes
         if index in cache:
-            return cache[index]
+            nearby = [
+                r for f, r, _, d in prototypes if abs(f - index) <= 90 and reliable_wording(d)
+            ]
+            if not nearby or any(
+                overlaps_line(r, box) for r, _ in signatures.get(index, []) for box in nearby
+            ):
+                return cache[index]
+            # Discovery preceded prototypes: verify the source region before claiming absence.
         color.guard(stop, frame_deadline)
         if reads[0] >= MAX_READS or frame_deadline - time.monotonic() < 20:
             unresolved[index] = "Frame not observed: caption reading budget reached"
@@ -1257,9 +1266,6 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
                 from PIL import Image
 
                 with Image.open(target) as image:
-                    from PIL import ImageStat
-
-                    visibility_levels[index] = ImageStat.Stat(image.convert("L")).mean[0]
                     crops = retry_crops(image, [])
                     lines = handwriting.line_crops(image, crops[0][0], crops[0][1]) if crops else []
                     observed = []
@@ -1280,6 +1286,7 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
                     for frame, rectangle, _, d in prototypes:
                         if abs(frame - index) <= 90 and reliable_wording(d):
                             observed.append((rectangle, visible_shape(image, rectangle, d.ink)))
+                    signatures[index] = observed
                     found = recover_lines(index, observed, prototypes, [])
                     unique = merge_readings([], found)
                     if (
@@ -1393,9 +1400,6 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
 
             with Image.open(target) as image:
                 native = image.convert("RGB")
-                from PIL import ImageStat
-
-                visibility_levels[index] = ImageStat.Stat(native.convert("L")).mean[0]
             if (
                 uncertain
                 or not detections
@@ -1546,11 +1550,55 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
                         signatures.setdefault(index, []).append((rectangle, shape))
                         if not handwriting_ready or index not in discovery:
                             continue
-                        if any(
-                            reliable_wording(d) and overlaps_line(d.rectangle, rectangle)
+                        related = [
+                            d
                             for d in detections
-                        ):
-                            continue
+                            if reliable_wording(d) and overlaps_line(d.rectangle, rectangle)
+                        ]
+                        if related and reads[0] < MAX_READS:
+                            context = variants[2]
+                            path = stage / "line-context.png"
+                            context.save(path)
+                            result = cached_ocr(
+                                [
+                                    str(ocr.executable()),
+                                    str(path),
+                                    "stdout",
+                                    "--tessdata-dir",
+                                    str(ocr.DATA),
+                                    "-l",
+                                    "eng",
+                                    "--oem",
+                                    "1",
+                                    "--psm",
+                                    "7",
+                                    "--dpi",
+                                    "300",
+                                    "-c",
+                                    "tessedit_create_tsv=1",
+                                ],
+                                stage,
+                                "caption-line-context",
+                            )
+                            found = (
+                                parse(result.stdout, context.width, context.height, [])
+                                if result.returncode == 0
+                                else []
+                            )
+                            if (
+                                result.returncode == 0
+                                and all(
+                                    rectangle.width >= old.rectangle.width * 0.98 for old in related
+                                )
+                                and any(
+                                    word_key(d.text) == word_key(old.text)
+                                    for d in found
+                                    for old in related
+                                )
+                            ):
+                                continue
+                            for old in related:
+                                old.needs_review = True
                         names = []
                         for crop in variants:
                             crop.thumbnail((2048, 256))
@@ -1568,7 +1616,7 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
                                 handwriting_images[name] = raw
                                 handwriting_bytes += len(raw)
                             names.append(name)
-                        if len(names) == 2:
+                        if len(names) == len(variants):
                             handwriting_rows.append((index, rect, names))
             # Do not export isolated texture-like glyphs or low-confidence word fragments.
             reliable = [d for d in detections if reliable_wording(d)]
@@ -1662,9 +1710,7 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
                         prior["start"] = min(prior["start"], index / 30)
                         prior["end"] = max(prior["end"], (index + 1) / 30)
                         excluded[d.text] = prior
-            if dominant(result, ignored) is None and (
-                visibility_levels.get(index, 0) >= 30 or any(d.text in ignored for d in result)
-            ):
+            if dominant(result, ignored) is None:
                 nearby = [
                     (box, shape)
                     for f, box, shape, d in prototypes
@@ -1675,7 +1721,7 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
                     for box, shape in signatures.get(index, [])
                     if any(overlaps_line(box, old) for old, _ in nearby)
                 ]
-                # Dark/faint frames and unchecked regions remain unknown, not disappearance.
+                # Only source-pixel checks of prior regions establish disappearance.
                 if checked and not any(
                     overlaps_line(box, old) and glyph_similarity(shape, before) >= 0.65
                     for box, shape in checked
@@ -1721,7 +1767,7 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
             readings=cache,
             cached_names=cached_names,
         )
-        names = list(dict.fromkeys(variants[i] for i in (1, 0) for _, _, variants in selected))
+        names = list(dict.fromkeys(variants[i] for i in (2, 1, 0) for _, _, variants in selected))
         cached_handwriting_found = sum(name in cached_names for name in names)
         if names:
             with temporary(directory / "handwriting") as stage:
@@ -1761,7 +1807,11 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
                         if not usable:
                             unresolved[index] = "Handwriting did not produce a reliable reading"
                             continue
-                        chosen = max(usable, key=lambda row: row["score"])
+                        context = next((row for row in usable if row["name"] == variants[2]), None)
+                        # A complete source crop supersedes mask-clipped alternatives;
+                        # separate-frame agreement below is still required.
+                        considered = [context] if context is not None else usable
+                        chosen = max(considered, key=lambda row: row["score"])
                         text = chosen["text"]
                         if (
                             not text.strip()
@@ -1780,7 +1830,7 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
                             frame_index=index,
                             recognizer="trocr",
                             needs_review=not usable
-                            or len({word_key(row["text"]) for row in usable}) != 1
+                            or len({word_key(row["text"]) for row in considered}) != 1
                             or chosen["score"] < 0.85,
                         )
                         observed.append((index, d))

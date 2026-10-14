@@ -316,7 +316,7 @@ def test_handwriting_source_crops_are_bounded():
     assert lines and len(lines) <= 3
     for rect, variants in lines:
         assert 0 <= rect[0] < 1 and rect[2] > 0
-        assert len(variants) == 2
+        assert len(variants) == 3
         assert all(v.width <= 2048 and v.height <= 256 for v in variants)
 
 
@@ -913,3 +913,53 @@ def test_discovery_is_bounded_and_spreads_observations_across_the_entire_referen
     order = automatic.discovery_order(frames)
     assert sorted(order) == frames and len(set(order)) == len(frames)
     assert order[:5] == [0, 1185, 600, 300, 900]
+
+
+def test_context_crop_keeps_pixels_outside_incomplete_color_mask():
+    from PIL import Image, ImageDraw
+
+    import handwriting_ocr as handwriting
+
+    image = Image.new("RGB", (320, 180), (30, 30, 30))
+    drawing = ImageDraw.Draw(image)
+    drawing.rectangle((70, 70, 190, 95), fill=(240, 200, 20))
+    mask = Image.new("L", (320, 180), 255)
+    ImageDraw.Draw(mask).rectangle((85, 70, 175, 95), fill=0)
+    rows = handwriting.line_crops(image, mask, (0, 0, 320, 180))
+    assert len(rows) == 1
+    binary, gray, context = rows[0][1]
+    assert context.width > gray.width
+    assert context.height <= 256 and context.width <= 2048
+    # Original source colors outside the mask contribute to the context, not invented pixels.
+    assert context.convert("L").histogram()[0] > gray.convert("L").histogram()[0]
+
+
+def test_visible_shape_preserves_deep_fade_but_rejects_black():
+    from PIL import Image, ImageDraw
+
+    image = Image.new("RGB", (320, 180))
+    ImageDraw.Draw(image).text((65, 95), "Fade", fill=(240, 200, 20), font_size=24)
+    rect = automatic.match.Rectangle(x=0.18, y=0.5, width=0.4, height=0.2)
+    original = automatic.visible_shape(image, rect, "#f0c814")
+    faded = image.point(lambda v: round(v * 0.04))
+    assert (
+        automatic.glyph_similarity(original, automatic.visible_shape(faded, rect, "#f0c814")) > 0.95
+    )
+    assert (
+        automatic.glyph_similarity(
+            original, automatic.visible_shape(Image.new("RGB", image.size), rect, "#f0c814")
+        )
+        == 0
+    )
+
+
+def test_same_words_keep_distinct_position_and_color_phases():
+    from dataclasses import replace
+
+    first = detection("Repeated caption")
+    assert automatic.same(first, replace(first))
+    assert not automatic.same(first, replace(first, ink="#2040f0"))
+    moved = replace(
+        first, rectangle=automatic.match.Rectangle(x=0.55, y=0.6, width=0.4, height=0.1)
+    )
+    assert not automatic.same(first, moved)
