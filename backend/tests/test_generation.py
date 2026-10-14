@@ -1021,6 +1021,7 @@ def test_normal_generation_retry_persists_independent_word_and_boundary_evidence
 
     client, directory, _ = local
     pid = seed(client, directory)
+    monkeypatch.setattr(generation, "capability", lambda *args: None)
     calls = []
 
     def detector(project_id, source, *args):
