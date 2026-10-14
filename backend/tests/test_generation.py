@@ -1191,3 +1191,66 @@ def test_negative_visibility_supersedes_tail_despite_preserved_legacy_end():
         observed_absence=[(2.6, 2.95)],
     )
     assert result == [old]
+
+
+def test_many_coarse_blocks_cannot_overwrite_finer_saved_phases():
+    import captions
+
+    first = captions.Cue(start=1.1, end=3.1, text="A first visible line")
+    second = captions.Cue(start=3.1, end=4.9, text="A first visible line\nAnother visible line")
+    review, source = evidence_review([first, second], [])
+    fresh = [
+        first.model_copy(update={"start": 1.5, "end": 3.5}),
+        second.model_copy(update={"start": 3.5, "end": 5.0}),
+    ]
+    facts = [
+        generation.CaptionObservation(
+            start=c.start,
+            end=c.end,
+            text=c.text,
+            start_window=(c.start - 0.5, c.start),
+            end_window=(c.end - 0.5, c.end),
+            start_supported=False,
+            end_supported=False,
+            wording="ocr",
+        )
+        for c in fresh
+    ]
+    result, _ = generation.retain_reviewed(
+        fresh, review, source, incomplete=True, observations=facts
+    )
+    assert result == [first, second]
+
+
+def test_coarse_continuation_cannot_recreate_a_verified_automatic_tail():
+    import captions
+
+    old = captions.Cue(start=1.1, end=2.4, text="A complete visible sentence")
+    fact = generation.CaptionObservation(
+        start=old.start,
+        end=old.end,
+        text=old.text,
+        start_window=(1.0666666667, 1.1),
+        end_window=(2.3666666667, 2.4),
+        start_supported=True,
+        end_supported=True,
+        wording="paired_model",
+    )
+    review, source = evidence_review([old], [fact])
+    fresh = old.model_copy(update={"start": 1.5, "end": 3.0})
+    facts = [
+        generation.CaptionObservation(
+            start=1.5,
+            end=3.0,
+            text=fresh.text,
+            start_window=(1.0, 1.5),
+            end_window=(2.5, 3.0),
+            start_supported=False,
+            end_supported=True,
+            wording="unresolved",
+        )
+    ]
+    result, _ = generation.retain_reviewed(
+        [fresh], review, source, incomplete=True, observations=facts
+    )
+    assert result == [old]

@@ -337,6 +337,40 @@ def retain_reviewed(
         c for c in cues if not any(c.start < v.end and v.start < c.end for v in protected)
     ] + protected
     if incomplete:
+        # Many-to-many overlaps must obey the same evidence rule as a single cue.
+        # Do not publish an entire coarse block over a finer compatible saved phase.
+        def weaker_block(fresh):
+            fact = new_facts.get(key(fresh))
+            if fact is None:
+                return False
+            for old in review.cues:
+                if old in protected or not (old.start < fresh.end and fresh.start < old.end):
+                    continue
+                if (
+                    SequenceMatcher(
+                        None,
+                        automatic_captions.word_key(old.text),
+                        automatic_captions.word_key(fresh.text),
+                    ).ratio()
+                    < 0.8
+                ):
+                    continue
+                before = old_facts.get(key(old))
+                if before and before.wording == "unresolved":
+                    continue
+                if before and ranks[before.wording] > ranks[fact.wording]:
+                    return True
+                for edge in ("start", "end"):
+                    current = getattr(fact, edge + "_window")
+                    previous = getattr(before, edge + "_window", None)
+                    if current is None or getattr(fact, edge + "_supported") is not True:
+                        return True
+                    allowed = previous[1] - previous[0] if previous is not None else 1 / 30
+                    if current[1] - current[0] > allowed + 0.000001:
+                        return True
+            return False
+
+        result = [fresh for fresh in result if fresh in protected or not weaker_block(fresh)]
         pinned = [
             old
             for old in review.cues

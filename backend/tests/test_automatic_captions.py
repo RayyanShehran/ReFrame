@@ -1029,3 +1029,71 @@ def test_source_case_is_kept_only_for_observed_matching_words():
         automatic.observed_punctuation("clear blue words", "CLEAR BLUE WORDS") == "CLEAR BLUE WORDS"
     )
     assert automatic.observed_punctuation("Unseen words", "OTHER WORDS") == "Unseen words"
+
+
+def test_real_mixed_caption_keeps_arabic_after_english_discovery(local, monkeypatch):
+    client, directory, _ = local
+    monkeypatch.setattr(automatic.handwriting, "available", lambda: False)
+    stage = directory / "mixed-source"
+    stage.mkdir()
+    track = captions.Track(
+        schema_version=2,
+        enabled=True,
+        cues=[
+            captions.Cue(
+                start=0.0,
+                end=0.6,
+                text="Start here",
+                appearance=captions.Appearance(
+                    style=captions.Style(size_percent=10.0, color="white"),
+                    font_binding=fonts.Binding(),
+                ),
+            ),
+            captions.Cue(
+                start=0.6,
+                end=2.8,
+                text="مرحبا بالعالم\nHello world",
+                appearance=captions.Appearance(
+                    style=captions.Style(size_percent=10.0, color="white"),
+                    font_binding=fonts.Binding(),
+                ),
+            ),
+        ],
+    )
+    ready = fonts.prepare_track("fixture", track, stage, time.monotonic() + 20)
+    subtitle = captions.subtitle_filter(track, stage, 640, 360, ready[:2])
+    source = directory / "mixed.mp4"
+    subprocess.run(
+        [
+            shutil.which("ffmpeg"),
+            "-v",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=0x204020:s=640x360:r=30:d=3",
+            "-vf",
+            subtitle,
+            "-c:v",
+            "libx264",
+            "-pix_fmt",
+            "yuv420p",
+            str(source),
+        ],
+        check=True,
+        capture_output=True,
+        timeout=20,
+    )
+    saved, _, _ = prepared(client, directory, source)
+    output = directory / "mixed-extraction"
+    output.mkdir()
+    if not automatic.ocr.inspect_capability(output, time.monotonic() + 10)["available"]:
+        pytest.skip("Pinned OCR assets required")
+    found, _, _ = automatic.detect(
+        saved["id"], color.source(saved["id"]), output, threading.Event(), time.monotonic() + 180
+    )
+    assert len(found) == 2
+    assert automatic.word_key(found[0].text) == automatic.word_key("Start here")
+    assert found[1].text.splitlines()[0] == "مرحبا بالعالم"
+    assert automatic.word_key(found[1].text.splitlines()[1]) == automatic.word_key("Hello world")
+    assert abs(found[1].start - 0.6) <= 1 / 30 + 0.001 and abs(found[1].end - 2.8) <= 1 / 30 + 0.001

@@ -1481,10 +1481,6 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
                     retry_crops(native, uncertain)
                 ):
                     crop = native_crop
-                    if script_votes["latin"] > 2 * script_votes["arabic"]:
-                        language = "eng"
-                    elif script_votes["arabic"] > 2 * script_votes["latin"]:
-                        language = "ara"
                     color.guard(stop, frame_deadline)
                     if reads[0] >= MAX_READS:
                         unresolved[index] = "OCR work budget reached"
