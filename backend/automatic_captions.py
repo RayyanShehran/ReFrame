@@ -209,6 +209,29 @@ def partial_reappearance(previous, current):
     )
 
 
+def normalized_ink(ink):
+    rgb = tuple(int(ink[i : i + 2], 16) for i in (1, 3, 5))
+    return tuple(v / max(1, max(rgb)) for v in rgb)
+
+
+def glyph_color(image, rectangle):
+    x, y = round(rectangle.x * image.width), round(rectangle.y * image.height)
+    right, bottom = (
+        round((rectangle.x + rectangle.width) * image.width),
+        round((rectangle.y + rectangle.height) * image.height),
+    )
+    raw = image.crop((x, y, right, bottom)).convert("RGB").tobytes()
+    pixels = [tuple(raw[i : i + 3]) for i in range(0, len(raw), 3)]
+    peak = max((max(p) for p in pixels), default=0)
+    if peak < 4:
+        return None
+    bright = [p for p in pixels if max(p) >= peak * 0.8]
+    chromatic = [p for p in bright if max(p) - min(p) > max(2, peak * 0.25)]
+    return appearance.hex_color(
+        Counter(chromatic if len(chromatic) >= 20 else bright).most_common(1)[0][0]
+    )
+
+
 def same(a, b):
     if a is None or b is None:
         return a is b
@@ -217,7 +240,7 @@ def same(a, b):
         and SequenceMatcher(None, a.text.casefold(), b.text.casefold()).ratio() >= 0.85
         and abs(a.rectangle.y - b.rectangle.y) < 0.08
         and abs(a.rectangle.x - b.rectangle.x) < 0.08
-        and max(abs(int(a.ink[i : i + 2], 16) - int(b.ink[i : i + 2], 16)) for i in (1, 3, 5)) <= 96
+        and math.dist(normalized_ink(a.ink), normalized_ink(b.ink)) <= 0.4
     )
 
 
@@ -237,20 +260,20 @@ def dominant(rows, ignored):
             continue
         c = d.rectangle
         if (
-            abs(c.height - r.height) < r.height * 0.6
+            0.5 <= c.height / r.height <= 2.0
             and (
                 abs(c.x + c.width / 2 - r.x - r.width / 2) < 0.08
                 or (
-                    math.dist(
-                        tuple(int(d.ink[i : i + 2], 16) for i in (1, 3, 5)),
-                        tuple(int(selected.ink[i : i + 2], 16) for i in (1, 3, 5)),
-                    )
-                    <= 80
-                    and (d.ink != "#FFFFFF" or selected.ink != "#FFFFFF")
+                    math.dist(normalized_ink(d.ink), normalized_ink(selected.ink)) <= 0.4
+                    and reliable_wording(d)
+                    and reliable_wording(selected)
                 )
             )
             and all(abs(c.y - line.rectangle.y) > r.height * 0.5 for line in lines)
-            and any(abs(c.y - line.rectangle.y) <= r.height * 4.0 for line in lines)
+            and any(
+                abs(c.y - line.rectangle.y) <= max(c.height, line.rectangle.height) * 4.0
+                for line in lines
+            )
         ):
             lines.append(d)
     if len(lines) > 3:
@@ -566,7 +589,7 @@ def retry_crops(image, uncertain):
                 if present and not active:
                     runs += 1
                 active = present
-            density_limit = 0.65 if partitioned == "neutral" else 0.35
+            density_limit = 0.65
             if 0.02 <= density <= density_limit and runs >= 3 and region.width / region.height >= 3:
                 boxes.append((box[0], top, box[2], bottom))
                 candidates.append(
@@ -1036,7 +1059,10 @@ def select_handwriting(rows, limit, *, signatures=None, readings=None, cached_na
         if cached_names is None:
             if len(chosen) + len(pair) > limit:
                 continue
-        elif len(pending | missing) > limit * 2 or len(chosen) + len(pair) > 48:
+        elif (
+            len(pending | missing) > limit * 2
+            or len({name for row in [*chosen, *pair] for name in row[2]}) > 96
+        ):
             continue
         pending.update(missing)
         chosen.extend(tuple(row[:3]) for row in pair)
@@ -1061,7 +1087,10 @@ def observed_punctuation(model, reader):
         for a, b in zip(model_words, reader_words)
     ):
         return model
-    words = iter(model_words)
+    words = iter(
+        b if a.casefold().replace("’", "'") == b.casefold().replace("’", "'") else a
+        for a, b in zip(model_words, reader_words)
+    )
     return re.sub(r"[^\W_]+(?:['’][^\W_]+)*", lambda _: next(words), reader)
 
 
@@ -1170,6 +1199,7 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
     cached_handwriting_found = 0
     handwriting_ready = handwriting.available()
     handwriting_images, handwriting_rows = {}, []
+    line_inks = {}
     handwriting_bytes = 0
     handwriting_engine = None
     handwriting_requests = 0
@@ -1219,6 +1249,7 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
 
     def read_frame(index):
         nonlocal handwriting_bytes
+        previous = cache.get(index)
         if index in cache:
             nearby = [
                 r for f, r, _, d in prototypes if abs(f - index) <= 90 and reliable_wording(d)
@@ -1228,6 +1259,9 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
             ):
                 return cache[index]
             # Discovery preceded prototypes: verify the source region before claiming absence.
+            if reads[0] >= MAX_READS or frame_deadline - time.monotonic() < 20:
+                unresolved[index] = "Prior caption region not rechecked within the reading budget"
+                return previous
         color.guard(stop, frame_deadline)
         if reads[0] >= MAX_READS or frame_deadline - time.monotonic() < 20:
             unresolved[index] = "Frame not observed: caption reading budget reached"
@@ -1289,6 +1323,9 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
                     signatures[index] = observed
                     found = recover_lines(index, observed, prototypes, [])
                     unique = merge_readings([], found)
+                    if previous is not None:
+                        cache[index] = recover_lines(index, observed, prototypes, previous)
+                        return cache[index]
                     if (
                         lines
                         and len(lines) == len(unique)
@@ -1400,6 +1437,7 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
 
             with Image.open(target) as image:
                 native = image.convert("RGB")
+            line_candidate = None
             if (
                 uncertain
                 or not detections
@@ -1439,7 +1477,10 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
                 )
                 with Image.open(native_target) as image:
                     native = image.convert("RGB")
-                for attempt, (crop, box, language) in enumerate(retry_crops(native, uncertain)):
+                for attempt, (native_crop, box, language) in enumerate(
+                    retry_crops(native, uncertain)
+                ):
+                    crop = native_crop
                     if script_votes["latin"] > 2 * script_votes["arabic"]:
                         language = "eng"
                     elif script_votes["arabic"] > 2 * script_votes["latin"]:
@@ -1518,11 +1559,12 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
                     if readable:
                         detections = readable
                     if len(reliable) == len(found) and reliable:
+                        line_candidate = (native_crop, box, language)
                         break
             if handwriting_ready or colored_region:
                 candidates = retry_crops(native, [])
                 if candidates:
-                    mask, box, _ = candidates[0]
+                    mask, box, _ = line_candidate or candidates[0]
                     lines = handwriting.line_crops(native, mask, box)
                     if len(lines) > 3:
                         unresolved[index] = "More than three visible lines require review"
@@ -1617,6 +1659,7 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
                                 handwriting_bytes += len(raw)
                             names.append(name)
                         if len(names) == len(variants):
+                            line_inks[(index, tuple(rect))] = glyph_color(native, rectangle)
                             handwriting_rows.append((index, rect, names))
             # Do not export isolated texture-like glyphs or low-confidence word fragments.
             reliable = [d for d in detections if reliable_wording(d)]
@@ -1632,7 +1675,6 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
                 and sum(c.isalnum() for c in d.text) >= 4
             ]
             if detections:
-                pixels = appearance.rgb(target, width, height, stage, deadline)
                 for detected in detections:
                     detected.frame_index = index
                     from PIL import ImageFilter, ImageStat
@@ -1651,33 +1693,8 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
                     detected.sharpness = ImageStat.Stat(
                         native.crop(box).convert("L").filter(ImageFilter.FIND_EDGES)
                     ).var[0]
-                    rect = detected.rectangle
-                    x, y = int(rect.x * width), int(rect.y * height)
-                    w, h = max(1, round(rect.width * width)), max(1, round(rect.height * height))
-                    crop = bytes(
-                        v
-                        for row in range(y, min(height, y + h))
-                        for v in pixels[
-                            3 * (row * width + x) : 3 * (row * width + min(width, x + w))
-                        ]
-                    )
-                    # Bright glyph pixels over the bounded OCR rectangle; not a font identity claim.
-                    colors = [
-                        tuple(crop[i : i + 3])
-                        for i in range(0, len(crop), 3)
-                        if max(crop[i : i + 3]) > 200
-                    ]
-                    chromatic = [c for c in colors if max(c) - min(c) > 70]
-                    if len(chromatic) >= 20:
-                        colors = chromatic
-                    if colors:
-                        detected.ink = appearance.hex_color(Counter(colors).most_common(1)[0][0])
-                        glyph_rows = [
-                            i // 3 // min(w, width - x)
-                            for i in range(0, len(crop), 3)
-                            if max(crop[i : i + 3]) > 200
-                        ]
-                        detected.glyph_height = (max(glyph_rows) - min(glyph_rows) + 1) / height
+                    detected.ink = glyph_color(native, detected.rectangle) or detected.ink
+                    detected.glyph_height = detected.rectangle.height
             if index in signatures:
                 normalized = []
                 for rectangle, shape in signatures[index]:
@@ -1826,6 +1843,7 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
                             text,
                             match.Rectangle(x=rect[0], y=rect[1], width=rect[2], height=rect[3]),
                             chosen["score"] * 100,
+                            ink=line_inks.get((index, tuple(rect))) or "#FFFFFF",
                             minimum_confidence=100,
                             frame_index=index,
                             recognizer="trocr",
@@ -1875,18 +1893,6 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
                             unresolved.pop(index, None)
                         for d in rows:
                             if d.recognizer == "trocr":
-                                nearest = [
-                                    other
-                                    for values in cache.values()
-                                    for other in values
-                                    if other.recognizer == "tesseract"
-                                    and abs(other.rectangle.y - d.rectangle.y) < 0.08
-                                ]
-                                if nearest:
-                                    d.ink = min(
-                                        nearest,
-                                        key=lambda other: abs(other.rectangle.x - d.rectangle.x),
-                                    ).ink
                                 d.glyph_height = d.rectangle.height
                 except engine.ProbeTimeout:
                     unresolved[0] = "Handwriting reading reached its contained deadline"

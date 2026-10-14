@@ -1157,3 +1157,37 @@ def test_legacy_cue_needs_supported_fine_observations_before_timing_replacement(
     if expected_old:
         assert facts[0].start_window is None and facts[0].end_window is None
     assert generation.CaptionObservation.model_validate_json(facts[0].model_dump_json()) == facts[0]
+
+
+def test_negative_visibility_supersedes_tail_despite_preserved_legacy_end():
+    import captions
+
+    old = captions.Cue(
+        start=1.0,
+        end=2.4,
+        text="An earlier distinct line before the entire complete observed sentence finishes now",
+    )
+    tail = captions.Cue(start=2.4, end=2.9, text="complete observed sentence finishes")
+    fresh = old.model_copy(update={"end": 2.6})
+    review, source = evidence_review([old, tail], [])
+    observations = [
+        generation.CaptionObservation(
+            start=1.0,
+            end=2.6,
+            text=fresh.text,
+            start_window=(1.0, 1.0),
+            end_window=(2.3, 2.6),
+            start_supported=True,
+            end_supported=True,
+            wording="paired_model",
+        )
+    ]
+    result, _ = generation.retain_reviewed(
+        [fresh],
+        review,
+        source,
+        incomplete=True,
+        observations=observations,
+        observed_absence=[(2.6, 2.95)],
+    )
+    assert result == [old]

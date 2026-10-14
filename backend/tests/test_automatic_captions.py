@@ -58,7 +58,9 @@ def test_real_visible_text_timing_and_appearance(local, monkeypatch, preserve_an
                 end=1.1,
                 text="FIRST VISIBLE WORDS",
                 appearance=captions.Appearance(
-                    style=captions.Style(font=first.choice, size_percent=10.0, color="white"),
+                    style=captions.Style(
+                        font=first.choice, size_percent=10.0, color="#306cff", vertical=0.2
+                    ),
                     font_binding=first,
                 ),
             ),
@@ -963,3 +965,67 @@ def test_same_words_keep_distinct_position_and_color_phases():
         first, rectangle=automatic.match.Rectangle(x=0.55, y=0.6, width=0.4, height=0.1)
     )
     assert not automatic.same(first, moved)
+
+
+def test_multiline_block_accepts_distinct_anchors_and_unequal_glyph_heights():
+    from dataclasses import replace
+
+    first = detection("Upper readable line")
+    first.rectangle = automatic.match.Rectangle(x=0.55, y=0.2, width=0.4, height=0.06)
+    second = replace(
+        first,
+        text="Lower reply",
+        rectangle=automatic.match.Rectangle(x=0.1, y=0.36, width=0.3, height=0.035),
+    )
+    block = automatic.dominant([first, second], set())
+    assert block.text == "Upper readable line\nLower reply"
+    second.needs_review = True
+    assert automatic.dominant([first, second], set()).text == first.text
+
+
+def test_bold_blue_caption_has_the_same_density_allowance_as_white():
+    from PIL import Image, ImageDraw, ImageFont
+
+    image = Image.new("RGB", (640, 360), (30, 45, 30))
+    font = ImageFont.truetype(
+        str(fonts.font_catalog.ROOT / fonts.font_catalog.FACES["poppins-bold"][0]), 36
+    )
+    ImageDraw.Draw(image).text((110, 60), "COLORFUL WORDS", font=font, fill=(48, 108, 255))
+    assert automatic.retry_crops(image, [])
+
+
+def test_three_variant_selection_retains_the_96_input_bound():
+    rows = [
+        (i * 100, (0.1, 0.2, 0.3, 0.04), [f"{i}-{variant}" for variant in range(3)])
+        for i in range(50)
+    ]
+    rectangle = automatic.match.Rectangle(x=0.1, y=0.2, width=0.3, height=0.04)
+    signatures = {row[0]: [(rectangle, bytes([255]) * 30)] for row in rows}
+    names = {name for row in rows for name in row[2]}
+    selected = automatic.select_handwriting(rows, 8, signatures=signatures, cached_names=names)
+    assert len({name for row in selected for name in row[2]}) == 96
+
+
+def test_ink_observation_keeps_blue_and_faded_chromatic_glyphs():
+    from PIL import Image, ImageDraw
+
+    image = Image.new("RGB", (320, 180), (0, 0, 0))
+    ImageDraw.Draw(image).text((65, 95), "Visible", fill=(48, 108, 255), font_size=24)
+    rect = automatic.match.Rectangle(x=0.18, y=0.5, width=0.5, height=0.2)
+    ink = automatic.glyph_color(image, rect)
+    faded = automatic.glyph_color(image.point(lambda v: round(v * 0.04)), rect)
+    assert ink != "#FFFFFF" and faded != "#FFFFFF"
+    assert automatic.math.dist(automatic.normalized_ink(ink), automatic.normalized_ink(faded)) < 0.1
+    assert automatic.glyph_color(Image.new("RGB", image.size), rect) is None
+    first = detection("Same words")
+    first.ink = ink
+    from dataclasses import replace
+
+    assert automatic.same(first, replace(first, ink=faded))
+
+
+def test_source_case_is_kept_only_for_observed_matching_words():
+    assert (
+        automatic.observed_punctuation("clear blue words", "CLEAR BLUE WORDS") == "CLEAR BLUE WORDS"
+    )
+    assert automatic.observed_punctuation("Unseen words", "OTHER WORDS") == "Unseen words"

@@ -327,6 +327,7 @@ def retain_reviewed(
         reconciled.append(fresh)
         if fact:
             selected_facts[key(fresh)] = fact
+    observed_cues = cues
     cues = reconciled
     verified = review.verified_cues
     protected = list(
@@ -403,13 +404,18 @@ def retain_reviewed(
                 left <= (old.start + old.end) / 2 <= right for left, right in observed_absence
             ):
                 return False
-            for fresh in result:
-                fact = selected_facts.get(key(fresh))
+            for fresh in [*result, *observed_cues]:
+                fact = new_facts.get(key(fresh)) or selected_facts.get(key(fresh))
                 full = automatic_captions.word_key(fresh.text)
                 if (
                     fact
                     and fact.end_supported is True
-                    and abs(fresh.end - old.start) <= 1 / 30 + 0.000001
+                    and (
+                        abs(fresh.end - old.start) <= 1 / 30 + 0.000001
+                        or fact.end_window is not None
+                        and fact.end_window[0] <= old.start <= fact.end_window[1]
+                        and fresh.end <= old.end
+                    )
                     and any(
                         SequenceMatcher(None, words, full[i : i + len(words)]).ratio() >= 0.9
                         for i in range(max(0, len(full) - len(words) + 1))
