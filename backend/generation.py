@@ -216,21 +216,16 @@ def retain_reviewed(
             )
         ]
         if observed_window is not None:
+            left, right = observed_window
             pieces = []
             for old in prior:
-                remaining = [old]
-                for new in result:
-                    next_parts = []
-                    for part in remaining:
-                        if part.start >= new.end or new.start >= part.end:
-                            next_parts.append(part)
-                        else:
-                            if part.start < new.start:
-                                next_parts.append(part.model_copy(update={"end": new.start}))
-                            if part.end > new.end:
-                                next_parts.append(part.model_copy(update={"start": new.end}))
-                    remaining = next_parts
-                pieces.extend(remaining)
+                if old.start < left:
+                    pieces.append(old.model_copy(update={"end": min(old.end, left)}))
+                if old.end > right:
+                    pieces.append(old.model_copy(update={"start": max(old.start, right)}))
+                start, end = max(old.start, left), min(old.end, right)
+                if start < end:
+                    pieces.append(old.model_copy(update={"start": start, "end": end}))
             prior = pieces
         result += [c for c in prior if not any(c.start < n.end and n.start < c.end for n in result)]
     if len(result) > 200:

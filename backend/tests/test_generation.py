@@ -855,3 +855,36 @@ def test_observed_source_label_removes_only_matching_unprotected_old_interval():
         ],
     )
     assert result == [other, protected]
+
+
+def test_observed_replacement_does_not_leave_the_superseded_automatic_tail():
+    import uuid
+
+    import captions
+
+    source = {
+        "identity": generation.color.Source(
+            canonical_url="https://www.tiktok.com/@test/video/6718335390845095173",
+            video_id="6718335390845095173",
+            media_sha256="a" * 64,
+        )
+    }
+    old = captions.Cue(start=1, end=5, text="Old automatic fragment")
+    fresh = captions.Cue(start=1, end=4, text="Observed replacement")
+    review = generation.CaptionReview(
+        cues=[old],
+        notices=[],
+        unreadable_samples=1,
+        evidence=captions.VisibleBinding(
+            source=source["identity"],
+            reference_operation_id=str(uuid.uuid4()),
+            method=generation.automatic_captions.METHOD,
+            reads=2,
+            engine_version="test",
+            assets_commit="a" * 40,
+        ),
+    )
+    result, _ = generation.retain_reviewed(
+        [fresh], review, source, incomplete=True, observed_window=(0, 6)
+    )
+    assert result == [fresh]

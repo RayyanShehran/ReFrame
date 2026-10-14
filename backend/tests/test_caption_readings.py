@@ -93,10 +93,10 @@ def test_retry_reuses_completed_model_facts_and_only_submits_missing_crops(local
 
     monkeypatch.setattr(automatic, "run_handwriting", model)
     first = automatic.cached_handwriting(
-        pid, "source-model", directory, names, time.monotonic() + 10
+        pid, "source-model", directory, names, time.monotonic() + 60
     )
     second = automatic.cached_handwriting(
-        pid, "source-model", directory, names, time.monotonic() + 10
+        pid, "source-model", directory, names, time.monotonic() + 60
     )
     assert first[1:] == (True, 3, 0)
     assert second[1:] == (False, 1, 2) and calls == [names, names[2:]]
@@ -117,3 +117,33 @@ def test_raw_cache_keeps_the_existing_aggregate_byte_budget(local):
             == 4 * 1024 * 1024
         )
     assert readings.read(pid, "ocr", "namespace", "000") is None
+
+
+def test_completed_model_readings_are_consumed_after_inference_deadline(
+    local, monkeypatch, tmp_path
+):
+    import json
+    import time
+
+    import automatic_captions as automatic
+
+    client, _, _ = local
+    pid = create(client)["id"]
+    saved = "a" * 64 + ".png"
+    pending = "b" * 64 + ".png"
+    payload = {
+        "engine": "cached-test",
+        "results": [
+            {"name": saved, "text": "Actual completed reading", "score": 0.97, "capped": False}
+        ],
+    }
+    readings.save(pid, "handwriting", "namespace", saved, json.dumps(payload).encode())
+    monkeypatch.setattr(
+        automatic,
+        "run_handwriting",
+        lambda *a, **k: pytest.fail("Expired budget cannot launch inference"),
+    )
+    result, limited, attempted, restored = automatic.cached_handwriting(
+        pid, "namespace", tmp_path, [saved, pending], time.monotonic() - 1
+    )
+    assert result == payload and limited and attempted == 0 and restored == 1

@@ -28,7 +28,7 @@ import reference_motion as motion
 import video_render as render
 from references import ReferenceError
 
-METHOD = "visible-tsv-adaptive-v9"
+METHOD = "visible-tsv-adaptive-v10"
 MAX_READS = 600
 MAX_APPEARANCES = 8
 TOTAL_SECONDS = 300
@@ -789,7 +789,11 @@ def cached_handwriting(project_id, namespace, stage, names, deadline):
             value = json.dumps({"engine": payload["engine"], "results": [row]}).encode()
             caption_readings.save(project_id, "handwriting", namespace, row["name"], value)
 
-    if pending:
+    attempted = 0
+    if pending and deadline - time.monotonic() <= 30:
+        payload, timed_out = {"results": [], "engine": saved_engine}, True
+    elif pending:
+        attempted = len(pending)
         request = stage / "request.json"
         request.write_text(json.dumps(pending), encoding="utf-8")
         payload, timed_out = run_handwriting(
@@ -807,7 +811,7 @@ def cached_handwriting(project_id, namespace, stage, names, deadline):
     else:
         payload, timed_out = {"results": [], "engine": saved_engine}, False
     payload["results"].extend(saved_results)
-    return payload, timed_out, len(pending), len(saved_results)
+    return payload, timed_out, attempted, len(saved_results)
 
 
 def native_geometry(video):
@@ -1625,7 +1629,7 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
             cached_names=cached_names,
         )
         names = list(dict.fromkeys(variants[i] for i in (1, 0) for _, _, variants in selected))
-        if names and reading_deadline - time.monotonic() > 30:
+        if names:
             with temporary(directory / "handwriting") as stage:
                 for name in names:
                     (stage / name).write_bytes(handwriting_images[name])
@@ -1660,7 +1664,10 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
                             for row in choices
                             if row["score"] >= 0.85 and not row["capped"] and row["text"].strip()
                         ]
-                        chosen = max(usable or choices, key=lambda row: row["score"])
+                        if not usable:
+                            unresolved[index] = "Handwriting did not produce a reliable reading"
+                            continue
+                        chosen = max(usable, key=lambda row: row["score"])
                         text = chosen["text"]
                         if (
                             not text.strip()
