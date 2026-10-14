@@ -42,7 +42,8 @@ def test_malformed_ocr_is_not_a_no_caption_result(raw):
         automatic.parse(raw, 640, 360)
 
 
-def test_real_visible_text_timing_and_appearance(local):
+@pytest.mark.parametrize("preserve_analysis", [False, True])
+def test_real_visible_text_timing_and_appearance(local, monkeypatch, preserve_analysis):
     client, directory, _ = local
     fixture = directory / "visible-caption-input.mp4"
     stage = directory / "subtitle"
@@ -104,6 +105,15 @@ def test_real_visible_text_timing_and_appearance(local):
     capability = automatic.ocr.inspect_capability(output, time.monotonic() + 10)
     if not capability["available"]:
         pytest.skip("Pinned OCR executable/assets absent; deterministic checks still run")
+    if preserve_analysis:
+        monkeypatch.setattr(automatic.match, "read", lambda *args: {"revision": 1})
+
+        def cannot_overwrite(*args, **kwargs):
+            pytest.fail("Automatic caption extraction must not overwrite saved appearance analysis")
+
+        monkeypatch.setattr(automatic, "infer", cannot_overwrite)
+        monkeypatch.setattr(automatic.match, "generate", cannot_overwrite)
+        monkeypatch.setattr(automatic.match, "review", cannot_overwrite)
     cues, notes, evidence = automatic.detect(pid, source, output, stop, time.monotonic() + 120)
     print(
         "REAL_AUTOMATIC_OCR",
@@ -116,7 +126,10 @@ def test_real_visible_text_timing_and_appearance(local):
         assert abs(cue.start - expected[0]) <= 1 / 30 + 0.001
         assert abs(cue.end - expected[1]) <= 1 / 30 + 0.001
     assert cues[0].appearance.style.color != cues[1].appearance.style.color
-    assert all(8 <= cue.appearance.style.size_percent <= 12 for cue in cues)
+    if preserve_analysis:
+        assert any("Saved appearance analyses are preserved" in note for note in notes)
+    else:
+        assert all(8 <= cue.appearance.style.size_percent <= 12 for cue in cues)
     assert evidence["reads"] <= automatic.MAX_READS
     assert any("Closest available" in note for note in notes)
 

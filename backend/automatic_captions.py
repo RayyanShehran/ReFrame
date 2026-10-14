@@ -1788,6 +1788,7 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
         unresolved[first] = (
             "Only a diagnostic interval was observed; the full track is not certified"
         )
+    preserve_saved_analysis = match.read(project_id, deadline)["revision"] > 0
     cues, notes = [], []
     if ignored:
         notes.append(
@@ -1830,12 +1831,16 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
             detected.ink,
         )
         if key not in styles:
-            if unresolved:
+            if unresolved or preserve_saved_analysis:
                 # Preserve partial text before spending time on font fitting.
                 font = (
                     fonts.builtin("amiri-regular")
                     if any("\u0600" <= c <= "\u06ff" for c in detected.text)
-                    else fonts.Binding()
+                    else (
+                        fonts.builtin("patrickhand-regular")
+                        if detected.recognizer == "trocr"
+                        else fonts.Binding()
+                    )
                 )
                 styles[key] = captions.Appearance(
                     style=captions.Style(
@@ -1862,6 +1867,7 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
                 baselines[key] = 0.025
                 if (
                     frame_window is None
+                    and not preserve_saved_analysis
                     and partial_fits < 2
                     and sum(c.isalnum() for c in (detected.sample_text or detected.text)) >= 4
                     and deadline - time.monotonic() >= 40
@@ -1888,7 +1894,12 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
                         notes.append(
                             "Appearance fitting reached its bound; supported default used."
                         )
-                notes.append("Partial wording remains a proposal; font/placement are approximate.")
+                notes.append(
+                    "Saved appearance analyses are preserved; "
+                    "automatic font/placement are approximate."
+                    if preserve_saved_analysis
+                    else "Partial wording remains a proposal; font/placement are approximate."
+                )
             elif len(styles) >= MAX_APPEARANCES:
                 unresolved[start] = "Appearance budget reached; approximate style needs review"
                 nearest = min(styles, key=lambda k: abs(k[0] - key[0]) + abs(k[1] - key[1]))
