@@ -894,3 +894,22 @@ def test_ocr_silence_without_supported_visibility_cannot_remove_old_cues():
     absence = []
     automatic.track(lambda f: [], [0, 15, 29], set(), absence=absence, verified_absence=set())
     assert absence == []
+
+
+def test_isolated_reply_gets_an_independent_frame_without_resampling_stable_lines():
+    rows = [
+        (30, (0.6, 0.2, 0.3, 0.05), []),
+        (45, (0.6, 0.2, 0.3, 0.05), []),
+        (30, (0.1, 0.5, 0.3, 0.05), []),
+    ]
+    assert automatic.handwriting_companions(rows, 0, 60) == [33]
+    crowded = [(f, (0.1, 0.1 + f * 0.01, 0.3, 0.05), []) for f in range(0, 100, 5)]
+    selected = automatic.handwriting_companions(crowded, 0, 103)
+    assert len(selected) == 8 and selected[0] == 3 and selected[-1] == 98
+
+
+def test_discovery_is_bounded_and_spreads_observations_across_the_entire_reference():
+    frames = list(range(0, 1200, 15))
+    order = automatic.discovery_order(frames)
+    assert sorted(order) == frames and len(set(order)) == len(frames)
+    assert order[:5] == [0, 1185, 600, 300, 900]

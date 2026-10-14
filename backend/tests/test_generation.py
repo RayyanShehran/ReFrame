@@ -1068,3 +1068,67 @@ def test_normal_generation_retry_persists_independent_word_and_boundary_evidence
         [1.2 - 1 / 30, 1.2]
     )
     assert client.get(url).json() == saved
+
+
+def test_supported_end_and_absent_tail_supersede_only_adjacent_repeated_fragment():
+    import captions
+
+    fresh = captions.Cue(
+        start=1,
+        end=2.4,
+        text="Extra first line\nI read these words correctly\nand every visible line is retained",
+    )
+    tail = captions.Cue(
+        start=2.4, end=2.9, text="1 read these words correctly\nand every visible line is retained"
+    )
+    neighbor = captions.Cue(start=4, end=5, text=tail.text)
+    review, source = evidence_review([tail, neighbor], [])
+    facts = [observation(fresh, 1 / 30)]
+    result, _ = generation.retain_reviewed(
+        [fresh], review, source, incomplete=True, observations=facts, observed_absence=[(2.5, 2.8)]
+    )
+    assert result == [fresh, neighbor]
+
+
+def test_legacy_missing_support_flags_do_not_allow_coarse_overwrite_of_fine_brackets():
+    import captions
+
+    old = captions.Cue(start=1.233333, end=2.466667, text="Observed continuous words")
+    fresh = captions.Cue(start=1.5, end=2.5, text=old.text)
+    prior = observation(old, 1 / 30, supported=False)
+    review, source = evidence_review([old], [prior])
+    result, _ = generation.retain_reviewed(
+        [fresh], review, source, incomplete=True, observations=[observation(fresh, 0.5)]
+    )
+    assert result == [old]
+
+
+def test_coarse_partial_single_line_cannot_erase_a_supported_multiline_phase():
+    import captions
+
+    old = captions.Cue(
+        start=2.033333, end=3.466667, text="Observed first line\nObserved second line"
+    )
+    fresh = captions.Cue(start=1.5, end=3.5, text="Observed first line")
+    neighbor = captions.Cue(start=4, end=5, text="Distinct reply")
+    review, source = evidence_review([old, neighbor], [observation(old, 1 / 30)])
+    result, _ = generation.retain_reviewed(
+        [fresh], review, source, incomplete=True, observations=[observation(fresh, 0.5)]
+    )
+    assert old in result and neighbor in result
+    assert [(c.start, c.end, c.text) for c in result if c != old and c != neighbor] == [
+        (fresh.start, old.start, fresh.text),
+        (old.end, fresh.end, fresh.text),
+    ]
+
+
+def test_pinned_multiline_evidence_cannot_duplicate_a_manual_correction():
+    import captions
+
+    old = captions.Cue(start=1.2, end=2.4, text="Observed first line\nManual second line")
+    fresh = captions.Cue(start=1.5, end=2.5, text="Observed first line")
+    review, source = evidence_review([old], [observation(old, 1 / 30)], protected=[old])
+    result, _ = generation.retain_reviewed(
+        [fresh], review, source, incomplete=True, observations=[observation(fresh, 0.5)]
+    )
+    assert result == [old]

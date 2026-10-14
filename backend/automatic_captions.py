@@ -7,7 +7,7 @@ import json
 import math
 import shutil
 import time
-from collections import Counter
+from collections import Counter, deque
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from difflib import SequenceMatcher
@@ -28,7 +28,7 @@ import reference_motion as motion
 import video_render as render
 from references import ReferenceError
 
-METHOD = "visible-tsv-adaptive-v11"
+METHOD = "visible-tsv-adaptive-v12"
 MAX_READS = 600
 MAX_APPEARANCES = 8
 TOTAL_SECONDS = 300
@@ -940,6 +940,40 @@ def recover_lines(index, signatures, prototypes, fallback):
     ]
 
 
+def discovery_order(frames):
+    if len(frames) < 3:
+        return frames
+    order = [frames[0], frames[-1]]
+    pending = deque([(1, len(frames) - 1)])
+    while pending:
+        left, right = pending.popleft()
+        if left >= right:
+            continue
+        middle = (left + right) // 2
+        order.append(frames[middle])
+        pending.extend(((left, middle), (middle + 1, right)))
+    return order
+
+
+def handwriting_companions(rows, first, total):
+    isolated = sorted(
+        {
+            min(total - 1, frame + 3)
+            for frame, rectangle, _ in rows
+            if not any(
+                3 <= abs(other - frame) <= 90
+                and abs(box[1] - rectangle[1]) < 0.025
+                and 0.8 <= box[2] / rectangle[2] <= 1.25
+                for other, box, _ in rows
+            )
+        }
+    )
+    isolated = [f for f in isolated if first <= f < total]
+    if len(isolated) > 8:
+        isolated = [isolated[round(i * (len(isolated) - 1) / 7)] for i in range(8)]
+    return isolated
+
+
 def select_handwriting(rows, limit, *, signatures=None, readings=None, cached_names=None):
     if signatures is None:
         count = min(len(rows), limit)
@@ -1074,7 +1108,8 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
     overall_deadline = deadline
     deadline = min(deadline - 10, started + TOTAL_SECONDS - 10)
     engine._control.stop = stop
-    reading_deadline = min(deadline - 45, started + 200)
+    inference_deadline = min(deadline - min(45, max(0, (deadline - started) * 0.15)), started + 200)
+    frame_deadline = min(inference_deadline, started + 120)
     available = ocr.inspect_capability(directory, deadline)
     if not available["available"]:
         raise ReferenceError(
@@ -1164,7 +1199,7 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
             args,
             stage,
             name,
-            reading_deadline,
+            frame_deadline,
             15,
             output_limit=128 * 1024,
             temp_budget=16 * 1024 * 1024,
@@ -1184,8 +1219,8 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
         nonlocal handwriting_bytes
         if index in cache:
             return cache[index]
-        color.guard(stop, reading_deadline)
-        if reads[0] >= MAX_READS or reading_deadline - time.monotonic() < 20:
+        color.guard(stop, frame_deadline)
+        if reads[0] >= MAX_READS or frame_deadline - time.monotonic() < 20:
             unresolved[index] = "Frame not observed: caption reading budget reached"
             raise engine.ProbeTimeout("Caption reading budget reached")
         stage = directory / f"read-{index}"
@@ -1215,7 +1250,7 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
                     ],
                     stage,
                     "caption-visibility",
-                    reading_deadline,
+                    frame_deadline,
                     15,
                     temp_budget=16 * 1024 * 1024,
                 )
@@ -1284,7 +1319,7 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
                     ],
                     stage,
                     "caption-frame",
-                    reading_deadline,
+                    frame_deadline,
                     15,
                     temp_budget=16 * 1024 * 1024,
                 )
@@ -1308,7 +1343,7 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
                 ):
                     languages = ("ara",)
                 for language in languages:
-                    color.guard(stop, reading_deadline)
+                    color.guard(stop, frame_deadline)
                     if reads[0] >= MAX_READS:
                         unresolved[index] = "OCR work budget reached"
                         break
@@ -1394,7 +1429,7 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
                     ],
                     stage,
                     "caption-native-frame",
-                    reading_deadline,
+                    frame_deadline,
                     15,
                     temp_budget=16 * 1024 * 1024,
                 )
@@ -1405,7 +1440,7 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
                         language = "eng"
                     elif script_votes["arabic"] > 2 * script_votes["latin"]:
                         language = "ara"
-                    color.guard(stop, reading_deadline)
+                    color.guard(stop, frame_deadline)
                     if reads[0] >= MAX_READS:
                         unresolved[index] = "OCR work budget reached"
                         break
@@ -1627,7 +1662,9 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
                         prior["start"] = min(prior["start"], index / 30)
                         prior["end"] = max(prior["end"], (index + 1) / 30)
                         excluded[d.text] = prior
-            if dominant(result, ignored) is None and visibility_levels.get(index, 0) >= 30:
+            if dominant(result, ignored) is None and (
+                visibility_levels.get(index, 0) >= 30 or any(d.text in ignored for d in result)
+            ):
                 nearby = [
                     (box, shape)
                     for f, box, shape, d in prototypes
@@ -1651,17 +1688,25 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
             unresolved[index] = "Frame not observed: caption reading deadline reached"
             raise
 
-    for f in frames:
+    for f in discovery_order(frames):
         try:
             read(f)
         except engine.ProbeTimeout:
             frames = [frame for frame in frames if frame in cache]
             break
+    discovery_exhausted = time.monotonic() >= frame_deadline - 20
     if not frames:
         raise ReferenceError(
             422, "caption_unreadable", "Caption frames could not be observed. Retry reading."
         )
     if handwriting_rows and script_votes["latin"] > script_votes["arabic"]:
+        for frame in handwriting_companions(handwriting_rows, first, total):
+            if frame not in cache:
+                try:
+                    read(frame)
+                except engine.ProbeTimeout:
+                    break
+        frames = sorted(set(frames) | {f for f in cache if first <= f < total})
         allowed = min(handwriting.MAX_LINES // 2, (MAX_READS - reads[0]) // 2)
         cached_names = {
             name
@@ -1690,7 +1735,7 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
                         model_namespace,
                         stage,
                         names,
-                        reading_deadline,
+                        inference_deadline,
                     )
                     handwriting_requests = attempted
                     cached_handwriting_requests += restored
@@ -1797,6 +1842,7 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
                     unresolved[0] = "Handwriting reading reached its contained deadline"
         else:
             unresolved[0] = "Handwriting inference budget unavailable"
+    frame_deadline = inference_deadline
     handwriting_images.clear()
     for index, shapes in signatures.items():
         for rectangle, shape in shapes:
@@ -2092,7 +2138,8 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
             "excluded_intervals": list(excluded.values()),
             "observations": observations,
             "observed_absence": absence,
-            "reading_budget_exhausted": time.monotonic() >= reading_deadline,
+            "reading_budget_exhausted": time.monotonic() >= inference_deadline - 20,
+            "discovery_budget_exhausted": discovery_exhausted,
             "unreadable_samples": len(unresolved),
             "method": METHOD,
             "reads": reads[0],

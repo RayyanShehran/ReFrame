@@ -68,8 +68,8 @@ class CaptionObservation(color.Schema):
     text: str = Field(min_length=1, max_length=200)
     start_window: tuple[float, float]
     end_window: tuple[float, float]
-    start_supported: bool = False
-    end_supported: bool = False
+    start_supported: bool | None = None
+    end_supported: bool | None = None
     wording: Literal["unresolved", "ocr", "paired_model"]
 
     @field_validator("start_window", "end_window")
@@ -279,9 +279,8 @@ def retain_reviewed(
                     )
                     old_supported = getattr(before, edge + "_supported")
                     new_supported = getattr(fact, edge + "_supported")
-                    stronger = (old_supported and not new_supported) or (
-                        old_supported == new_supported
-                        and previous[1] - previous[0] < current[1] - current[0] - 0.000001
+                    stronger = (old_supported is True and new_supported is False) or (
+                        previous[1] - previous[0] < current[1] - current[0] - 0.000001
                     )
                     values[edge] = getattr(old if stronger else fresh, edge)
                     windows[edge + "_window"] = previous if stronger else current
@@ -312,6 +311,46 @@ def retain_reviewed(
         c for c in cues if not any(c.start < v.end and v.start < c.end for v in protected)
     ] + protected
     if incomplete:
+        pinned = [
+            old
+            for old in review.cues
+            if key(old) in old_facts
+            and old not in protected
+            and not any(old.start < c.end and c.start < old.end for c in protected)
+            and old_facts[key(old)].wording != "unresolved"
+            and any(
+                old.start < fresh.end
+                and fresh.start < old.end
+                and fresh.text.count("\n") < old.text.count("\n")
+                and all(
+                    automatic_captions.word_key(line)
+                    in [automatic_captions.word_key(v) for v in old.text.split("\n")]
+                    for line in fresh.text.split("\n")
+                )
+                and key(fresh) in new_facts
+                and all(
+                    getattr(new_facts[key(fresh)], edge + "_window")[1]
+                    - getattr(new_facts[key(fresh)], edge + "_window")[0]
+                    >= getattr(old_facts[key(old)], edge + "_window")[1]
+                    - getattr(old_facts[key(old)], edge + "_window")[0]
+                    for edge in ("start", "end")
+                )
+                for fresh in cues
+            )
+        ]
+        for old in pinned:
+            pieces = []
+            for fresh in result:
+                if fresh in protected or fresh.end <= old.start or fresh.start >= old.end:
+                    pieces.append(fresh)
+                else:
+                    if fresh.start < old.start:
+                        pieces.append(fresh.model_copy(update={"end": old.start}))
+                    if fresh.end > old.end:
+                        pieces.append(fresh.model_copy(update={"start": old.end}))
+            result = pieces + [old]
+
+    if incomplete:
         prior = [
             c
             for c in review.cues
@@ -330,6 +369,29 @@ def retain_reviewed(
                 )
             )
         ]
+
+        def superseded_tail(old):
+            words = automatic_captions.word_key(old.text)
+            if len(words) < 4 or not any(
+                left <= (old.start + old.end) / 2 <= right for left, right in observed_absence
+            ):
+                return False
+            for fresh in result:
+                fact = selected_facts.get(key(fresh))
+                full = automatic_captions.word_key(fresh.text)
+                if (
+                    fact
+                    and fact.end_supported is True
+                    and abs(fresh.end - old.start) <= 1 / 30 + 0.000001
+                    and any(
+                        SequenceMatcher(None, words, full[i : i + len(words)]).ratio() >= 0.9
+                        for i in range(max(0, len(full) - len(words) + 1))
+                    )
+                ):
+                    return True
+            return False
+
+        prior = [c for c in prior if c in protected or not superseded_tail(c)]
         if observed_window is not None:
             left, right = observed_window
             pieces = []
