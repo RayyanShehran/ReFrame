@@ -28,7 +28,7 @@ import reference_motion as motion
 import video_render as render
 from references import ReferenceError
 
-METHOD = "visible-tsv-adaptive-v17"
+METHOD = "visible-tsv-adaptive-v18"
 MAX_READS = 600
 MAX_APPEARANCES = 8
 TOTAL_SECONDS = 300
@@ -530,12 +530,17 @@ def color_masks(image):
 
     channels = image.convert("RGB").split()
     r, g, b = channels
-    yield (
-        glyph_mask(
-            ImageChops.darker(ImageChops.darker(r, g), b).point(lambda v: 255 if v > 200 else 0)
-        ),
-        "neutral",
-    )
+    neutral = ImageChops.darker(ImageChops.darker(r, g), b).point(lambda v: 255 if v > 200 else 0)
+    yield glyph_mask(neutral), "neutral"
+    if neutral.histogram()[255] > image.width * image.height * 0.6:
+        yield (
+            glyph_mask(
+                ImageChops.lighter(ImageChops.lighter(r, g), b).point(
+                    lambda v: 255 if v < 55 else 0
+                )
+            ),
+            "neutral-dark",
+        )
     hue = image.convert("HSV").getchannel("H")
     bright = ImageChops.lighter(ImageChops.lighter(r, g), b).point(lambda v: 255 if v > 130 else 0)
     for i in range(3):
@@ -571,7 +576,7 @@ def retry_crops(image, uncertain):
 
     width, height = image.size
     candidates = []
-    for mask, partitioned in islice(color_masks(image), 24):
+    for mask, partitioned in islice(color_masks(image), 26):
         bands, start, last = [], None, None
         for y in range(height):
             box = mask.crop((0, y, width, y + 1)).getbbox()
@@ -937,6 +942,8 @@ def visible_shape(image, rectangle, ink):
     # Relative contrast follows fades; zero/quantization-only pixels remain unknown.
     peak = float(np.quantile(hsv[:, :, 2][mask], 0.99)) if mask.any() else 0.0
     mask &= (peak >= 4) & (hsv[:, :, 2] > max(2, peak * 0.7))
+    if mask.mean() > 0.65:
+        mask[:] = False  # A broad background is not evidence of reusable lettering.
     return Image.fromarray((mask * 255).astype("uint8")).resize((128, 32)).convert("RGB").tobytes()
 
 
@@ -1080,6 +1087,12 @@ def completion_evidence(
     for frame in sorted(set(cache) | set(unresolved) | set(layouts)):
         values = [d for d in cache.get(frame, []) if d.text not in ignored]
         reason = unresolved.get(frame, "")
+        if (
+            reason == "Detected region has no completed representative reading"
+            and not signatures.get(frame)
+        ):
+            add(frame, None, "unreadable_caption")
+            continue
         if reason == "Credible recognizers disagree":
             for detected in values:
                 add(frame, detected.rectangle, "conflicting_readings")
@@ -2119,7 +2132,16 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
     frames = sorted(observed_frames)
     # Recognition gets its existing remaining bound, after every affordable observation.
     frame_deadline = min(inference_deadline, started + 150)
-    for f in recognition_frames(scan_signatures):
+    recognition = discovery_order(
+        sorted(
+            set(recognition_frames(scan_signatures))
+            | {f for f, rows in scan_signatures.items() if not rows and f not in unresolved}
+        )
+    )
+    for f in recognition:
+        if not scan_signatures[f]:
+            cache.pop(f, None)  # No color mask is not proof of no text; retain full-frame OCR.
+    for f in recognition:
         try:
             read(f)
         except engine.ProbeTimeout:
@@ -2635,7 +2657,7 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
             "reading_budget_exhausted": time.monotonic() >= inference_deadline - 20,
             "discovery_budget_exhausted": discovery_exhausted,
             "discovery_seconds": discovery_seconds,
-            "recognition_frames": len(recognition_frames(scan_signatures)),
+            "recognition_frames": len(recognition),
             "unreadable_samples": len(completion["unresolved_regions"]),
             "completion": completion,
             "method": METHOD,

@@ -1438,3 +1438,67 @@ def test_supported_unequal_line_heights_are_not_dropped_from_the_caption_block()
     small.rectangle = small.rectangle.model_copy(update={"y": 0.2, "height": 0.025})
     large.rectangle = large.rectangle.model_copy(update={"y": 0.3, "height": 0.06})
     assert automatic.dominant([large, small], set()).text == small.text + "\n" + large.text
+
+
+def test_unfinished_full_frame_fallback_is_not_no_captions():
+    completion = automatic.completion_evidence(
+        {0: []},
+        {0: []},
+        {0: []},
+        {},
+        {0: "Detected region has no completed representative reading"},
+        {0},
+        0,
+        15,
+        set(),
+    )
+    assert completion["status"] == "partial"
+    assert completion["observed_discovery_frames"] == 1
+    assert completion["unresolved_regions"][0]["reason"] == "unreadable_caption"
+
+
+@pytest.mark.parametrize("background,foreground", [("white", "black"), ("0xbbbbbb", "0x505050")])
+def test_real_dark_printed_caption_retains_full_frame_ocr(
+    local, monkeypatch, background, foreground
+):
+    pytest.importorskip("numpy")
+    pytest.importorskip("PIL")
+    client, directory, _ = local
+    if not shutil.which("ffmpeg"):
+        pytest.skip("FFmpeg required")
+    capability = automatic.ocr.inspect_capability(directory, time.monotonic() + 10)
+    if not capability["available"]:
+        pytest.skip("Installed pinned OCR required")
+    source = directory / "dark-text.mp4"
+    font = str(fonts.BUNDLED).replace("\\", "/").replace(":", r"\:")
+    subprocess.run(
+        [
+            shutil.which("ffmpeg"),
+            "-v",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            f"color=c={background}:s=640x360:r=30:d=1",
+            "-vf",
+            f"drawtext=fontfile='{font}':text='CLEAR DARK WORDS':fontsize=40:fontcolor={foreground}:"
+            "x=(w-tw)/2:y=160",
+            "-c:v",
+            "libx264",
+            str(source),
+        ],
+        check=True,
+        capture_output=True,
+        timeout=15,
+    )
+    saved, _, _ = prepared(client, directory, source)
+    monkeypatch.setattr(automatic.handwriting, "available", lambda: False)
+    monkeypatch.setattr(automatic.match, "read", lambda *args: {"revision": 1})
+    stage = directory / "dark-stage"
+    stage.mkdir()
+    cues, _, evidence = automatic.detect(
+        saved["id"], color.source(saved["id"]), stage, threading.Event(), time.monotonic() + 90
+    )
+    assert [c.text for c in cues] == ["CLEAR DARK WORDS"]
+    assert evidence["completion"]["status"] == "complete"
+    assert evidence["completion"]["observed_discovery_frames"] == 3
