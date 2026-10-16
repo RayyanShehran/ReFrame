@@ -1285,3 +1285,30 @@ def test_legacy_wording_requires_stronger_evidence_for_changed_words(quality, ex
         [fresh], review, source, incomplete=True, observations=facts
     )
     assert result[0].text == expected
+
+
+def test_coarse_single_line_cannot_erase_a_legacy_multiline_phase_or_next_title():
+    import captions
+
+    first = captions.Cue(
+        start=1.1, end=3.1, text="A visible first line\nAnother observed line\nA third line"
+    )
+    title = captions.Cue(start=3.1, end=3.5, text="A title")
+    fresh = captions.Cue(start=2.0, end=3.5, text="A third line")
+    review, source = evidence_review([first, title], [])
+    facts = [
+        generation.CaptionObservation(
+            start=2.0,
+            end=3.5,
+            text=fresh.text,
+            start_window=(1.0, 2.0),
+            end_window=(3.0, 3.5),
+            start_supported=True,
+            end_supported=True,
+            wording="paired_model",
+        )
+    ]
+    result, _ = generation.retain_reviewed(
+        [fresh], review, source, incomplete=True, observations=facts
+    )
+    assert result == [first, title]

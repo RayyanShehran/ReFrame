@@ -353,6 +353,24 @@ def retain_reviewed(
             for old in review.cues:
                 if old in protected or not (old.start < fresh.end and fresh.start < old.end):
                     continue
+                old_lines = [automatic_captions.word_key(line) for line in old.text.split("\n")]
+                before = old_facts.get(key(old))
+                if (
+                    fresh.text.count("\n") < old.text.count("\n")
+                    and all(
+                        automatic_captions.word_key(line) in old_lines
+                        for line in fresh.text.split("\n")
+                    )
+                    and before is None
+                    and any(
+                        getattr(fact, edge + "_window") is None
+                        or getattr(fact, edge + "_supported") is not True
+                        or (getattr(fact, edge + "_window")[1] - getattr(fact, edge + "_window")[0])
+                        > 1 / 30 + 0.000001
+                        for edge in ("start", "end")
+                    )
+                ):
+                    return True
                 if (
                     SequenceMatcher(
                         None,
