@@ -94,8 +94,6 @@ def region_box(image, selected):
 
 
 def run(source, output, start, end, *, selected=None, calibration=None, background=None):
-    from PIL import Image
-
     if (
         not all(math.isfinite(v) for v in (start, end))
         or not 0 <= start < end
@@ -106,6 +104,8 @@ def run(source, output, start, end, *, selected=None, calibration=None, backgrou
         raise ValueError("Calibration time must be finite and nonnegative")
     if selected is not None:
         selected = rectangle(",".join(str(v) for v in selected))
+    from PIL import Image
+
     source = Path(source).resolve(strict=True)
     if not source.is_file() or not 0 < source.stat().st_size <= 50 * 1024 * 1024:
         raise ValueError("Reference must be a local file of at most 50 MiB")

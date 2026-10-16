@@ -12,7 +12,17 @@ def test_invalid_evaluation_region_is_rejected(value):
 
 
 @pytest.mark.parametrize("start,end", [(0, math.inf), (math.nan, 1), (1, 0), (0, 2)])
-def test_bad_or_unbounded_interval_is_rejected_before_any_io(tmp_path, start, end):
+def test_bad_or_unbounded_interval_is_rejected_before_any_io(tmp_path, monkeypatch, start, end):
+    import builtins
+
+    original = builtins.__import__
+
+    def without_pillow(name, *args, **kwargs):
+        if name == "PIL" or name.startswith("PIL."):
+            raise AssertionError("Optional imaging must not precede input validation")
+        return original(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", without_pillow)
     with pytest.raises(ValueError, match="at most"):
         probe.run(tmp_path / "absent.mp4", tmp_path / "output", start, end)
     assert not (tmp_path / "output").exists()
