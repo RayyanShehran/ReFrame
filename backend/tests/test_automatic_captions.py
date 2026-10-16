@@ -1233,3 +1233,41 @@ def test_refinement_reaches_late_intervals_before_spending_budget_on_early_chang
 
     automatic.track(read, [0, 15, 30, 45, 60], set())
     assert 52 in visited
+
+
+def test_bracketed_single_digit_is_not_trusted_as_a_letter():
+    assert not automatic.reliable_wording(detection("You know [1 want"))
+    assert automatic.reliable_wording(detection("There are 10 apples"))
+
+
+def test_completion_duplicate_signatures_do_not_inflate_unresolved_count():
+    from dataclasses import replace
+
+    d = replace(detection("Unclear words"), minimum_confidence=40)
+    result = completion({0: [d]}, {0: [(d.rectangle, "glyphs")]}, {0: [(d.rectangle, b"a")] * 20})
+    assert len(result["unresolved_regions"]) == 1
+    assert result["unresolved_regions"][0]["observations"] == 1
+
+
+def test_prior_region_visibility_checks_are_not_new_unreadable_captions():
+    r = detection("Prior words").rectangle
+    # A flat background can repeat perfectly inside a disappeared caption's old rectangle.
+    result = completion({0: [], 15: []}, signatures={0: [(r, b"aa")], 15: [(r, b"aa")]})
+    assert result["status"] == "no_captions"
+    assert result["resolved"]["checked_prior_region"] == 2
+
+
+def test_only_observed_unchanging_small_corner_labels_are_incidental():
+    from dataclasses import replace
+
+    d = detection("Camera label")
+    d.rectangle = automatic.match.Rectangle(x=0.04, y=0.03, width=0.19, height=0.02)
+    cache = {f: [d] for f in (0, 15, 30, 45, 60)}
+    assert automatic.persistent_edge_text(cache, set(cache)) == {"Camera label"}
+    assert not automatic.persistent_edge_text(cache, set(cache) | {75})
+    cache[30] = [replace(d, text="Changing caption")]
+    cache[45] = []
+    assert not automatic.persistent_edge_text(cache, set(cache))
+    assert not automatic.persistent_edge_text(
+        {f: [detection("Centered caption")] for f in cache}, set(cache)
+    )

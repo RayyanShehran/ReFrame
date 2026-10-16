@@ -437,7 +437,7 @@ def temporary(stage):
 
 def reliable_wording(detection):
     # Ambiguous letter/digit readings are retained for review, never repaired by guessing.
-    tokens = [word.strip(".,!?;:") for word in detection.text.split()]
+    tokens = word_key(detection.text)
     return (
         not detection.needs_review
         and "\ufffd" not in detection.text
@@ -1028,7 +1028,7 @@ def completion_evidence(
                 r
                 for r in reversed(regions)
                 if r["reason"] == reason
-                and 0 <= frame / 30 - r["end"] <= 0.5
+                and r["start"] <= frame / 30 <= r["end"] + 0.5
                 and (
                     (rectangle is None and r["rectangle"] is None)
                     or rectangle is not None
@@ -1039,8 +1039,9 @@ def completion_evidence(
             None,
         )
         if prior:
-            prior["end"] = (frame + 1) / 30
-            prior["observations"] += 1
+            if (frame + 1) / 30 > prior["end"]:
+                prior["observations"] += 1
+            prior["end"] = max(prior["end"], (frame + 1) / 30)
         else:
             regions.append(
                 dict(
@@ -1099,6 +1100,13 @@ def completion_evidence(
                 resolved["background_incidental_text"] += 1
                 continue
             local = [d for d in values if overlaps_line(rectangle, d.rectangle)]
+            if (
+                not local
+                and not any(overlaps_line(rectangle, box) for box, _ in layouts.get(frame, []))
+                and not any(overlaps_line(rectangle, box) for box in suspects.get(frame, []))
+            ):
+                resolved["checked_prior_region"] += 1
+                continue
             trusted = [
                 d
                 for f, d in reliable
@@ -1167,6 +1175,30 @@ def completion_evidence(
         discovery_frames=len(expected),
         observed_discovery_frames=len(set(expected) & set(cache)),
     )
+
+
+def persistent_edge_text(cache, discovery):
+    """Small, unchanged corner labels are likely incidental overlays, not changing captions."""
+    if not discovery or not set(discovery) <= set(cache):
+        return set()
+    groups = {}
+    for frame in discovery:
+        for d in cache[frame]:
+            r = d.rectangle
+            if (
+                reliable_wording(d)
+                and r.height <= 0.025
+                and (r.y < 0.1 or r.y + r.height > 0.95)
+                and (r.x < 0.1 or r.x + r.width > 0.9)
+            ):
+                groups.setdefault(d.text, []).append((frame, r))
+    return {
+        text
+        for text, rows in groups.items()
+        if len({f for f, _ in rows}) / len(discovery) >= 0.8
+        and max(f for f, _ in rows) - min(f for f, _ in rows) >= 30
+        and all(overlaps_line(rows[0][1], r) for _, r in rows)
+    }
 
 
 def discovery_order(frames):
@@ -1519,10 +1551,12 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
                     crops = retry_crops(image, [])
                     lines = handwriting.line_crops(image, crops[0][0], crops[0][1]) if crops else []
                     observed = []
-                    for rect, _ in lines:
+                    candidate_layouts[index] = []
+                    for rect, variants in lines:
                         rectangle = match.Rectangle(
                             x=rect[0], y=rect[1], width=rect[2], height=rect[3]
                         )
+                        candidate_layouts[index].append((rectangle, line_layout(variants[0])))
                         nearby = [
                             (f, r, shape, d)
                             for f, r, shape, d in prototypes
@@ -2167,6 +2201,10 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
         compact = "".join(c for c in text.casefold() if c.isalnum())
         if creator and SequenceMatcher(None, compact, creator).ratio() >= 0.85:
             ignored.add(text)
+    for text in persistent_edge_text(cache, discovery):
+        ignored.add(text)
+        if len(excluded) < 30:
+            excluded[text] = {"start": first / 30, "end": total / 30, "text": text}
     color.guard(stop, deadline)
     boundaries, absence = {}, []
     changes = track(
