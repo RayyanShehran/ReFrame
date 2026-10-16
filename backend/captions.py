@@ -197,6 +197,7 @@ class VisibleBinding(color.Schema):
         "visible-tsv-adaptive-v13",
         "visible-tsv-adaptive-v14",
         "visible-tsv-adaptive-v15",
+        "visible-tsv-adaptive-v16",
     ]
     reads: int = Field(ge=0, le=600)
     engine_version: str = Field(max_length=256)
@@ -210,6 +211,8 @@ class VisibleBinding(color.Schema):
     completion: CompletionEvidence | None = None
     reading_budget_exhausted: bool = False
     discovery_budget_exhausted: bool = False
+    discovery_seconds: float | None = Field(default=None, ge=0, le=300, allow_inf_nan=False)
+    recognition_frames: int | None = Field(default=None, ge=0, le=242)
     handwriting_completed_requests: int | None = Field(default=None, ge=0, le=96)
     elapsed_seconds: float | None = Field(default=None, ge=0, le=600, allow_inf_nan=False)
 

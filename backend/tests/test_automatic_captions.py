@@ -1280,3 +1280,91 @@ def test_vector_glyph_similarity_retains_exact_byte_metric():
     expected = 2 * sum(min(x, y) for x, y in zip(a, b)) / (sum(a) + sum(b))
     assert automatic.glyph_similarity(a, b) == expected
     assert automatic.glyph_similarity(b"\0" * 12, b"\0" * 12) == 0
+
+
+def test_recognition_representatives_cover_late_changes_without_reading_every_frame():
+    first = detection("Geometry only")
+    a, b = bytes([255, 0] * 2048), bytes([0, 255] * 2048)
+    signatures = {f: [(first.rectangle, a if f < 90 else b)] for f in range(0, 180, 15)}
+    selected = automatic.recognition_frames(signatures)
+    assert len(selected) == 4
+    assert sum(f < 90 for f in selected) == sum(f >= 90 for f in selected) == 2
+    assert len(set(selected)) == len(selected)
+
+
+def test_region_score_keeps_a_complete_block_instead_of_one_strong_line(monkeypatch):
+    pytest.importorskip("numpy")
+    pytest.importorskip("PIL")
+    from PIL import Image, ImageDraw, ImageFont
+
+    image = Image.new("RGB", (960, 540), (30, 30, 30))
+    full, single = Image.new("L", image.size), Image.new("L", image.size)
+    draw = ImageDraw.Draw(full)
+    face = ImageFont.truetype(str(fonts.BUNDLED), 30)
+    draw.text((480, 100), "First genuine line", font=face, fill=255)
+    draw.text((500, 145), "Second genuine line", font=face, fill=255)
+    draw.text((100, 210), "A clear reply", font=face, fill=255)
+    single.paste(full.crop((0, 200, 960, 260)), (0, 200))
+    monkeypatch.setattr(automatic, "color_masks", lambda im: iter([(single, False), (full, True)]))
+    crops = automatic.retry_crops(image, [])
+    assert crops and crops[0][1][1] < 110 and crops[0][1][3] > 230
+    assert len(automatic.handwriting.line_crops(image, crops[0][0], crops[0][1])) == 3
+
+
+def test_real_lossless_discovery_batches_observe_the_entire_timeline(tmp_path):
+    pytest.importorskip("PIL")
+    from tests.test_color_analysis import generated
+
+    source = tmp_path / "colors.mp4"
+    generated(source, ((255, 0, 0), (0, 255, 0), (0, 0, 255)), frames_per_color=12)
+    deadline = time.monotonic() + 30
+    video, _, _ = automatic.render.probe(source, tmp_path, deadline)
+    frames = [0, 15, 29, 30, 45, 59, 60, 75, 89]
+    rows = list(
+        automatic.discovery_images(
+            {"path": source}, video, frames, (64, 64), tmp_path, threading.Event(), deadline
+        )
+    )
+    assert [f for f, _ in rows] == frames
+    assert [max(range(3), key=lambda c: image.getpixel((20, 20))[c]) for _, image in rows] == [
+        0,
+        0,
+        0,
+        1,
+        1,
+        1,
+        2,
+        2,
+        2,
+    ]
+    assert not (tmp_path / "discovery-batch").exists()
+
+
+@pytest.mark.parametrize(
+    "a,b,conflict",
+    [
+        ("FIRSTLINE", "FIRST LINE", False),
+        ("the final words", "Read the final words", False),
+        ("the final words", "the final word", True),
+        ("Two actual readings", "Two different readings", True),
+    ],
+)
+def test_credible_readers_cannot_silently_overwrite_different_characters(a, b, conflict):
+    assert automatic.wording_conflicts(a, b) is conflict
+
+
+def test_recognizer_conflict_blocks_even_when_retained_ocr_is_reliable():
+    d = detection("Retained source words")
+    completion = automatic.completion_evidence(
+        {0: [d]},
+        {0: [(d.rectangle, bytes([255, 0] * 2048))]},
+        {0: [(d.rectangle, "glyphs")]},
+        {},
+        {0: "Credible recognizers disagree"},
+        {0},
+        0,
+        15,
+        set(),
+    )
+    assert completion["status"] == "partial"
+    assert completion["unresolved_regions"][0]["reason"] == "conflicting_readings"

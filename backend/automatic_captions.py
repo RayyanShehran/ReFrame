@@ -28,7 +28,7 @@ import reference_motion as motion
 import video_render as render
 from references import ReferenceError
 
-METHOD = "visible-tsv-adaptive-v15"
+METHOD = "visible-tsv-adaptive-v16"
 MAX_READS = 600
 MAX_APPEARANCES = 8
 TOTAL_SECONDS = 300
@@ -464,7 +464,12 @@ def glyph_mask(mask):
             i = parents[i]
         return i
 
-    for y, row in enumerate(a):
+    last_row = -2
+    for y in np.flatnonzero(a.any(axis=1)):
+        if y != last_row + 1:
+            previous = []
+        last_row = y
+        row = a[y]
         edges = np.flatnonzero(np.diff(np.r_[False, row > 0, False])).tolist()
         current = []
         at = 0
@@ -609,7 +614,10 @@ def retry_crops(image, uncertain):
                     )
                 )
     if candidates:
-        _, mask, boxes = max(candidates, key=lambda row: row[0])
+        coverage = Counter()
+        for score, candidate_mask, _ in candidates:
+            coverage[id(candidate_mask)] += score
+        _, mask, boxes = max(candidates, key=lambda row: coverage[id(row[1])])
     else:
         mask, boxes = None, []
     crops = []
@@ -623,7 +631,7 @@ def retry_crops(image, uncertain):
                 for r in boxes
                 if r not in near
                 and any(
-                    abs((r[3] - r[1]) - (n[3] - n[1])) < max(r[3] - r[1], n[3] - n[1]) * 0.6
+                    max(r[3] - r[1], n[3] - n[1]) <= min(r[3] - r[1], n[3] - n[1]) * 3
                     and abs(r[1] - n[1]) <= max(r[3] - r[1], n[3] - n[1]) * 4
                     for n in near
                 )
@@ -1072,6 +1080,10 @@ def completion_evidence(
     for frame in sorted(set(cache) | set(unresolved) | set(layouts)):
         values = [d for d in cache.get(frame, []) if d.text not in ignored]
         reason = unresolved.get(frame, "")
+        if reason == "Credible recognizers disagree":
+            for detected in values:
+                add(frame, detected.rectangle, "conflicting_readings")
+            continue
         if frame not in cache:
             # Missing discovery blocks completion; a refinement gap only limits timing.
             resolved["unobserved_refinement"] += 1
@@ -1337,6 +1349,13 @@ def word_key(text):
     return tuple(re.findall(r"[^\W_]+(?:['’][^\W_]+)*", text.casefold().replace("’", "'")))
 
 
+def wording_conflicts(first, second):
+    a, b = word_key(first), word_key(second)
+    if "".join(a) == "".join(b):
+        return False  # Spacing differences alone are not competing character readings.
+    return not any(tuple(b[i : i + len(a)]) == tuple(a) for i in range(len(b) - len(a) + 1))
+
+
 def observed_punctuation(model, reader):
     """Use punctuation read from the same pixels only when word positions agree."""
     import re
@@ -1394,6 +1413,105 @@ def validate_handwriting(raw, names, *, allow_partial=False):
         raise ReferenceError(
             422, "ocr_output_invalid", "Handwriting output could not be read safely."
         ) from None
+
+
+def discovery_images(source, video, frames, canvas, directory, stop, deadline):
+    """Eight lossless thumbnails per owned batch; no OCR or model inference here."""
+    from PIL import Image
+
+    factor = min(1, 960 / max(canvas))
+    size = tuple(max(2, math.floor(v * factor / 2) * 2) for v in canvas)
+    try:
+        origin = float(video.get("start_time", "nan"))
+    except (TypeError, ValueError):
+        origin = math.nan
+    for at in range(0, len(frames), 8):
+        color.guard(stop, deadline)
+        batch = frames[at : at + 8]
+        seek = []
+        base = 0
+        if math.isfinite(origin) and origin >= 0:
+            # Seek before the requested frame: the last visible image may start earlier at low fps.
+            base = max(0, (batch[0] // 30 - 1) * 30)
+            seek = ["-ss", str(origin + base / 30), "-seek_timestamp", "1"]
+        selected = "+".join(f"eq(n,{frame - base})" for frame in batch)
+        timeline = (
+            f"setpts=PTS-({origin})/TB,fps=30:start_time={base / 30}:round=near,"
+            if math.isfinite(origin) and origin >= 0
+            else "setpts=PTS-STARTPTS,fps=30:start_time=0:round=near,"
+        )
+        with temporary(directory / "discovery-batch") as stage:
+            render.tool(
+                [
+                    shutil.which("ffmpeg") or "ffmpeg",
+                    "-v",
+                    "error",
+                    "-nostdin",
+                    "-xerror",
+                    "-threads",
+                    "2",
+                    "-protocol_whitelist",
+                    "file",
+                    "-copyts",
+                    *seek,
+                    "-i",
+                    str(source["path"]),
+                    "-an",
+                    "-vf",
+                    timeline
+                    + f"select='{selected}',"
+                    + render.resize_filter(*size, color.inspect_colors(video)),
+                    "-fps_mode",
+                    "vfr",
+                    "-frames:v",
+                    str(len(batch)),
+                    str(stage / "%03d.png"),
+                ],
+                stage,
+                "caption-discovery-batch",
+                deadline,
+                15,
+                temp_budget=16 * 1024 * 1024,
+            )
+            paths = sorted(stage.glob("*.png"))
+            if len(paths) != len(batch):
+                raise ReferenceError(
+                    422, "caption_decode_failed", "Not every caption discovery frame decoded."
+                )
+            for index, path in zip(batch, paths):
+                color.guard(stop, deadline)
+                with Image.open(path) as image:
+                    yield index, image.convert("RGB")
+
+
+def recognition_frames(signatures):
+    """Two real observations per distinct glyph group, spread across the timeline."""
+    groups = []
+    for frame, rows in sorted(signatures.items()):
+        for rectangle, shape in rows:
+            group = next(
+                (
+                    g
+                    for g in groups
+                    if frame - g[0][0] <= 90
+                    and abs(rectangle.y - g[0][1].y) < 0.025
+                    and 0.9 <= rectangle.width / g[0][1].width <= 1.1
+                    and glyph_similarity(shape, g[0][2]) >= 0.9
+                ),
+                None,
+            )
+            if group is None:
+                groups.append([(frame, rectangle, shape)])
+            else:
+                group.append((frame, rectangle, shape))
+    selected = set()
+    for group in groups:
+        middle = group[len(group) // 2][0]
+        selected.add(middle)
+        companions = [row[0] for row in group if abs(row[0] - middle) >= 3]
+        if companions:
+            selected.add(max(companions, key=lambda frame: abs(frame - middle)))
+    return discovery_order(sorted(selected))
 
 
 def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
@@ -1595,7 +1713,11 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
                 if previous is not None:
                     cache[index] = recover_lines(index, observed, prototypes, previous)
                     return cache[index]
-                if lines and len(lines) == len(unique) and all(reliable_wording(d) for d in unique):
+                if (
+                    unique
+                    and (not lines or len(lines) == len(unique))
+                    and all(reliable_wording(d) for d in unique)
+                ):
                     signatures[index] = observed
                     cache[index] = unique
                     return unique
@@ -1957,13 +2079,37 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
             unresolved[index] = "Frame not observed: caption reading deadline reached"
             raise
 
-    for f in discovery_order(frames):
+    discovery_started = time.monotonic()
+    observed_frames = set()
+    scan_signatures = {}
+    try:
+        for f, image in discovery_images(
+            source, video, frames, canvas, directory, stop, min(frame_deadline - 20, started + 75)
+        ):
+            crops = retry_crops(image, [])
+            lines = handwriting.line_crops(image, crops[0][0], crops[0][1]) if crops else []
+            signatures[f], candidate_layouts[f] = [], []
+            for rect, variants in lines:
+                rectangle = match.Rectangle(x=rect[0], y=rect[1], width=rect[2], height=rect[3])
+                ink = glyph_color(image, rectangle) or "#FFFFFF"
+                signatures[f].append((rectangle, visible_shape(image, rectangle, ink)))
+                candidate_layouts[f].append((rectangle, line_layout(variants[0])))
+            scan_signatures[f] = list(signatures[f])
+            observed_frames.add(f)
+            if not lines:
+                cache[f] = []
+    except engine.ProbeTimeout:
+        pass  # Missing discovery still blocks completion; never infer absence after a timeout.
+    discovery_seconds = time.monotonic() - discovery_started
+    discovery_exhausted = observed_frames != discovery
+    frames = sorted(observed_frames)
+    # Recognition gets its existing remaining bound, after every affordable observation.
+    frame_deadline = min(inference_deadline, started + 150)
+    for f in recognition_frames(scan_signatures):
         try:
             read(f)
         except engine.ProbeTimeout:
-            frames = [frame for frame in frames if frame in cache]
             break
-    discovery_exhausted = time.monotonic() >= frame_deadline - 20
     if not frames:
         raise ReferenceError(
             422, "caption_unreadable", "Caption frames could not be observed. Retry reading."
@@ -2079,6 +2225,14 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
                         related = [
                             old for old in cache[index] if overlaps_line(old.rectangle, d.rectangle)
                         ]
+                        competing = [
+                            old
+                            for old in related
+                            if reliable_wording(old) and wording_conflicts(old.text, d.text)
+                        ]
+                        if competing and not d.needs_review:
+                            unresolved[index] = "Credible recognizers disagree"
+                            continue
                         if not d.needs_review and related:
                             reader = max(related, key=lambda old: old.confidence)
                             d.text = observed_punctuation(d.text, reader.text)
@@ -2104,7 +2258,11 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
                     # Selected frames retain their own geometry/color; uncertainty stays disclosed.
                     for index in {f for f, _ in observed}:
                         rows = cache[index]
-                        if rows and all(reliable_wording(d) for d in rows):
+                        if (
+                            rows
+                            and all(reliable_wording(d) for d in rows)
+                            and unresolved.get(index) != "Credible recognizers disagree"
+                        ):
                             unresolved.pop(index, None)
                         for d in rows:
                             if d.recognizer == "trocr":
@@ -2114,6 +2272,10 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
         else:
             unresolved[0] = "Handwriting inference budget unavailable"
     frame_deadline = inference_deadline
+    for f in observed_frames:
+        if f not in cache:
+            cache[f] = []
+            unresolved[f] = "Detected region has no completed representative reading"
     handwriting_images.clear()
     for index, shapes in signatures.items():
         for rectangle, shape in shapes:
@@ -2451,6 +2613,8 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
             "observed_absence": absence,
             "reading_budget_exhausted": time.monotonic() >= inference_deadline - 20,
             "discovery_budget_exhausted": discovery_exhausted,
+            "discovery_seconds": discovery_seconds,
+            "recognition_frames": len(recognition_frames(scan_signatures)),
             "unreadable_samples": len(completion["unresolved_regions"]),
             "completion": completion,
             "method": METHOD,
