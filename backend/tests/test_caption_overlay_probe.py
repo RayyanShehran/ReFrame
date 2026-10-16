@@ -72,3 +72,14 @@ def test_identical_foreground_background_does_not_claim_recoverable_alpha(arrays
     output, metrics = probe.matte(image, (230, 210, 25), Image.new("L", image.size, 255))
     assert metrics["indeterminate_color_pixels"] == 80 * 40
     assert not np.asarray(output)[..., 3].any()
+
+
+def test_python_written_diagnostics_also_enforce_directory_budget(tmp_path, monkeypatch):
+    import threading
+    import time
+
+    monkeypatch.setattr(probe, "TEMP_BYTES", 10)
+    (tmp_path / "rgba").mkdir()
+    (tmp_path / "rgba" / "001.png").write_bytes(b"x" * 11)
+    with pytest.raises(ValueError, match="budget"):
+        probe.check_bounds(tmp_path, threading.Event(), time.monotonic() + 10)

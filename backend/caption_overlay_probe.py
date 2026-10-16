@@ -60,6 +60,12 @@ def matte(image, foreground, guide=None):
     }
 
 
+def check_bounds(directory, stop, deadline):
+    color.guard(stop, deadline)
+    if engine.directory_size(directory) > TEMP_BYTES:
+        raise ValueError("Overlay diagnostic directory exceeded its 192 MiB budget")
+
+
 def rectangle(value):
     values = tuple(float(v) for v in value.split(","))
     if (
@@ -215,6 +221,7 @@ def run(source, output, start, end, *, selected=None, calibration=None, backgrou
                 crop, metrics = matte(image.crop(current_box), ink, guide_canvas.crop(current_box))
                 overlay.paste(crop, current_box[:2])
             overlay.save(overlays / f"{i + 1:03d}.png")
+            check_bounds(output, stop, deadline)
             measurements.append(
                 {"timestamp_seconds": start + i / FPS, "region": current_box, **metrics}
             )
@@ -250,6 +257,7 @@ def run(source, output, start, end, *, selected=None, calibration=None, backgrou
                     result.convert("RGB").save(comp / f"{i + 1:03d}.png")
                     if i in {0, count // 2, count - 1}:
                         result.convert("RGB").save(output / f"composite-{i:03d}.png")
+                check_bounds(output, stop, deadline)
             tool(
                 [
                     "-framerate",
@@ -309,6 +317,7 @@ def run(source, output, start, end, *, selected=None, calibration=None, backgrou
             ],
         }
         (output / "report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+        check_bounds(output, stop, deadline)
     return report
 
 
