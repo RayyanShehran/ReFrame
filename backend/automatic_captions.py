@@ -2215,6 +2215,12 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
         absence=absence,
         verified_absence=absent_frames,
     )
+    # Refinement can supply the reliable observations missing during discovery.
+    for text in persistent_edge_text(cache, discovery) - ignored:
+        ignored.add(text)
+        if len(excluded) < 30:
+            excluded[text] = {"start": first / 30, "end": total / 30, "text": text}
+    changes = [(f, None if d and d.text in ignored else d) for f, d in changes]
     stable = Counter(
         word_key(d.text)
         for _, values in sorted(cache.items())
