@@ -140,6 +140,44 @@ class AutomaticBinding(color.Schema):
     audio: audio_settings.Settings
 
 
+class CompletionRegion(color.Schema):
+    start: float = Field(ge=0, allow_inf_nan=False)
+    end: float = Field(gt=0, allow_inf_nan=False)
+    rectangle: dict[str, float] | None = None
+    reason: Literal[
+        "detector_failure",
+        "conflicting_readings",
+        "unreadable_caption",
+        "uncertain_caption_timing",
+        "unobserved_interval",
+        "evidence_limit",
+    ]
+    observations: int = Field(ge=1, le=3600)
+
+    @field_validator("rectangle")
+    @classmethod
+    def valid_rectangle(cls, value):
+        if value is not None and (
+            set(value) != {"x", "y", "width", "height"}
+            or not all(0 <= v <= 1 for v in value.values())
+            or value["width"] <= 0
+            or value["height"] <= 0
+            or value["x"] + value["width"] > 1.000001
+            or value["y"] + value["height"] > 1.000001
+        ):
+            raise ValueError("Invalid completion region")
+        return value
+
+
+class CompletionEvidence(color.Schema):
+    status: Literal["complete", "partial", "no_captions"]
+    reason: str = Field(max_length=256)
+    unresolved_regions: list[CompletionRegion] = Field(max_length=200)
+    resolved: dict[str, int]
+    discovery_frames: int = Field(ge=0, le=3600)
+    observed_discovery_frames: int = Field(ge=0, le=3600)
+
+
 class VisibleBinding(color.Schema):
     source: color.Source
     reference_operation_id: UUID
@@ -157,6 +195,7 @@ class VisibleBinding(color.Schema):
         "visible-tsv-adaptive-v11",
         "visible-tsv-adaptive-v12",
         "visible-tsv-adaptive-v13",
+        "visible-tsv-adaptive-v14",
     ]
     reads: int = Field(ge=0, le=600)
     engine_version: str = Field(max_length=256)
@@ -167,6 +206,7 @@ class VisibleBinding(color.Schema):
     cached_ocr_reads: int = Field(default=0, ge=0, le=3600)
     cached_handwriting_requests: int = Field(default=0, ge=0, le=96)
     cached_handwriting_found: int = Field(default=0, ge=0, le=96)
+    completion: CompletionEvidence | None = None
     reading_budget_exhausted: bool = False
     discovery_budget_exhausted: bool = False
     handwriting_completed_requests: int | None = Field(default=None, ge=0, le=96)

@@ -28,7 +28,7 @@ import reference_motion as motion
 import video_render as render
 from references import ReferenceError
 
-METHOD = "visible-tsv-adaptive-v13"
+METHOD = "visible-tsv-adaptive-v14"
 MAX_READS = 600
 MAX_APPEARANCES = 8
 TOTAL_SECONDS = 300
@@ -373,8 +373,13 @@ def track(read, frames, ignored, *, boundaries=None, absence=None, verified_abse
 
     refined = [observations[0]]
     try:
-        for (left, a), (right, b) in zip(observations, observations[1:]):
-            refined.extend(refine(left, a, right, b))
+        intervals = list(zip(observations, observations[1:]))
+        refinements = {}
+        for i in discovery_order(list(range(len(intervals)))):
+            (left, a), (right, b) = intervals[i]
+            refinements[i] = refine(left, a, right, b)
+        for i in range(len(intervals)):
+            refined.extend(refinements[i])
     except engine.ProbeTimeout:
         # Unknown frames are not absence: keep only completed pixel observations for review.
         refined = []
@@ -930,6 +935,9 @@ def recover_lines(index, signatures, prototypes, fallback):
             and 0.8 <= rectangle.width / r.width <= 1.25
             and glyph_similarity(signature, shape) >= 0.9
         ]
+        trusted = [(f, d) for f, d in candidates if reliable_wording(d)]
+        if trusted:
+            candidates = trusted
         model = [(f, d) for f, d in candidates if d.recognizer == "trocr"]
         if len({f for f, _ in model}) >= 2:
             candidates = model
@@ -937,7 +945,7 @@ def recover_lines(index, signatures, prototypes, fallback):
             counts = Counter(d.text for _, d in candidates)
             chosen = max(
                 (d for _, d in candidates),
-                key=lambda d: (counts[d.text], d.confidence, d.sharpness),
+                key=lambda d: (reliable_wording(d), counts[d.text], d.confidence, d.sharpness),
             )
             conflicting = [
                 d
@@ -948,21 +956,217 @@ def recover_lines(index, signatures, prototypes, fallback):
             ]
             if conflicting:
                 continue
-            recovered.append(
-                replace(
-                    chosen,
-                    rectangle=rectangle,
-                    glyph_height=chosen.glyph_height or rectangle.height,
-                    sample_rectangle=chosen.sample_rectangle,
-                    sample_text=chosen.sample_text,
-                    frame_index=chosen.frame_index if chosen.sample_rectangle else index,
-                )
+            recovered = merge_readings(
+                recovered,
+                [
+                    replace(
+                        chosen,
+                        rectangle=rectangle,
+                        glyph_height=chosen.glyph_height or rectangle.height,
+                        sample_rectangle=chosen.sample_rectangle,
+                        sample_text=chosen.sample_text,
+                        frame_index=chosen.frame_index if chosen.sample_rectangle else index,
+                    )
+                ],
             )
     if not recovered:
         return fallback
     return recovered + [
         d for d in fallback if not any(overlaps_line(d.rectangle, r.rectangle) for r in recovered)
     ]
+
+
+def line_layout(binary):
+    """Reject horizontal reflections/solid scenery, not low OCR confidence."""
+    import numpy as np
+
+    ink = np.asarray(binary.convert("L"))[16:-16, 16:-16] < 128
+    if not ink.size or not ink.any():
+        return "uncertain"
+    edges = np.flatnonzero(np.diff(np.r_[False, ink.any(axis=0), False]))
+    glyphs, broad_mass = 0, 0
+    for left, right in zip(edges[::2], edges[1::2]):
+        ys = np.flatnonzero(ink[:, left:right].any(axis=1))
+        height = int(ys[-1] - ys[0] + 1)
+        mass = int(ink[:, left:right].sum())
+        if right - left > height * 3:
+            broad_mass += mass
+        if (
+            height >= ink.shape[0] * 0.45
+            and 0 < right - left <= height * 2
+            and mass / ((right - left) * height) >= 0.12
+        ):
+            glyphs += 1
+    return "glyphs" if glyphs >= 3 else "scenery" if broad_mass / ink.sum() > 0.7 else "uncertain"
+
+
+def completion_evidence(
+    cache,
+    signatures,
+    layouts,
+    suspects,
+    unresolved,
+    expected,
+    first,
+    total,
+    ignored,
+    *,
+    diagnostic=False,
+):
+    """Decide from distinct source regions and observed coverage, not raw retry counts."""
+    regions, resolved = [], Counter()
+    reliable = [
+        (f, d)
+        for f, ds in cache.items()
+        for d in ds
+        if reliable_wording(d) and d.text not in ignored
+    ]
+
+    def add(frame, rectangle, reason):
+        prior = next(
+            (
+                r
+                for r in reversed(regions)
+                if r["reason"] == reason
+                and 0 <= frame / 30 - r["end"] <= 0.5
+                and (
+                    (rectangle is None and r["rectangle"] is None)
+                    or rectangle is not None
+                    and r["rectangle"] is not None
+                    and overlaps_line(rectangle, match.Rectangle(**r["rectangle"]))
+                )
+            ),
+            None,
+        )
+        if prior:
+            prior["end"] = (frame + 1) / 30
+            prior["observations"] += 1
+        else:
+            regions.append(
+                dict(
+                    start=frame / 30,
+                    end=(frame + 1) / 30,
+                    rectangle=rectangle.model_dump() if rectangle else None,
+                    reason=reason,
+                    observations=1,
+                )
+            )
+
+    for frame in sorted(set(cache) | set(unresolved) | set(layouts)):
+        values = [d for d in cache.get(frame, []) if d.text not in ignored]
+        reason = unresolved.get(frame, "")
+        if frame not in cache:
+            # Missing discovery blocks completion; a refinement gap only limits timing.
+            resolved["unobserved_refinement"] += 1
+            continue
+        if any(
+            token in reason
+            for token in (
+                "Detector output",
+                "crop retry failed",
+                "memory bound",
+                "More than three",
+                "padding artifact",
+            )
+        ):
+            add(frame, None, "detector_failure")
+            continue
+        candidates = [
+            (
+                r,
+                shape,
+                next(
+                    (good for box, good in layouts.get(frame, []) if overlaps_line(r, box)),
+                    "uncertain",
+                ),
+            )
+            for r, shape in signatures.get(frame, [])
+        ]
+        for d in values:
+            if not any(overlaps_line(d.rectangle, r) for r, _, _ in candidates):
+                candidates.append((d.rectangle, b"", "glyphs"))
+        if not candidates and suspects.get(frame):
+            if frame in layouts:
+                resolved["non_text_scenery"] += 1
+            else:
+                for rectangle in suspects[frame]:
+                    add(frame, rectangle, "unreadable_caption")
+        for rectangle, shape, textlike in candidates:
+            if any(
+                d.text in ignored and overlaps_line(rectangle, d.rectangle)
+                for d in cache.get(frame, [])
+            ):
+                resolved["background_incidental_text"] += 1
+                continue
+            local = [d for d in values if overlaps_line(rectangle, d.rectangle)]
+            trusted = [
+                d
+                for f, d in reliable
+                if abs(f - frame) <= 90 and overlaps_line(rectangle, d.rectangle)
+            ]
+            if len({word_key(d.text) for d in local if reliable_wording(d)}) > 1:
+                add(frame, rectangle, "conflicting_readings")
+                continue
+            if local and all(
+                reliable_wording(d)
+                or any(word_key(d.text) == word_key(old.text) for old in trusted)
+                for d in local
+            ):
+                resolved["readable_region"] += 1
+                continue
+            repeated = any(
+                0 < abs(other - frame) <= 15
+                and overlaps_line(rectangle, box)
+                and glyph_similarity(shape, before) >= 0.9
+                for other, rows in signatures.items()
+                for box, before in rows
+            )
+            if (textlike == "scenery" or textlike != "glyphs" and not repeated) and not any(
+                reliable_wording(d) for d in local
+            ):
+                resolved["non_text_scenery"] += 1
+                continue
+            add(frame, rectangle, "unreadable_caption")
+        if reason.startswith(("Brief or isolated", "Partial wording reappeared")) and any(
+            reliable_wording(d) for d in values
+        ):
+            add(frame, values[0].rectangle, "uncertain_caption_timing")
+    missing = sorted(set(expected) - set(cache))
+    for frame in missing:
+        add(frame, None, "unobserved_interval")
+    if diagnostic:
+        add(first, None, "unobserved_interval")
+    if len(regions) > 200:
+        regions = regions[:199] + [
+            dict(
+                start=first / 30,
+                end=total / 30,
+                rectangle=None,
+                reason="evidence_limit",
+                observations=len(regions) - 199,
+            )
+        ]
+    reasons = Counter(r["reason"] for r in regions)
+    reason = (
+        "Some reference intervals were not observed within the reading budget. Retry reading."
+        if reasons["unobserved_interval"]
+        else (
+            "Some visible caption words remain unreadable or conflicting. "
+            "Retry reading or continue without captions."
+        )
+        if regions
+        else "Observed caption regions have supported readings."
+        if reliable
+        else "No captions detected in the observed frames."
+    )
+    return dict(
+        status="partial" if regions else "complete" if reliable else "no_captions",
+        reason=reason,
+        unresolved_regions=regions,
+        resolved=dict(resolved),
+        discovery_frames=len(expected),
+        observed_discovery_frames=len(set(expected) & set(cache)),
+    )
 
 
 def discovery_order(frames):
@@ -1044,7 +1248,15 @@ def select_handwriting(rows, limit, *, signatures=None, readings=None, cached_na
 
     chosen = []
     pending = set()
-    for group in sorted(groups, key=priority, reverse=True):
+    ordered = sorted(groups, key=lambda group: min(row[0] for row in group))
+    ordered = [ordered[i] for i in discovery_order(list(range(len(ordered))))]
+    if cached_names is not None:
+        ordered.sort(
+            key=lambda group: not any(name in cached_names for row in group for name in row[2])
+        )
+    else:
+        ordered.sort(key=priority, reverse=True)
+    for group in ordered:
 
         def sharp(row):
             return (
@@ -1055,7 +1267,9 @@ def select_handwriting(rows, limit, *, signatures=None, readings=None, cached_na
         first = max(group, key=sharp)
         others = [row for row in group if abs(row[0] - first[0]) >= 3]
         pair = [first] + ([max(others, key=sharp)] if others else [])
-        missing = {name for row in pair for name in row[2]} - (cached_names or set())
+        missing = {
+            name for row in pair for name in (row[2][2:] if len(row[2]) == 3 else row[2])
+        } - (cached_names or set())
         if cached_names is None:
             if len(chosen) + len(pair) > limit:
                 continue
@@ -1208,6 +1422,8 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
     prototypes = []
     absent_frames = set()
     discovery = set(frames)
+    candidate_layouts = {}
+    suspect_regions = {}
 
     def cached_ocr(args, stage, name):
         nonlocal cached_ocr_reads
@@ -1320,6 +1536,11 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
                     for frame, rectangle, _, d in prototypes:
                         if abs(frame - index) <= 90 and reliable_wording(d):
                             observed.append((rectangle, visible_shape(image, rectangle, d.ink)))
+                    observed = list(
+                        {
+                            tuple(r.model_dump().values()): (r, shape) for r, shape in observed
+                        }.values()
+                    )
                     signatures[index] = observed
                     found = recover_lines(index, observed, prototypes, [])
                     unique = merge_readings([], found)
@@ -1438,6 +1659,7 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
             with Image.open(target) as image:
                 native = image.convert("RGB")
             line_candidate = None
+            native_crops = None
             if (
                 uncertain
                 or not detections
@@ -1477,9 +1699,8 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
                 )
                 with Image.open(native_target) as image:
                     native = image.convert("RGB")
-                for attempt, (native_crop, box, language) in enumerate(
-                    retry_crops(native, uncertain)
-                ):
+                native_crops = retry_crops(native, uncertain)
+                for attempt, (native_crop, box, language) in enumerate(native_crops):
                     crop = native_crop
                     color.guard(stop, frame_deadline)
                     if reads[0] >= MAX_READS:
@@ -1557,8 +1778,9 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
                     if len(reliable) == len(found) and reliable:
                         line_candidate = (native_crop, box, language)
                         break
-            if handwriting_ready or colored_region:
-                candidates = retry_crops(native, [])
+            if handwriting_ready or colored_region or uncertain or ambiguous:
+                candidate_layouts[index] = []
+                candidates = native_crops if native_crops is not None else retry_crops(native, [])
                 if candidates:
                     mask, box, _ = line_candidate or candidates[0]
                     lines = handwriting.line_crops(native, mask, box)
@@ -1577,15 +1799,12 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
                             continue
                         from PIL import ImageOps
 
-                        binary = variants[0]
-                        shape = (
-                            ImageOps.invert(
-                                binary.crop((16, 16, binary.width - 16, binary.height - 16))
-                            )
-                            .resize((128, 32))
-                            .tobytes()
-                        )
+                        ink = glyph_color(native, rectangle)
+                        shape = visible_shape(native, rectangle, ink or "#FFFFFF")
                         signatures.setdefault(index, []).append((rectangle, shape))
+                        candidate_layouts.setdefault(index, []).append(
+                            (rectangle, line_layout(variants[0]))
+                        )
                         if not handwriting_ready or index not in discovery:
                             continue
                         related = [
@@ -1635,8 +1854,10 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
                                 )
                             ):
                                 continue
-                            for old in related:
-                                old.needs_review = True
+                            # A failed retry is not a competing credible reading.
+                            if any(reliable_wording(d) for d in found):
+                                for old in related:
+                                    old.needs_review = True
                         names = []
                         for crop in variants:
                             crop.thumbnail((2048, 256))
@@ -1697,7 +1918,7 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
                     related = [d for d in detections if overlaps_line(d.rectangle, rectangle)]
                     if related:
                         ink = max(related, key=lambda d: d.confidence).ink
-                        shape = visible_shape(native, rectangle, ink)
+                        shape = visible_shape(native, rectangle, ink or "#FFFFFF")
                     normalized.append((rectangle, shape))
                 signatures[index] = normalized
             # Word failure does not imply disappearance: verify the same glyphs in this frame.
@@ -1706,6 +1927,13 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
                     signatures.setdefault(index, []).append(
                         (rectangle, visible_shape(native, rectangle, detected.ink))
                     )
+            suspect_regions[index] = list(uncertain)
+            for detected in detections:
+                rectangle = detected.rectangle
+                shape = visible_shape(native, rectangle, detected.ink)
+                signatures.setdefault(index, []).append((rectangle, shape))
+                if reliable_wording(detected):
+                    prototypes.append((index, rectangle, shape, detected))
             cache[index] = detections
             return detections
 
@@ -1780,7 +2008,14 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
             readings=cache,
             cached_names=cached_names,
         )
-        names = list(dict.fromkeys(variants[i] for i in (2, 1, 0) for _, _, variants in selected))
+        names = list(
+            dict.fromkeys(
+                variants[i]
+                for i in (2, 1, 0)
+                for _, _, variants in selected
+                if i == 2 or variants[i] in cached_names
+            )
+        )
         cached_handwriting_found = sum(name in cached_names for name in names)
         if names:
             with temporary(directory / "handwriting") as stage:
@@ -1872,6 +2107,8 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
                             for old in cache[index]
                         ):
                             continue
+                        if d.needs_review and any(reliable_wording(old) for old in related):
+                            continue
                         cache[index] = merge_readings(
                             [
                                 existing
@@ -1909,7 +2146,10 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
     counts = Counter(d.text for f in frames for d in read(f))
 
     # Read nearby frames at their own timestamps; never assign recovered text to an earlier frame.
-    nearby = sorted({min(total - 1, max(first, f + 3)) for f in list(unresolved)[:8]} - set(frames))
+    nearby = sorted(
+        {min(total - 1, max(first, f + 3)) for f in discovery_order(sorted(unresolved))[:8]}
+        - set(frames)
+    )
     for f in nearby:
         try:
             read(f)
@@ -1918,8 +2158,10 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
     frames = sorted(set(frames) | {f for f in nearby if f in cache})
     for values in cache.values():
         for d in values:
-            if counts[d.text] < 2:
-                unresolved[min(frames)] = "Unstable isolated readings require review"
+            if counts[d.text] < 2 and not reliable_wording(d):
+                unresolved[d.frame_index or min(frames)] = (
+                    "Unstable isolated readings require review"
+                )
     creator = source["identity"].canonical_url.split("/@")[-1].split("/")[0].casefold()
     for text in counts:
         compact = "".join(c for c in text.casefold() if c.isalnum())
@@ -1967,7 +2209,23 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
         if detected is None or end <= start:
             continue
         if not reliable_wording(detected):
-            unresolved[start] = "Wording is unresolved; no missing words were supplied"
+            supported = [
+                d
+                for f, values in cache.items()
+                for d in values
+                if abs(f - start) <= 90
+                and reliable_wording(d)
+                and word_key(d.text) == word_key(detected.text)
+                and overlaps_line(d.rectangle, detected.rectangle)
+            ]
+            if supported:
+                detected = replace(
+                    max(supported, key=lambda d: d.confidence),
+                    rectangle=detected.rectangle,
+                    ink=detected.ink,
+                )
+            else:
+                unresolved[start] = "Wording is unresolved; no missing words were supplied"
         if end - start < 3 or stable[word_key(detected.text)] < 2:
             unresolved[start] = "Brief or isolated wording needs review"
             continue
@@ -2067,7 +2325,7 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
                     else "Partial wording remains a proposal; font/placement are approximate."
                 )
             elif len(styles) >= MAX_APPEARANCES:
-                unresolved[start] = "Appearance budget reached; approximate style needs review"
+                notes.append("Appearance budget reached; approximate style used.")
                 nearest = min(styles, key=lambda k: abs(k[0] - key[0]) + abs(k[1] - key[1]))
                 styles[key] = styles[nearest]
                 baselines[key] = baselines[nearest]
@@ -2164,13 +2422,22 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
         unresolved[first] = (
             "Only a diagnostic interval was observed; the full track is not certified"
         )
-    if not cues and not unresolved:
-        notes.append("No readable changing reference captions were detected; none were invented.")
-    if unresolved:
-        notes.append(
-            f"Partial caption extraction: {len(unresolved)} sampled frames need review; "
-            "unreadable words were not supplied."
-        )
+    completion = completion_evidence(
+        cache,
+        signatures,
+        candidate_layouts,
+        suspect_regions,
+        unresolved,
+        discovery,
+        first,
+        total,
+        ignored,
+        diagnostic=frame_window is not None,
+    )
+    if completion["status"] == "no_captions":
+        notes.append("No captions detected in the observed frames; none were invented.")
+    elif completion["status"] == "partial":
+        notes.append(completion["reason"])
     notes.extend(
         [
             "Visible words/timing come from OCR. Check wording in Customize.",
@@ -2192,7 +2459,8 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
             "observed_absence": absence,
             "reading_budget_exhausted": time.monotonic() >= inference_deadline - 20,
             "discovery_budget_exhausted": discovery_exhausted,
-            "unreadable_samples": len(unresolved),
+            "unreadable_samples": len(completion["unresolved_regions"]),
+            "completion": completion,
             "method": METHOD,
             "reads": reads[0],
             "engine_version": available["engine_version"]

@@ -1016,8 +1016,11 @@ def prepare_captions(project_id, mode, stop, deadline, operation):
                     raise ReferenceError(
                         422,
                         "caption_partial",
-                        f"Caption reading is incomplete. {len(cues)} detected cues are saved; "
-                        "retry reading or continue without captions.",
+                        (evidence.get("completion") or {}).get(
+                            "reason",
+                            "Caption reading is incomplete. "
+                            "Retry reading or continue without captions.",
+                        ),
                     )
                 operation.caption_review = (
                     CaptionReview(

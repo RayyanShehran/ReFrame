@@ -1105,3 +1105,131 @@ def test_real_mixed_caption_keeps_arabic_after_english_discovery(local, monkeypa
     assert found[1].text.splitlines()[0] == "مرحبا بالعالم"
     assert automatic.word_key(found[1].text.splitlines()[1]) == automatic.word_key("Hello world")
     assert abs(found[1].start - 0.6) <= 1 / 30 + 0.001 and abs(found[1].end - 2.8) <= 1 / 30 + 0.001
+
+
+def test_recovery_deduplicates_regions_and_never_prefers_repeated_weak_words():
+    from dataclasses import replace
+
+    good = detection("Clear words")
+    weak = replace(good, text="Cl ear words", minimum_confidence=40)
+    shape = bytes([255, 0]) * 50
+    recovered = automatic.recover_lines(
+        15,
+        [(good.rectangle, shape)] * 8,
+        [(0, good.rectangle, shape, good)] + [(1, weak.rectangle, shape, weak)] * 20,
+        [],
+    )
+    assert [d.text for d in recovered] == ["Clear words"]
+    assert automatic.reliable_wording(recovered[0])
+
+
+def completion(cache, layouts=None, signatures=None, unresolved=None, expected=None):
+    return automatic.completion_evidence(
+        cache,
+        signatures or {},
+        layouts or {},
+        {},
+        unresolved or {},
+        set(cache) if expected is None else expected,
+        0,
+        31,
+        set(),
+    )
+
+
+def test_completion_resolves_repeated_supported_readings_without_lowering_confidence():
+    from dataclasses import replace
+
+    good = detection("Clear words")
+    weak = replace(good, minimum_confidence=60)
+    cache = {0: [good], 3: [weak], 15: [weak]}
+    result = completion(cache, unresolved={3: "Text could not be read confidently", 15: "retry"})
+    assert result["status"] == "complete"
+    assert not automatic.reliable_wording(weak)
+    assert not result["unresolved_regions"]
+
+
+def test_completion_tracks_unreadable_region_and_keeps_unobserved_discovery_incomplete():
+    from dataclasses import replace
+
+    weak = replace(detection("Unclear words"), minimum_confidence=40)
+    frames = [0, 3, 9, 15]
+    result = completion({f: [weak] for f in frames}, unresolved={f: "unreadable" for f in frames})
+    assert result["status"] == "partial"
+    assert len(result["unresolved_regions"]) == 1
+    assert result["unresolved_regions"][0]["observations"] == 4
+    assert result["unresolved_regions"][0]["reason"] == "unreadable_caption"
+    missing = completion({0: [], 30: []}, expected={0, 15, 30})
+    assert missing["status"] == "partial"
+    assert missing["unresolved_regions"][0]["reason"] == "unobserved_interval"
+    assert "not observed" in missing["reason"]
+
+
+def test_completion_requires_temporal_evidence_before_resolving_non_text_shapes():
+    r = detection("Unused").rectangle
+    varied = {0: [(r, b"\xff\x00")], 15: [(r, b"\x00\xff")]}
+    result = completion({0: [], 15: []}, {f: [(r, "uncertain")] for f in varied}, varied)
+    assert result["status"] == "no_captions"
+    persistent = {0: [(r, b"\xff\x00")], 15: [(r, b"\xff\x00")]}
+    result = completion({0: [], 15: []}, {f: [(r, "uncertain")] for f in persistent}, persistent)
+    assert result["status"] == "partial"
+    assert len(result["unresolved_regions"]) == 1
+
+
+def test_text_layout_distinguishes_letter_columns_from_horizontal_reflections():
+    Image = pytest.importorskip("PIL.Image")
+    Draw = pytest.importorskip("PIL.ImageDraw")
+    pytest.importorskip("numpy")
+    mask = Image.new("L", (132, 72), 255)
+    draw = Draw.Draw(mask)
+    for x in (20, 40, 60, 80):
+        draw.rectangle((x, 20, x + 8, 50), fill=0)
+    assert automatic.line_layout(mask) == "glyphs"
+    draw.rectangle((16, 16, 116, 56), fill=255)
+    for y in (24, 33, 42):
+        draw.line((20, y, 105, y), fill=0)
+    assert automatic.line_layout(mask) == "scenery"
+
+
+def test_completion_keeps_conflicts_and_detector_errors_partial():
+    from dataclasses import replace
+
+    a = detection("Credible reading")
+    b = replace(a, text="Different reading")
+    result = completion({0: [a, b]})
+    assert result["status"] == "partial"
+    assert result["unresolved_regions"][0]["reason"] == "conflicting_readings"
+    result = completion({0: []}, unresolved={0: "Detector output requires review"})
+    assert result["status"] == "partial"
+    assert result["unresolved_regions"][0]["reason"] == "detector_failure"
+
+
+def test_handwriting_fresh_budget_uses_context_pairs_across_the_timeline():
+    r = (0.1, 0.2, 0.3, 0.04)
+    rectangle = automatic.match.Rectangle(x=r[0], y=r[1], width=r[2], height=r[3])
+    rows = [
+        (f, r, [f"{f}-binary", f"{f}-gray", f"{f}-context"])
+        for f in (0, 3, 150, 153, 300, 303, 450, 453)
+    ]
+    selected = automatic.select_handwriting(
+        rows,
+        2,
+        signatures={f: [(rectangle, bytes([255, 0]) * 15)] for f, _, _ in rows},
+        cached_names=set(),
+    )
+    frames = {f for f, _, _ in selected}
+    assert {0, 3, 450, 453} <= frames
+    assert len({names[2] for _, _, names in selected}) == 4
+
+
+def test_refinement_reaches_late_intervals_before_spending_budget_on_early_changes():
+    visited = []
+
+    def read(frame):
+        visited.append(frame)
+        if len(visited) > 10:
+            raise automatic.engine.ProbeTimeout("bounded")
+        return [detection(str(frame // 15) + " observed words")]
+
+    automatic.track(read, [0, 15, 30, 45, 60], set())
+    assert 52 in visited
