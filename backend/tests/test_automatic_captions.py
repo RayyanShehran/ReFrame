@@ -1481,7 +1481,8 @@ def test_real_dark_printed_caption_retains_full_frame_ocr(
             "-i",
             f"color=c={background}:s=640x360:r=30:d=1",
             "-vf",
-            f"drawtext=fontfile='{font}':text='CLEAR DARK WORDS':fontsize=40:fontcolor={foreground}:"
+            f"drawtext=fontfile='{font}':text='CLEAR DARK WORDS':fontsize=40:"
+            f"fontcolor={foreground}:"
             "x=(w-tw)/2:y=160",
             "-c:v",
             "libx264",
