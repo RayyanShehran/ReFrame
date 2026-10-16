@@ -28,7 +28,7 @@ import reference_motion as motion
 import video_render as render
 from references import ReferenceError
 
-METHOD = "visible-tsv-adaptive-v16"
+METHOD = "visible-tsv-adaptive-v17"
 MAX_READS = 600
 MAX_APPEARANCES = 8
 TOTAL_SECONDS = 300
@@ -260,7 +260,7 @@ def dominant(rows, ignored):
             continue
         c = d.rectangle
         if (
-            0.5 <= c.height / r.height <= 2.0
+            1 / 3 <= c.height / r.height <= 3.0
             and (
                 abs(c.x + c.width / 2 - r.x - r.width / 2) < 0.08
                 or (
@@ -1916,6 +1916,7 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
                             for d in detections
                             if reliable_wording(d) and overlaps_line(d.rectangle, rectangle)
                         ]
+                        context_verified = False
                         if related and reads[0] < MAX_READS:
                             context = variants[2]
                             path = stage / "line-context.png"
@@ -1946,7 +1947,7 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
                                 if result.returncode == 0
                                 else []
                             )
-                            if (
+                            context_verified = (
                                 result.returncode == 0
                                 and all(
                                     rectangle.width >= old.rectangle.width * 0.98 for old in related
@@ -1956,10 +1957,9 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
                                     for d in found
                                     for old in related
                                 )
-                            ):
-                                continue
+                            )
                             # A failed retry is not a competing credible reading.
-                            if any(reliable_wording(d) for d in found):
+                            if not context_verified and any(reliable_wording(d) for d in found):
                                 for old in related:
                                     old.needs_review = True
                         names = []
@@ -1979,6 +1979,15 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
                                 handwriting_images[name] = raw
                                 handwriting_bytes += len(raw)
                             names.append(name)
+                        if context_verified and (
+                            len(names) != 3
+                            or caption_readings.read(
+                                project_id, "handwriting", model_namespace, names[2]
+                            )
+                            is None
+                        ):
+                            # Reuse existing independent checks without starting new inference.
+                            continue
                         if len(names) == len(variants):
                             line_inks[(index, tuple(rect))] = glyph_color(native, rectangle)
                             handwriting_rows.append((index, rect, names))
@@ -2088,6 +2097,9 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
         ):
             crops = retry_crops(image, [])
             lines = handwriting.line_crops(image, crops[0][0], crops[0][1]) if crops else []
+            if len(lines) > 3:
+                unresolved[f] = "More than three visible lines require review"
+                lines = []
             signatures[f], candidate_layouts[f] = [], []
             for rect, variants in lines:
                 rectangle = match.Rectangle(x=rect[0], y=rect[1], width=rect[2], height=rect[3])
@@ -2230,7 +2242,7 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
                             for old in related
                             if reliable_wording(old) and wording_conflicts(old.text, d.text)
                         ]
-                        if competing and not d.needs_review:
+                        if competing:
                             unresolved[index] = "Credible recognizers disagree"
                             continue
                         if not d.needs_review and related:
@@ -2362,6 +2374,12 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
         end = changes[i + 1][0] if i + 1 < len(changes) else total
         if detected is None or end <= start:
             continue
+        if any(
+            start <= frame < end and reason == "Credible recognizers disagree"
+            for frame, reason in unresolved.items()
+        ):
+            unresolved[start] = "Credible recognizers disagree"
+            continue
         if not reliable_wording(detected):
             supported = [
                 d
@@ -2380,6 +2398,7 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
                 )
             else:
                 unresolved[start] = "Wording is unresolved; no missing words were supplied"
+                continue
         if end - start < 3 or stable[word_key(detected.text)] < 2:
             unresolved[start] = "Brief or isolated wording needs review"
             continue

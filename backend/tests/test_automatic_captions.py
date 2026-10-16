@@ -1368,3 +1368,73 @@ def test_recognizer_conflict_blocks_even_when_retained_ocr_is_reliable():
     )
     assert completion["status"] == "partial"
     assert completion["unresolved_regions"][0]["reason"] == "conflicting_readings"
+
+
+def test_real_confident_ocr_still_checks_existing_independent_reading(local, monkeypatch):
+    pytest.importorskip("numpy")
+    pytest.importorskip("PIL")
+    client, directory, _ = local
+    source = directory / "independent-readers.mp4"
+    if not shutil.which("ffmpeg"):
+        pytest.skip("FFmpeg required")
+    capability = automatic.ocr.inspect_capability(directory, time.monotonic() + 10)
+    if not capability["available"]:
+        pytest.skip("Installed pinned OCR required")
+    font = str(fonts.BUNDLED).replace("\\", "/").replace(":", r"\:")
+    subprocess.run(
+        [
+            shutil.which("ffmpeg"),
+            "-v",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=0x204020:s=640x360:r=30:d=1",
+            "-vf",
+            f"drawtext=fontfile='{font}':text='CLEAR SOURCE WORDS':fontsize=40:"
+            "fontcolor=white:x=(w-tw)/2:y=160",
+            "-c:v",
+            "libx264",
+            str(source),
+        ],
+        check=True,
+        capture_output=True,
+        timeout=15,
+    )
+    saved, _, _ = prepared(client, directory, source)
+    monkeypatch.setattr(automatic.handwriting, "available", lambda: True)
+    import json
+
+    original = automatic.caption_readings.read
+
+    def independent(project_id, kind, namespace, name):
+        if kind != "handwriting":
+            return original(project_id, kind, namespace, name)
+        return json.dumps(
+            {
+                "engine": "fixture-independent",
+                "results": [
+                    {"name": name, "text": "OTHER SOURCE WORDS", "score": 0.99, "capped": False}
+                ],
+            }
+        ).encode()
+
+    monkeypatch.setattr(automatic.caption_readings, "read", independent)
+    stage = directory / "independent-stage"
+    stage.mkdir()
+    cues, _, evidence = automatic.detect(
+        saved["id"], color.source(saved["id"]), stage, threading.Event(), time.monotonic() + 90
+    )
+    assert evidence["cached_handwriting_requests"] > 0
+    assert evidence["handwriting_requests"] == 0
+    assert not cues  # Contradictory recognizers cannot silently supply a publishable wording.
+    assert any(
+        r["reason"] == "conflicting_readings" for r in evidence["completion"]["unresolved_regions"]
+    )
+
+
+def test_supported_unequal_line_heights_are_not_dropped_from_the_caption_block():
+    small, large = detection("A smaller source line"), detection("A larger source line")
+    small.rectangle = small.rectangle.model_copy(update={"y": 0.2, "height": 0.025})
+    large.rectangle = large.rectangle.model_copy(update={"y": 0.3, "height": 0.06})
+    assert automatic.dominant([large, small], set()).text == small.text + "\n" + large.text
