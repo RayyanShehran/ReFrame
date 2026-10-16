@@ -1416,7 +1416,7 @@ def validate_handwriting(raw, names, *, allow_partial=False):
 
 
 def discovery_images(source, video, frames, canvas, directory, stop, deadline):
-    """Eight lossless thumbnails per owned batch; no OCR or model inference here."""
+    """Four lossless thumbnails per owned batch; no OCR or model inference here."""
     from PIL import Image
 
     factor = min(1, 960 / max(canvas))
@@ -1425,9 +1425,9 @@ def discovery_images(source, video, frames, canvas, directory, stop, deadline):
         origin = float(video.get("start_time", "nan"))
     except (TypeError, ValueError):
         origin = math.nan
-    for at in range(0, len(frames), 8):
+    for at in range(0, len(frames), 4):
         color.guard(stop, deadline)
-        batch = frames[at : at + 8]
+        batch = frames[at : at + 4]
         seek = []
         base = 0
         if math.isfinite(origin) and origin >= 0:
@@ -1461,6 +1461,8 @@ def discovery_images(source, video, frames, canvas, directory, stop, deadline):
                     timeline
                     + f"select='{selected}',"
                     + render.resize_filter(*size, color.inspect_colors(video)),
+                    "-pix_fmt",
+                    "rgb24",
                     "-fps_mode",
                     "vfr",
                     "-frames:v",
