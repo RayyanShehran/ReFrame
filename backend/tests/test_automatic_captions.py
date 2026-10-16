@@ -1158,6 +1158,7 @@ def test_completion_tracks_unreadable_region_and_keeps_unobserved_discovery_inco
     assert result["status"] == "partial"
     assert len(result["unresolved_regions"]) == 1
     assert result["unresolved_regions"][0]["observations"] == 4
+    assert result["reason"].startswith("Some possible caption regions")
     assert result["unresolved_regions"][0]["reason"] == "unreadable_caption"
     missing = completion({0: [], 30: []}, expected={0, 15, 30})
     assert missing["status"] == "partial"

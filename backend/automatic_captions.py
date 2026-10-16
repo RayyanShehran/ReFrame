@@ -1159,7 +1159,7 @@ def completion_evidence(
         "Some reference intervals were not observed within the reading budget. Retry reading."
         if reasons["unobserved_interval"]
         else (
-            "Some visible caption words remain unreadable or conflicting. "
+            "Some possible caption regions remain unreadable or conflicting. "
             "Retry reading or continue without captions."
         )
         if regions
