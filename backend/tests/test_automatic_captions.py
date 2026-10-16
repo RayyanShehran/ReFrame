@@ -918,6 +918,8 @@ def test_discovery_is_bounded_and_spreads_observations_across_the_entire_referen
 
 
 def test_context_crop_keeps_pixels_outside_incomplete_color_mask():
+    pytest.importorskip("PIL")
+    pytest.importorskip("numpy")
     from PIL import Image, ImageDraw
 
     import handwriting_ocr as handwriting
@@ -937,6 +939,8 @@ def test_context_crop_keeps_pixels_outside_incomplete_color_mask():
 
 
 def test_visible_shape_preserves_deep_fade_but_rejects_black():
+    pytest.importorskip("PIL")
+    pytest.importorskip("numpy")
     from PIL import Image, ImageDraw
 
     image = Image.new("RGB", (320, 180))
@@ -984,6 +988,8 @@ def test_multiline_block_accepts_distinct_anchors_and_unequal_glyph_heights():
 
 
 def test_bold_blue_caption_has_the_same_density_allowance_as_white():
+    pytest.importorskip("PIL")
+    pytest.importorskip("numpy")
     from PIL import Image, ImageDraw, ImageFont
 
     image = Image.new("RGB", (640, 360), (30, 45, 30))
@@ -1007,6 +1013,8 @@ def test_three_variant_selection_retains_the_96_input_bound():
 
 
 def test_ink_observation_keeps_blue_and_faded_chromatic_glyphs():
+    pytest.importorskip("PIL")
+    pytest.importorskip("numpy")
     from PIL import Image, ImageDraw
 
     image = Image.new("RGB", (320, 180), (0, 0, 0))
