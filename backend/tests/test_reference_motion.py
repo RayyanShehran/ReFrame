@@ -270,3 +270,36 @@ def test_valid_appearance_reuse_and_source_invalidation(local, sources):
         == 409
     )
     assert client.get(f"/api/projects/{pid}/captions").json() == before
+
+
+def test_incomplete_temporal_output_has_a_specific_safe_failure(local, monkeypatch):
+    from pathlib import Path
+
+    import reference_motion as motion
+    from references import ReferenceError
+    from tests.test_video_render import prepared
+
+    client, directory, _ = local
+    saved, _, _ = prepared(client, directory)
+    monkeypatch.setattr(motion, "bindings", lambda *a: (None, captions.Style(), "a" * 64))
+    monkeypatch.setattr(
+        motion.render, "probe", lambda *a, **k: ({"width": 64, "height": 64}, None, 3.0)
+    )
+    monkeypatch.setattr(
+        motion.preview, "tool", lambda args, *a, **k: Path(args[-1]).write_bytes(b"\0")
+    )
+    request = motion.Request(
+        expected_revision=0,
+        expected_selection_revision=1,
+        expected_selection_token="a" * 64,
+        base_style=captions.Style(),
+        start=0.2,
+        end=1.2,
+        region={"x": 0.1, "y": 0.2, "width": 0.6, "height": 0.2},
+    )
+    stage = directory / "incomplete-motion"
+    stage.mkdir()
+    with pytest.raises(ReferenceError) as failure:
+        motion.analyze(saved["id"], request, stage=(stage, time.monotonic() + 20))
+    assert failure.value.code == "motion_decode_incomplete" and failure.value.status_code == 422
+    assert motion.record(saved["id"]) is None

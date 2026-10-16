@@ -414,7 +414,11 @@ def analyze(project_id, request, *, stage=None):
         size = target.stat().st_size
         count = math.ceil(request.end * FPS - 1e-7) - math.ceil(request.start * FPS - 1e-7)
         if not 4 <= count <= MAX_FRAMES or size != w * h * count:
-            raise ValueError("Incomplete temporal frame decoding")
+            raise ReferenceError(
+                422,
+                "motion_decode_incomplete",
+                "Caption motion samples could not be decoded completely.",
+            )
         raw = target.read_bytes()
         target.unlink()
         prepared = fonts.prepare(

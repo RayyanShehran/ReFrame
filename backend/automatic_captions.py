@@ -2374,9 +2374,12 @@ def infer(
     except ReferenceError as error:
         if error.code == "cleanup_failure":
             safe = False
-        if error.code not in {"no_useful_font_match", "appearance_unusable", "invalid_interval"}:
+        if error.code == "motion_decode_incomplete":
+            messages.append("Caption motion sampling was incomplete; static appearance used.")
+        elif error.code in {"no_useful_font_match", "appearance_unusable", "invalid_interval"}:
+            messages.append("A caption fit was unreliable; supported font/placement approximated.")
+        else:
             raise
-        messages.append("A caption fit was unreliable; supported font/placement approximated.")
     finally:
         if safe:
             try:

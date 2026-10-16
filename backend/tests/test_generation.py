@@ -1254,3 +1254,34 @@ def test_coarse_continuation_cannot_recreate_a_verified_automatic_tail():
         [fresh], review, source, incomplete=True, observations=facts
     )
     assert result == [old]
+
+
+@pytest.mark.parametrize(
+    "quality,expected",
+    [
+        ("ocr", "A clearly read word stays visible"),
+        ("paired_model", "A newly read word stays visible"),
+    ],
+)
+def test_legacy_wording_requires_stronger_evidence_for_changed_words(quality, expected):
+    import captions
+
+    old = captions.Cue(start=1.0, end=2.0, text="A clearly read word stays visible")
+    fresh = old.model_copy(update={"text": "A newly read word stays visible"})
+    review, source = evidence_review([old], [])
+    facts = [
+        generation.CaptionObservation(
+            start=1.0,
+            end=2.0,
+            text=fresh.text,
+            start_window=(1.0, 1.0),
+            end_window=(2.0, 2.0),
+            start_supported=True,
+            end_supported=True,
+            wording=quality,
+        )
+    ]
+    result, _ = generation.retain_reviewed(
+        [fresh], review, source, incomplete=True, observations=facts
+    )
+    assert result[0].text == expected

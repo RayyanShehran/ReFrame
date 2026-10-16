@@ -279,7 +279,14 @@ def retain_reviewed(
                 before = old_facts.get(key(old))
                 text = (
                     old.text
-                    if before and ranks[before.wording] > ranks[fact.wording]
+                    if (
+                        before
+                        and ranks[before.wording] > ranks[fact.wording]
+                        or before is None
+                        and fact.wording != "paired_model"
+                        and automatic_captions.word_key(old.text)
+                        != automatic_captions.word_key(fresh.text)
+                    )
                     else fresh.text
                 )
                 values = {"text": text}
