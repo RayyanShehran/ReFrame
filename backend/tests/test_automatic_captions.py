@@ -1272,3 +1272,11 @@ def test_only_observed_unchanging_small_corner_labels_are_incidental():
     assert not automatic.persistent_edge_text(
         {f: [detection("Centered caption")] for f in cache}, set(cache)
     )
+
+
+def test_vector_glyph_similarity_retains_exact_byte_metric():
+    a = bytes(range(256)) * 48
+    b = bytes(reversed(range(256))) * 48
+    expected = 2 * sum(min(x, y) for x, y in zip(a, b)) / (sum(a) + sum(b))
+    assert automatic.glyph_similarity(a, b) == expected
+    assert automatic.glyph_similarity(b"\0" * 12, b"\0" * 12) == 0

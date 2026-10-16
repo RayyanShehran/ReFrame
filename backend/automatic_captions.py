@@ -28,7 +28,7 @@ import reference_motion as motion
 import video_render as render
 from references import ReferenceError
 
-METHOD = "visible-tsv-adaptive-v14"
+METHOD = "visible-tsv-adaptive-v15"
 MAX_READS = 600
 MAX_APPEARANCES = 8
 TOTAL_SECONDS = 300
@@ -888,7 +888,23 @@ def fit_width(size, measured_width, fraction, canvas):
 
 def glyph_similarity(a, b):
     mass = sum(a) + sum(b)
-    return 2 * sum(min(x, y) for x, y in zip(a, b)) / mass if mass else 0.0
+    if not mass:
+        return 0.0
+    try:
+        import numpy as np
+    except ImportError:
+        return 2 * sum(map(min, a, b)) / mass
+    length = min(len(a), len(b))
+    return (
+        2
+        * int(
+            np.minimum(
+                np.frombuffer(a, dtype="uint8", count=length),
+                np.frombuffer(b, dtype="uint8", count=length),
+            ).sum()
+        )
+        / mass
+    )
 
 
 def visible_shape(image, rectangle, ink):
@@ -1404,7 +1420,6 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
     )
     _, output_canvas, _ = framing.geometry(output_video, framing.read(project_id).settings)
     canvas = native_geometry(video)
-    scale = canvas
     factor = 960 / max(canvas)
     width, height = (max(2, math.floor(v * factor / 2) * 2) for v in canvas)
     total = max(1, math.floor(duration * 30 + 0.00001))
@@ -1516,120 +1531,88 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
             raise engine.ProbeTimeout("Caption reading budget reached")
         stage = directory / f"read-{index}"
         with temporary(stage):
-            if prototypes:
-                target = stage / "visibility.png"
-                seek, timing_filter = frame_seek(video, index)
-                render.tool(
-                    [
-                        shutil.which("ffmpeg") or "ffmpeg",
-                        "-v",
-                        "error",
-                        "-nostdin",
-                        "-xerror",
-                        "-threads",
-                        "2",
-                        "-protocol_whitelist",
-                        "file",
-                        *seek,
-                        "-i",
-                        str(source["path"]),
-                        "-vf",
-                        timing_filter + render.resize_filter(*canvas, color.inspect_colors(video)),
-                        "-frames:v",
-                        "1",
-                        str(target),
-                    ],
-                    stage,
-                    "caption-visibility",
-                    frame_deadline,
-                    15,
-                    temp_budget=16 * 1024 * 1024,
-                )
-                from PIL import Image
+            native_target = stage / "native.png"
+            seek, timing_filter = frame_seek(video, index)
+            render.tool(
+                [
+                    shutil.which("ffmpeg") or "ffmpeg",
+                    "-v",
+                    "error",
+                    "-nostdin",
+                    "-xerror",
+                    "-threads",
+                    "2",
+                    "-protocol_whitelist",
+                    "file",
+                    *seek,
+                    "-i",
+                    str(source["path"]),
+                    "-vf",
+                    timing_filter + render.resize_filter(*canvas, color.inspect_colors(video)),
+                    "-frames:v",
+                    "1",
+                    str(native_target),
+                ],
+                stage,
+                "caption-native-frame",
+                frame_deadline,
+                15,
+                temp_budget=16 * 1024 * 1024,
+            )
+            from PIL import Image
 
-                with Image.open(target) as image:
-                    crops = retry_crops(image, [])
-                    lines = handwriting.line_crops(image, crops[0][0], crops[0][1]) if crops else []
-                    observed = []
-                    candidate_layouts[index] = []
-                    for rect, variants in lines:
-                        rectangle = match.Rectangle(
-                            x=rect[0], y=rect[1], width=rect[2], height=rect[3]
-                        )
-                        candidate_layouts[index].append((rectangle, line_layout(variants[0])))
-                        nearby = [
-                            (f, r, shape, d)
-                            for f, r, shape, d in prototypes
-                            if abs(f - index) <= 90
-                            and overlaps_line(r, rectangle)
-                            and reliable_wording(d)
-                        ]
-                        for _, _, _, d in nearby:
-                            observed.append((rectangle, visible_shape(image, rectangle, d.ink)))
-                    # A missing crop is not disappearance: check previously observed regions too.
-                    for frame, rectangle, _, d in prototypes:
-                        if abs(frame - index) <= 90 and reliable_wording(d):
-                            observed.append((rectangle, visible_shape(image, rectangle, d.ink)))
-                    observed = list(
-                        {
-                            tuple(r.model_dump().values()): (r, shape) for r, shape in observed
-                        }.values()
-                    )
+            with Image.open(native_target) as image:
+                native = image.convert("RGB")
+            native_crops = retry_crops(native, [])
+            if prototypes:
+                image = native
+                crops = native_crops
+                lines = handwriting.line_crops(image, crops[0][0], crops[0][1]) if crops else []
+                observed = []
+                candidate_layouts[index] = []
+                for rect, variants in lines:
+                    rectangle = match.Rectangle(x=rect[0], y=rect[1], width=rect[2], height=rect[3])
+                    candidate_layouts[index].append((rectangle, line_layout(variants[0])))
+                    nearby = [
+                        (f, r, shape, d)
+                        for f, r, shape, d in prototypes
+                        if abs(f - index) <= 90
+                        and overlaps_line(r, rectangle)
+                        and reliable_wording(d)
+                    ]
+                    for _, _, _, d in nearby:
+                        observed.append((rectangle, visible_shape(image, rectangle, d.ink)))
+                # A missing crop is not disappearance: check previously observed regions too.
+                for frame, rectangle, _, d in prototypes:
+                    if abs(frame - index) <= 90 and reliable_wording(d):
+                        observed.append((rectangle, visible_shape(image, rectangle, d.ink)))
+                observed = list(
+                    {tuple(r.model_dump().values()): (r, shape) for r, shape in observed}.values()
+                )
+                signatures[index] = observed
+                found = recover_lines(index, observed, prototypes, [])
+                unique = merge_readings([], found)
+                if previous is not None:
+                    cache[index] = recover_lines(index, observed, prototypes, previous)
+                    return cache[index]
+                if lines and len(lines) == len(unique) and all(reliable_wording(d) for d in unique):
                     signatures[index] = observed
-                    found = recover_lines(index, observed, prototypes, [])
-                    unique = merge_readings([], found)
-                    if previous is not None:
-                        cache[index] = recover_lines(index, observed, prototypes, previous)
-                        return cache[index]
-                    if (
-                        lines
-                        and len(lines) == len(unique)
-                        and all(reliable_wording(d) for d in unique)
-                    ):
-                        signatures[index] = observed
-                        cache[index] = unique
-                        return unique
+                    cache[index] = unique
+                    return unique
             ambiguous = False
             uncertain = []
             seek, timing_filter = frame_seek(video, index)
             for sampling in ("area", "bicubic") if factor > 1 else ("area",):
                 target = stage / f"frame-{sampling}.png"
-                render.tool(
-                    [
-                        shutil.which("ffmpeg") or "ffmpeg",
-                        "-v",
-                        "error",
-                        "-nostdin",
-                        "-xerror",
-                        "-threads",
-                        "2",
-                        "-protocol_whitelist",
-                        "file",
-                        *seek,
-                        "-i",
-                        str(source["path"]),
-                        "-vf",
-                        timing_filter
-                        + f"{render.resize_filter(*scale, color.inspect_colors(video))},"
-                        f"scale={width}:{height}:flags={sampling}",
-                        "-frames:v",
-                        "1",
-                        str(target),
-                    ],
-                    stage,
-                    "caption-frame",
-                    frame_deadline,
-                    15,
-                    temp_budget=16 * 1024 * 1024,
-                )
-                from PIL import Image
-
+                native.resize(
+                    (width, height),
+                    Image.Resampling.BICUBIC if sampling == "bicubic" else Image.Resampling.BOX,
+                ).save(target)
                 ocr_image = stage / "ocr-gray.png"
                 with Image.open(target) as image:
                     image.convert("L").save(ocr_image)
                 detections = []
-                with Image.open(target) as image:
-                    colored_region = bool(retry_crops(image, []))
+                colored_region = bool(native_crops)
                 # Prefer a detected colored-text crop to full-frame texture recognition.
                 languages = () if colored_region else ("eng", "ara")
                 ambiguous = colored_region
@@ -1690,50 +1673,15 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
             # Native-resolution, contrast-separated crops recover thin/colored text lost in gray.
             from PIL import Image
 
-            with Image.open(target) as image:
-                native = image.convert("RGB")
             line_candidate = None
-            native_crops = None
             if (
                 uncertain
                 or not detections
                 or any(not reliable_wording(d) for d in detections)
                 or (handwriting_ready and colored_region)
             ):
-                native_target = stage / "native.png"
-                native_width = min(1920, canvas[0])
-                native_height = max(2, round(canvas[1] * native_width / canvas[0]))
-                render.tool(
-                    [
-                        shutil.which("ffmpeg") or "ffmpeg",
-                        "-v",
-                        "error",
-                        "-nostdin",
-                        "-xerror",
-                        "-threads",
-                        "2",
-                        "-protocol_whitelist",
-                        "file",
-                        *seek,
-                        "-i",
-                        str(source["path"]),
-                        "-vf",
-                        timing_filter
-                        + f"{render.resize_filter(*scale, color.inspect_colors(video))},"
-                        f"scale={native_width}:{native_height}",
-                        "-frames:v",
-                        "1",
-                        str(native_target),
-                    ],
-                    stage,
-                    "caption-native-frame",
-                    frame_deadline,
-                    15,
-                    temp_budget=16 * 1024 * 1024,
-                )
-                with Image.open(native_target) as image:
-                    native = image.convert("RGB")
-                native_crops = retry_crops(native, uncertain)
+                if not native_crops and uncertain:
+                    native_crops = retry_crops(native, uncertain)
                 for attempt, (native_crop, box, language) in enumerate(native_crops):
                     crop = native_crop
                     color.guard(stop, frame_deadline)
