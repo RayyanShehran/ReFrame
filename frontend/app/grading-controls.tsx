@@ -89,7 +89,7 @@ export function GradingControls({ projectId, sourceKey, analysesReady, sequence,
         {chosenSlot && <>
           <label><input type="checkbox" checked={draft.shot_slots.includes(chosenSlot.id)} disabled={!entry?.valid || busy} onChange={e => setDraft({ ...draft, shot_slots: e.target.checked ? [...draft.shot_slots, chosenSlot.id] : draft.shot_slots.filter(id => id !== chosenSlot.id) })} />Use assigned reference shot for this slot</label>
           <button disabled={busy || dirty || !sequence.ready || chosenSlot.reference_start_frame === null} onClick={() => entry ? setConfirm("shot") : void prepare(false, true)}>Match assigned reference shot</button>
-          {chosenSlot.reference_start_frame === null ? <p>This slot has no reference interval. Use its clip’s project reference look.</p> : <p className="hint">Source {chosenSlot.source_start_frame / 30}–{chosenSlot.source_end_frame / 30}s · Reference {chosenSlot.reference_start_frame / 30}–{chosenSlot.reference_end_frame! / 30}s. Enable after preparing, then save.</p>}
+          {chosenSlot.reference_start_frame === null ? <p>This slot has no reference interval. Use its clip’s project reference look.</p> : <p className="hint">Source {(chosenSlot.source_start_frame / 30).toFixed(3)}–{(chosenSlot.source_end_frame / 30).toFixed(3)}s · Reference {(chosenSlot.reference_start_frame / 30).toFixed(3)}–{(chosenSlot.reference_end_frame! / 30).toFixed(3)}s. Enable after preparing, then save.</p>}
         </>}
         <fieldset className="recipe-controls" disabled={!entry?.valid || busy}>
           <legend>{choices.find(c => c.key === key)?.name ?? "Selected clip"} controls</legend>
