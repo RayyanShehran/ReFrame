@@ -1312,3 +1312,45 @@ def test_coarse_single_line_cannot_erase_a_legacy_multiline_phase_or_next_title(
         [fresh], review, source, incomplete=True, observations=facts
     )
     assert result == [first, title]
+
+
+def test_reconciled_timestamps_do_not_bypass_legacy_multiline_protection():
+    import captions
+
+    old = captions.Cue(
+        start=1.1,
+        end=3.1,
+        text="A complete first observed line\nAnother complete observed line\nThird line",
+    )
+    fresh = captions.Cue(
+        start=1.0, end=2.5, text="A complete first observed line\nAnother complete observed line"
+    )
+    review, source = evidence_review([old], [])
+    facts = [observation(fresh, 0.5, wording="paired_model")]
+    result, _ = generation.retain_reviewed(
+        [fresh],
+        review,
+        source,
+        incomplete=True,
+        observations=facts,
+    )
+    assert result == [old]
+    assert not facts  # No new observation can certify the retained legacy timing/third line.
+
+
+def test_reconciled_saved_boundaries_can_accept_stronger_words_without_certifying_old_timing():
+    import captions
+
+    old = captions.Cue(start=1.1, end=3.1, text="First observed word\nAnother clear line")
+    fresh = captions.Cue(start=1.5, end=2.5, text="First observed words\nAnother clear line")
+    prior = observation(old, 1 / 30).model_copy(
+        update={"start_window": None, "start_supported": None}
+    )
+    review, source = evidence_review([old], [prior])
+    facts = [observation(fresh, 0.5, wording="paired_model")]
+    result, _ = generation.retain_reviewed(
+        [fresh], review, source, incomplete=True, observations=facts
+    )
+    assert [(c.start, c.end, c.text) for c in result] == [(old.start, old.end, fresh.text)]
+    assert facts[0].wording == "paired_model"
+    assert facts[0].start_window is None and facts[0].start_supported is None

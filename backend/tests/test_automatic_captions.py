@@ -1370,7 +1370,10 @@ def test_recognizer_conflict_blocks_even_when_retained_ocr_is_reliable():
     assert completion["unresolved_regions"][0]["reason"] == "conflicting_readings"
 
 
-def test_real_confident_ocr_still_checks_existing_independent_reading(local, monkeypatch):
+@pytest.mark.parametrize("mixed_script", [False, True])
+def test_real_confident_ocr_still_checks_existing_independent_reading(
+    local, monkeypatch, mixed_script
+):
     pytest.importorskip("numpy")
     pytest.importorskip("PIL")
     client, directory, _ = local
@@ -1403,6 +1406,16 @@ def test_real_confident_ocr_still_checks_existing_independent_reading(local, mon
     )
     saved, _, _ = prepared(client, directory, source)
     monkeypatch.setattr(automatic.handwriting, "available", lambda: True)
+    if mixed_script:
+        parse = automatic.parse
+
+        def mixed_ocr(*args, **kwargs):
+            rows = parse(*args, **kwargs)
+            for row in rows:
+                row.text += " كلمة"
+            return rows
+
+        monkeypatch.setattr(automatic, "parse", mixed_ocr)
     import json
 
     original = automatic.caption_readings.read

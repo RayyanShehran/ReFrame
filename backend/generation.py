@@ -347,7 +347,7 @@ def retain_reviewed(
         # Many-to-many overlaps must obey the same evidence rule as a single cue.
         # Do not publish an entire coarse block over a finer compatible saved phase.
         def weaker_block(fresh):
-            fact = new_facts.get(key(fresh))
+            fact = new_facts.get(key(fresh)) or selected_facts.get(key(fresh))
             if fact is None:
                 return False
             for old in review.cues:
@@ -386,6 +386,8 @@ def retain_reviewed(
                 if before and ranks[before.wording] > ranks[fact.wording]:
                     return True
                 for edge in ("start", "end"):
+                    if getattr(fresh, edge) == getattr(old, edge):
+                        continue  # Reusing a saved boundary does not replace its timing evidence.
                     current = getattr(fact, edge + "_window")
                     previous = getattr(before, edge + "_window", None)
                     if current is None or getattr(fact, edge + "_supported") is not True:

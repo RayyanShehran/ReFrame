@@ -2,7 +2,13 @@
 
 Current default is automatic reference-video generation; Customize retains the advanced editor. Earlier sections record historical milestone boundaries. [Current workflow, verification and limits](AUTOMATIC_GENERATION.md).
 
-## Current follow-up — 2026-10-17
+## Current acceptance follow-up — 2026-10-18
+
+- **Customize implementation 100% / scoped UI verification 100%:** actual 1440px and 390px screenshots delivered, native Choose videos selected two real files and Add footage selected a third; all three persisted after refresh in an isolated project. Scope labels and shot-time formatting corrected. Advanced editors, drafts, saving and existing supported export retained. This is browser viewport evidence, not physical-phone acceptance. [UI audit](CUSTOMIZE_WORKSPACE.md).
+- **Caption regression repair 60% / complete handwritten acceptance 0%:** four demonstrated routing/pair/empty-observation/publication faults corrected. Targeted normal publication repaired the first opening phase. One final-code whole extraction in an isolated current-project copy remained partial: 209.28 s, 19 saved cues, 32 unresolved regions. Whole-run saved correct word-seconds **196.9133 → 200.9133**. A later publication-only fix preserved the third line; its separately labelled normal-worker replay scores **212.3133**, below stronger retained **236.7133**. No second full extraction followed that publication edit. Opening/multiline gaps and malformed replies remain; no forced export or restoration. [Comparable metrics, stage trace and grouped durations](CAPTION_TEMPORAL_ACCURACY.md).
+- Both real projects, 16 clips, protected correction, analyses/fonts/settings and prior output preserved; actual current review not replaced by the isolated diagnostic. No model download or media retrieval. Image mode **0%**. Overall reassessment remains with the architect.
+
+## Historical follow-up — 2026-10-17
 
 Customize's scoped redesign is implemented and browser-verified (**100%**): stable actual output/sequence, task navigation, contextual slot/cue controls, preserved drafts, explicit saves and responsive 1440/768/390 layouts. Advanced capabilities remain mapped in [the workspace inventory and real export evidence](CUSTOMIZE_WORKSPACE.md).
 

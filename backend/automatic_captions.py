@@ -1944,7 +1944,8 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
                             x=rect[0], y=rect[1], width=rect[2], height=rect[3]
                         )
                         if any(
-                            any("\u0600" <= c <= "\u06ff" for c in d.text)
+                            sum("\u0600" <= c <= "\u06ff" and c.isalpha() for c in d.text)
+                            > sum(c.isascii() and c.isalpha() for c in d.text)
                             and overlaps_line(d.rectangle, rectangle)
                             for d in detections
                         ):
