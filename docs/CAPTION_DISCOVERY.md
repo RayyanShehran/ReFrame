@@ -1,5 +1,7 @@
 # Staged caption discovery and recognition — 2026-10-16
 
+> Historical v16–v18 evidence below is preserved. The 2026-10-17 [v19 interval-based follow-up](CAPTION_TEMPORAL_ACCURACY.md) supersedes the acceptance summary; [Customize](CUSTOMIZE_WORKSPACE.md) is implemented separately.
+
 ## Result and acceptance
 
 **Full-timeline observation improved; reliable full handwritten recreation is not accepted.** Supported printed/multiline/bilingual fixtures still complete automatically. One fresh whole retained-reference run observed **81/81** discovery frames, but emitted wrong text and fragmented intervals; its saved proposal required restoration. That is **failed verification**, not completion. The final recognition guard has targeted real-interval and supported-export checks, **no subsequent fresh whole extraction**. No handwritten captioned export was forced. Overlay work remains isolated and production does not use it. Image mode: **0%**.

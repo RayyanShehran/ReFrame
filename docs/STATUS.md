@@ -2,6 +2,12 @@
 
 Current default is automatic reference-video generation; Customize retains the advanced editor. Earlier sections record historical milestone boundaries. [Current workflow, verification and limits](AUTOMATIC_GENERATION.md).
 
+## Current follow-up — 2026-10-17
+
+Customize's scoped redesign is implemented and browser-verified (**100%**): stable actual output/sequence, task navigation, contextual slot/cue controls, preserved drafts, explicit saves and responsive 1440/768/390 layouts. Advanced capabilities remain mapped in [the workspace inventory and real export evidence](CUSTOMIZE_WORKSPACE.md).
+
+Caption follow-up **60%**, **not accepted as complete handwritten recreation**. Final v19 received a fresh whole-reference run: 81/81 discovery points, 187.94 seconds through saved failure, 18 retained review cues and 32 unresolved regions. Interval scoring exposes wrong/missing/fragmented phases hidden by best-line presence; fresh continuous coverage regresses. Supported printed/multiline/Arabic pass, scenery false blockers remain. Previous output/manual correction preserved; no forced handwritten export or post-run restoration. [Timed evidence and exact failures](CAPTION_TEMPORAL_ACCURACY.md). Image mode **0%**; overall reassessment remains with the architect.
+
 ## Milestone 1: development foundation
 
 The responsive Next.js shell and FastAPI health endpoint remain in place. Frontend and backend foundation checks run in CI.

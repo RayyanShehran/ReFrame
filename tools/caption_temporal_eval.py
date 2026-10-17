@@ -60,13 +60,16 @@ def compare(expected, actual):
                 totals[key] += count * (right - left)
     intervals = []
     for cue in expected:
-        matching = sorted(
-            (max(cue["start"], c["start"]), min(cue["end"], c["end"]))
+        matches = sorted(
+            (c["start"], c["end"])
             for c in actual
             if words(c["text"]) == words(cue["text"])
             and c["start"] < cue["end"]
             and c["end"] > cue["start"]
         )
+        matching = [
+            (max(cue["start"], start), min(cue["end"], end)) for start, end in matches
+        ]
         cursor, gaps = cue["start"], []
         for start, end in matching:
             if start > cursor:
@@ -81,8 +84,8 @@ def compare(expected, actual):
                 "text": cue["text"],
                 "fragments": len(matching),
                 "gaps": gaps,
-                "start_error": matching[0][0] - cue["start"] if matching else None,
-                "end_error": matching[-1][1] - cue["end"] if matching else None,
+                "start_error": matches[0][0] - cue["start"] if matching else None,
+                "end_error": matches[-1][1] - cue["end"] if matching else None,
             }
         )
 

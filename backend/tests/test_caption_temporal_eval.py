@@ -31,3 +31,12 @@ def test_interval_evaluation_rejects_nonfinite_and_reversed_boundaries():
     for start, end in [(0, float("nan")), (2, 1)]:
         with pytest.raises(ValueError):
             temporal.compare([dict(start=start, end=end, text="x")], [])
+
+
+def test_boundary_errors_retain_early_start_and_late_end():
+    result = temporal.compare(
+        [dict(start=1, end=2, text="Same words")], [dict(start=0.5, end=2.5, text="Same words")]
+    )
+    assert result["intervals"][0]["start_error"] == -0.5
+    assert result["intervals"][0]["end_error"] == 0.5
+    assert result["word_seconds"]["extra"] == 2
