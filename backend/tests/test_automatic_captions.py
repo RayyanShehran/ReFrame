@@ -1532,3 +1532,42 @@ def test_pixel_supported_complete_line_survives_partial_reading_not_conflict():
     assert automatic.recover_lines(
         15, [(full.rectangle, shape)], [(0, full.rectangle, shape, full)], [conflict]
     ) == [conflict]
+
+
+def test_caption_staging_retries_transient_windows_lock_and_retains_unsafe_stage(
+    tmp_path, monkeypatch
+):
+    original = automatic.shutil.rmtree
+    calls = []
+
+    def transient(path):
+        calls.append(path)
+        if len(calls) == 1:
+            raise PermissionError("transient lock after process exit")
+        original(path)
+
+    monkeypatch.setattr(automatic.shutil, "rmtree", transient)
+    stage = tmp_path / "safe"
+    with automatic.temporary(stage):
+        (stage / "owned").write_text("temporary")
+    assert len(calls) == 2 and not stage.exists()
+    unsafe = tmp_path / "unsafe"
+    with pytest.raises(automatic.engine.ProcessCleanupError):
+        with automatic.temporary(unsafe):
+            raise automatic.engine.ProcessCleanupError()
+    assert unsafe.exists() and len(calls) == 2
+
+
+def test_caption_staging_persistent_lock_reports_failure(tmp_path, monkeypatch):
+    clock = iter([0, 3])
+    monkeypatch.setattr(automatic.time, "monotonic", lambda: next(clock))
+
+    def locked(path):
+        raise PermissionError("still locked")
+
+    monkeypatch.setattr(automatic.shutil, "rmtree", locked)
+    stage = tmp_path / "locked"
+    with pytest.raises(ReferenceError) as error:
+        with automatic.temporary(stage):
+            pass
+    assert error.value.code == "cleanup_failure" and stage.exists()

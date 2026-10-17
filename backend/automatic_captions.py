@@ -443,12 +443,23 @@ def temporary(stage):
         raise
     finally:
         if safe:
-            try:
-                shutil.rmtree(stage)
-            except OSError:
-                raise ReferenceError(
-                    500, "cleanup_failure", "Caption staging needs manual cleanup."
-                ) from None
+            expires = time.monotonic() + 2
+            while True:
+                try:
+                    shutil.rmtree(stage)
+                    break
+                except PermissionError:
+                    # Windows can retain a file briefly after confirmed owned-process exit.
+                    if time.monotonic() < expires:
+                        time.sleep(engine.POLL_SECONDS)
+                        continue
+                    raise ReferenceError(
+                        500, "cleanup_failure", "Caption staging needs manual cleanup."
+                    ) from None
+                except OSError:
+                    raise ReferenceError(
+                        500, "cleanup_failure", "Caption staging needs manual cleanup."
+                    ) from None
 
 
 def reliable_wording(detection):
