@@ -85,7 +85,7 @@ export function RenderVideo({ grading, savedStrength, savedValues, projectId, re
   return <><WorkspaceSurface name="preview"><div className="output-monitor" aria-label="Output monitor">
     <p className="eyebrow">Last exported video</p>
     {output ? <><video key={output.output_id} className="rendered-video" controls playsInline preload="metadata" src={`${url}/video`} aria-label={`Rendered video, recipe revision ${output.spec.recipe_revision}`} />
-    <p role="status">{running ? "Rendering replacement…" : outdated ? "Update required · saved settings changed" : "Saved output"} · {output.width} × {output.height}</p><a className="download-link" href={`${url}/download`}>Download MP4</a></> : <p>No exported video yet. Save your settings and render from Export.</p>}
+    <p role="status">{running ? "Rendering replacement…" : outdated ? "Update required · saved settings changed" : "Saved output"} · {output.width} × {output.height} · Captions {output.spec.captions?.enabled ? "on" : "off"}</p><a className="download-link" href={`${url}/download`}>Download MP4</a></> : <p>No exported video yet. Save your settings and render from Export.</p>}
     <button onClick={() => navigation?.open("export")}>Review & update output</button>
     <p className="hint">Not a live preview. Unsaved edits do not change this video.</p>
     </div></WorkspaceSurface><section className="reference-section" aria-label="Rendered video">

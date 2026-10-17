@@ -47,12 +47,12 @@ function project(data: unknown): Project {
   return { ...data, clip: data.clip_status === "ready" ? parseClipDetails(data.clip, true) : null } as Project;
 }
 
-function ProposalDraftStatus({ dirty }: { dirty: boolean }) {
-  useWorkspaceReport("caption-proposal", "captions", dirty ? "Needs input" : "Ready", undefined, dirty);
+function ProposalDraftStatus({ dirty, issues }: { dirty: boolean; issues: number }) {
+  useWorkspaceReport("caption-proposal", "captions", dirty ? "Needs input" : issues ? "Needs attention" : "Ready", undefined, dirty);
   return null;
 }
 
-export function Workspace({ onProjectChange, onCaptionReviewTarget, captionReviewDirty = false }: { onProjectChange?: (id: string | null) => void; onCaptionReviewTarget?: (node: HTMLDivElement | null) => void; captionReviewDirty?: boolean } = {}) {
+export function Workspace({ onProjectChange, onCaptionReviewTarget, captionReviewDirty = false, captionReviewIssues = 0 }: { onProjectChange?: (id: string | null) => void; onCaptionReviewTarget?: (node: HTMLDivElement | null) => void; captionReviewDirty?: boolean; captionReviewIssues?: number } = {}) {
   const [projectId, setProjectId] = useState<string | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [current, setCurrent] = useState<Project | null>(null);
@@ -179,7 +179,7 @@ export function Workspace({ onProjectChange, onCaptionReviewTarget, captionRevie
     {current && <section className="footage-section" aria-label="Saved project workspace">
       <div className="project-heading"><p className="eyebrow">[ Editing workspace ]</p><h1>{current.name}</h1></div>
       <GuidedWorkspace key={current.id} hasFootage={current.clip_status === "ready"} footageUnavailable={!["empty", "ready"].includes(current.clip_status)}>
-      <ProposalDraftStatus dirty={captionReviewDirty} />
+      <ProposalDraftStatus dirty={captionReviewDirty} issues={captionReviewIssues} />
       <WorkspaceSection section="reference"><div className="reference-card"><h3>{current.reference.title || "TikTok reference"}</h3>
         <p>Creator: {current.reference.author_name || "Unavailable"}</p>
         <a href={current.reference.canonical_url} target="_blank" rel="noreferrer">Open reference on TikTok</a>
