@@ -1571,3 +1571,49 @@ def test_caption_staging_persistent_lock_reports_failure(tmp_path, monkeypatch):
         with automatic.temporary(stage):
             pass
     assert error.value.code == "cleanup_failure" and stage.exists()
+
+
+def test_selected_model_pair_can_actually_corroborate_within_the_agreement_window():
+    from dataclasses import replace
+
+    d = detection("Independent observed words")
+    rect = tuple(d.rectangle.model_dump().values())
+    shape = bytes([255, 0] * 2048)
+    # Discovery order places both endpoints in a group centered on frame 150.
+    rows = [(f, rect, [f"{f}-mask", f"{f}-gray", f"{f}-context"]) for f in (150, 105, 180, 60)]
+    cached = {name for _, _, names in rows for name in names}
+    readings = {
+        f: [replace(d, sharpness=score)] for f, score in ((150, 1), (105, 8), (180, 9), (60, 10))
+    }
+    selected = automatic.select_handwriting(
+        rows,
+        8,
+        signatures={f: [(d.rectangle, shape)] for f, _, _ in rows},
+        readings=readings,
+        cached_names=cached,
+    )
+    assert [row[0] for row in selected] == [60, 105]
+    assert all(any(3 <= abs(other[0] - row[0]) <= 90 for other in selected) for row in selected)
+
+
+def test_partial_discovery_mask_does_not_turn_unselected_frames_into_caption_gaps(
+    local, monkeypatch
+):
+    pytest.importorskip("PIL")
+    from PIL import ImageDraw
+
+    original = automatic.discovery_images
+
+    def partial_thumbnails(*args, **kwargs):
+        for frame, image in original(*args, **kwargs):
+            if frame not in {15, 60}:
+                # Emulate a thumbnail mask losing part of a line; native source stays intact.
+                image = image.copy()
+                ImageDraw.Draw(image).rectangle(
+                    (0, 0, image.width // 2, image.height), fill=(32, 64, 32)
+                )
+            yield frame, image
+
+    monkeypatch.setattr(automatic, "discovery_images", partial_thumbnails)
+    monkeypatch.setattr(automatic, "recognition_frames", lambda _: [15, 60])
+    test_real_visible_text_timing_and_appearance(local, monkeypatch, True)

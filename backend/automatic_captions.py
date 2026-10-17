@@ -28,7 +28,7 @@ import reference_motion as motion
 import video_render as render
 from references import ReferenceError
 
-METHOD = "visible-tsv-adaptive-v19"
+METHOD = "visible-tsv-adaptive-v20"
 MAX_READS = 600
 MAX_APPEARANCES = 8
 TOTAL_SECONDS = 300
@@ -1365,7 +1365,8 @@ def select_handwriting(rows, limit, *, signatures=None, readings=None, cached_na
             )
 
         first = max(group, key=sharp)
-        others = [row for row in group if abs(row[0] - first[0]) >= 3]
+        # Pair selection must obey the same temporal window as agreement below.
+        others = [row for row in group if 3 <= abs(row[0] - first[0]) <= 90]
         pair = [first] + ([max(others, key=sharp)] if others else [])
         missing = {
             name for row in pair for name in (row[2][2:] if len(row[2]) == 3 else row[2])
@@ -1677,8 +1678,13 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
             nearby = [
                 r for f, r, _, d in prototypes if abs(f - index) <= 90 and reliable_wording(d)
             ]
-            if not nearby or any(
-                overlaps_line(r, box) for r, _ in signatures.get(index, []) for box in nearby
+            # An unrecognized thumbnail is not absence; verify prior lettering at native size.
+            if (
+                not nearby
+                or previous
+                and any(
+                    overlaps_line(r, box) for r, _ in signatures.get(index, []) for box in nearby
+                )
             ):
                 return cache[index]
             # Discovery preceded prototypes: verify the source region before claiming absence.
