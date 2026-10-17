@@ -37,7 +37,7 @@ export function MotionPreview({projectId,track,cue,context,plan,sequence=emptySe
  const outdated=!!saved&&(saved.key!==key||unsaved);
  useEffect(()=>{function cancel(){generation.current++;action.current?.abort();}return cancel;},[key]);
  useEffect(()=>{onBusy?.(busy);return()=>onBusy?.(false);},[busy,onBusy]);
- useWorkspaceReport("caption-motion","audio",busy?"Working":error?"Needs attention":"Ready","Generating silent caption motion preview…");
+ useWorkspaceReport("caption-motion","captions",busy?"Working":error?"Needs attention":"Ready","Generating silent caption motion preview…");
  async function run(){
   if(action.current||!canRun)return;const c=new AbortController(),version=++generation.current;action.current=c;setBusy(true);setError("");const timer=setTimeout(()=>c.abort(),45000);
   try{

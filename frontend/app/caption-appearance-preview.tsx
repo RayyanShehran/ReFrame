@@ -29,9 +29,10 @@ function readReference(data: unknown): Reference {
 export function CaptionAppearancePreview({ sourceKey = "", projectId, track, ready, dirty, disabled, context, plan, sequence = emptySequence, onFontChoice, onMatchBusy, draftStyle, onAppearance, onMotionBusy, onAnimation }: { sourceKey?: string; projectId: string; track: PreviewTrack; ready: boolean; dirty: boolean; disabled: boolean; context: AppearanceContext; plan: PlanState; sequence?: SequenceState; onFontChoice?: (font: FontChoice) => void; onMatchBusy?: (busy: boolean) => void; onMotionBusy?: (busy: boolean) => void; draftStyle?: CaptionStyle; onAppearance?: (patch: AppearancePatch) => void; onAnimation?: (patch: Partial<Animation>) => void }) {
   const [reference, setReference] = useState<Reference | null>(null), [referenceFrame, setReferenceFrame] = useState<ReferenceFrame | null>(null), [captionFrame, setCaptionFrame] = useState<CaptionFrame | null>(null);
   const [rectangle, setRectangle] = useState<Rectangle>(initialRectangle);
-  const [time, setTime] = useState("0"), [cue, setCue] = useState(0), [busy, setBusy] = useState(false), [error, setError] = useState("");
+  const [time, setTime] = useState("0"), [cueChoice, setCue] = useState(0), [busy, setBusy] = useState(false), [error, setError] = useState("");
   const action = useRef<AbortController | null>(null), generation = useRef(0);
   const navigation = useWorkspaceNavigation();
+  const cue = navigation?.selection?.kind === "cue" ? Number(navigation.selection.id) : cueChoice;
   const token = `${projectId}:${track.revision}:${track.font_binding?.sha256}:${context.recipeRevision}:${context.gradingRevision}:${context.framing.revision}:${ready}:${context.recipeReady}:${plan.revision}:${sequence.revision}`;
   const validTime = !!reference?.media && !!time.trim() && number(Number(time)) && Number(time) <= reference.media.duration_seconds;
   const unsaved = dirty || context.recipeDirty || context.framing.dirty || (track.timeline?.mode === "cuts" && plan.dirty) || (track.timeline?.mode === "sequence" && sequence.dirty);
@@ -73,17 +74,17 @@ export function CaptionAppearancePreview({ sourceKey = "", projectId, track, rea
     } catch (cause) { if (generation.current === current) setError(cause instanceof Error && cause.name !== "AbortError" ? cause.message : "Frame request timed out. Previous images remain available; retry explicitly."); }
     finally { clearTimeout(timer); if (action.current === controller) { action.current = null; setBusy(false); } }
   }
-  useWorkspaceReport("caption-preview", "audio", busy ? "Working" : error ? "Needs attention" : "Ready", "Updating caption comparison…");
+  useWorkspaceReport("caption-preview", "captions", busy ? "Working" : error ? "Needs attention" : "Ready", "Updating caption comparison…");
   return <section className="reference-section" aria-label="Caption appearance comparison"><h4>Reference / caption appearance</h4>
     <p className="hint">Reference appearance not automatically verified. Inspect a caption-bearing source frame, confirm its text and compare available fonts. Visual similarity does not prove exact font identity; no reference scanning.</p>
     <label>Reference source time (seconds)<input type="number" min="0" max={reference?.media?.duration_seconds ?? 0} step="any" value={time} disabled={!reference?.media} onChange={e => { cancel(); setTime(e.target.value); setError(""); }} /></label>
     {reference?.media && <p>Retained reference: {reference.media.duration_seconds.toFixed(3)} seconds.</p>}
     {reference?.status !== "ready" && <p>Retrieve a ready reference in Reference to inspect its frames. Saved-caption preview can still work independently.</p>}
-    <button disabled={busy || disabled || !validTime || reference?.status !== "ready"} onClick={() => void run("reference")}>Inspect reference frame</button><button disabled={busy} onClick={() => void run("status")}>Reload reference status</button>
-    <label>Saved cue <select value={cue} disabled={!track.cues.length} onChange={e => { cancel(); setCue(Number(e.target.value)); setError(""); }}>{track.cues.map((c, i) => <option key={i} value={i}>Cue {i + 1}: {c.start}–{c.end}s · {c.text.slice(0, 40)}</option>)}</select></label>
+    <button disabled={busy || disabled || !reference?.media || !track.cues[cue] || (track.cues[cue].start + track.cues[cue].end) / 2 > reference.media.duration_seconds} onClick={() => void run("reference", (track.cues[cue].start + track.cues[cue].end) / 2)}>Show reference at selected cue</button><button disabled={busy || disabled || !validTime || reference?.status !== "ready"} onClick={() => void run("reference")}>Inspect reference frame</button><button disabled={busy} onClick={() => void run("status")}>Reload reference status</button>
+    <label>Saved cue <select value={cue} disabled={!track.cues.length} onChange={e => { cancel(); setCue(Number(e.target.value)); const c = track.cues[Number(e.target.value)]; navigation?.select({ kind: "cue", id: e.target.value, label: `Caption cue ${Number(e.target.value) + 1}`, time: c.start }); setError(""); }}>{track.cues.map((c, i) => <option key={i} value={i}>Cue {i + 1}: {c.start}–{c.end}s · {c.text.slice(0, 40)}</option>)}</select></label>
     <p>{fontLabel(track.font_binding, track.style?.font_origin)}</p>
     {!ready || !track.enabled || !track.cues.length ? <p>Enable and save valid captions before previewing.</p> : !context.recipeReady ? <p>Generate or regenerate a saved color recipe before previewing captions.</p> : null}
-    {unsaved && <p role="status">Save your unsaved caption, color, framing or cut-plan changes before updating the caption preview. {context.recipeDirty && <button onClick={() => navigation?.open("style")}>Open Style & cuts</button>} {context.framing.dirty && <button onClick={() => navigation?.open("export")}>Open Export</button>}</p>}
+    {unsaved && <p role="status">Save your unsaved caption, color, framing or cut-plan changes before updating the caption preview. {context.recipeDirty && <button onClick={() => navigation?.open("style")}>Open Color</button>} {context.framing.dirty && <button onClick={() => navigation?.open("framing")}>Open Framing</button>}</p>}
     <button disabled={!canPreview || busy} onClick={() => void run("caption")}>Update caption preview</button>
     <p className="hint">Saved cue at a visible 30 fps output frame, using actual export font, color, framing and subtitle rendering. Stills may downscale to a 960-pixel edge; they do not preview encoded-video quality.</p>
     {busy && <p role="status">Updating comparison… Previous images remain visible. Frame processing is capped at 30 seconds.</p>}{error && <p role="alert">{error}</p>}

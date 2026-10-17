@@ -32,7 +32,7 @@ export function SequenceEditor({ projectId, onState }: { projectId: string; onSt
   const revision = sequence?.revision ?? null;
   const ready = result?.status === "ready";
   useEffect(() => { onState({ revision, ready, dirty, busy, duration: sequence ? sequence.output_frames / 30 : undefined }); }, [onState, revision, ready, dirty, busy, sequence]);
-  useWorkspaceReport("sequence", "cuts", busy ? "Working" : ready && !dirty ? "Ready" : error || result?.status === "stale" ? "Needs attention" : "Needs input");
+  useWorkspaceReport("sequence", "cuts", busy ? "Working" : ready && !dirty ? "Ready" : error || result?.status === "stale" ? "Needs attention" : "Needs input", undefined, dirty);
   function restore(data: unknown) {
     setReview(null); const value = parse(data); setResult(value); setSlots(drafts(value.sequence?.slots ?? [])); setSelected(value.sequence?.slots[0]?.id ?? ""); setConfirm(false); setError("");
   }
@@ -75,7 +75,7 @@ export function SequenceEditor({ projectId, onState }: { projectId: string; onSt
     <button disabled={busy || !result} onClick={() => sequence || dirty ? setConfirm(true) : void run("generate")}>{sequence ? "Regenerate slots from reference pacing" : "Create slots from reference pacing"}</button>
     {confirm && <div role="group" aria-label="Confirm slot replacement"><p>Replace the saved slots and unsaved edits? This clears assignments and can make captions and transcription stale.</p><button disabled={busy} onClick={() => void run("generate")}>Confirm replace slots</button><button onClick={() => setConfirm(false)}>Keep slots</button></div>}
     {sequence && <>
-      <AssemblyReview projectId={projectId} revision={sequence.revision} savedSlots={sequence.slots} clips={clips} dirty={dirty} disabled={busy} onApply={v => { setReview(null); setSlots(drafts(v)); setSelected(v[0]?.id ?? ""); }} onPreview={v => { player.current?.pause(); setPlayingRange(false); setSelected(v.id); setReview(v); }} />
+      <details><summary>Automatic selection · proposals and locked ranges</summary><AssemblyReview projectId={projectId} revision={sequence.revision} savedSlots={sequence.slots} clips={clips} dirty={dirty} disabled={busy} onApply={v => { setReview(null); setSlots(drafts(v)); setSelected(v[0]?.id ?? ""); }} onPreview={v => { player.current?.pause(); setPlayingRange(false); setSelected(v.id); setReview(v); }} /></details>
       <p>Saved revision {sequence.revision} · {sequence.output_frames / 30} seconds · 30 fps · at most 60 slots / 120 seconds</p>
       {result?.message && <p role="status">{result.message}</p>}
       <div className="sequence-editor">

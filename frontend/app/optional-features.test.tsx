@@ -17,7 +17,7 @@ function OptionalFailure(){useWorkspaceReport("audio-settings","audio","Ready");
 it("optional readiness and transcription/pacing failures do not block a basic export", async()=>{
  vi.stubGlobal("fetch",vi.fn(async(url:string)=>url.endsWith("optional-features")?({ok:false,json:async()=>({error:{message:"Check after current job"}})} as Response):({ok:true,json:async()=>({status:"idle",output:null,spec:null,outdated:false,message:null,failure_code:null})} as Response)));
  render(<GuidedWorkspace hasFootage><OptionalFailure/><WorkspaceSection section="audio"><OptionalFeatures projectId="one"/></WorkspaceSection><WorkspaceSection section="export"><RenderVideo projectId="one" revision={1} recipeReady dirty={false} busy={false}/></WorkspaceSection></GuidedWorkspace>);
- fireEvent.click(screen.getByRole("button",{name:"Audio & captions"}));fireEvent.click(screen.getByRole("button",{name:"Check optional features"}));await screen.findByRole("alert");
- expect(screen.getByRole("button",{name:"Audio & captions"})).toHaveAccessibleDescription("Ready");expect(screen.getByRole("button",{name:"Style & cuts"})).toHaveAccessibleDescription("Ready");
+ fireEvent.click(screen.getByRole("button",{name:"Audio"}));fireEvent.click(screen.getByRole("button",{name:"Check optional features"}));await screen.findByRole("alert");
+ expect(screen.getByRole("button",{name:"Audio"})).toHaveAccessibleDescription("Ready");expect(screen.getByRole("button",{name:"Color"})).toHaveAccessibleDescription("Ready");
  fireEvent.click(screen.getByRole("button",{name:"Export"}));await waitFor(()=>expect(screen.getByRole("button",{name:"Render video"})).toBeEnabled());
 });

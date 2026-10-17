@@ -46,13 +46,14 @@ it("supports footage without reference media and omits failed comparisons", asyn
   expect(screen.getByText(/Retrieve the reference and analyze/)).toBeInTheDocument();
 });
 
-it("keeps optional pacing and cut-plan failures visible in the guided style section", async () => {
+it("keeps optional pacing and cut-plan failures visible in the Cuts destination", async () => {
   vi.stubGlobal("fetch", vi.fn(async (url: string) => {
     if (url.endsWith("/edit-plan")) return { ok: false, json: async () => ({ error: { message: "Cut plan could not be loaded." } }) } as Response;
     return { ok: true, json: async () => ({ status: url.endsWith("/reference-media") ? "ready" : "failed", message: "Detector output missing", failure_code: "detector_output_missing", blueprint: null, media: { duration_seconds: 1, sha256: "a".repeat(64), versions: {} } }) } as Response;
   }));
   render(<GuidedWorkspace hasFootage><ProjectColors projectId="first" hasFootage /></GuidedWorkspace>);
-  fireEvent.click(screen.getByRole("button", { name: "Style & cuts" }));
+  fireEvent.click(screen.getByRole("button", { name: "Cuts" }));
+  fireEvent.click(screen.getByText("Single-clip cut plan"));
   expect(await screen.findByText("Cut plan could not be loaded.")).toBeVisible();
   expect(await screen.findByRole("button", { name: "Retry pacing analysis" })).toBeVisible();
   expect(within(screen.getByLabelText("Style Blueprint — estimated cuts and pacing")).getByRole("alert")).toBeVisible();

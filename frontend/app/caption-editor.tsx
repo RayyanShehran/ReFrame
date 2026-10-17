@@ -58,7 +58,8 @@ async function request(projectId: string, signal: AbortSignal, body?: unknown, f
 const drafts = (cues: Cue[]): DraftCue[] => cues.map(c => ({ ...c, start: String(c.start), end: String(c.end) }));
 export function CaptionEditor({ projectId, planState, sequenceState = emptySequence, onState, appearance, sourceKey = "" }: { projectId: string; planState: PlanState; sequenceState?: SequenceState; onState: (state: CaptionState) => void; appearance?: AppearanceContext; sourceKey?: string }) {
   const navigation = useWorkspaceNavigation();
-  const [selectedCue, setSelectedCue] = useState(0), [issuesOnly, setIssuesOnly] = useState(false);
+  const [selectedCueChoice, setSelectedCue] = useState(0), [issuesOnly, setIssuesOnly] = useState(false);
+  const selectedCue = navigation?.selection?.kind === "cue" ? Number(navigation.selection.id) : selectedCueChoice;
   const [result, setResult] = useState<Result | null>(null);
   const [cues, setCues] = useState<DraftCue[]>([]);
   const [enabled, setEnabled] = useState(false);
@@ -130,7 +131,7 @@ export function CaptionEditor({ projectId, planState, sequenceState = emptySeque
     } finally { if (action.current === controller) { action.current = null; if (!controller.signal.aborted) setBusy(false); } }
   }
   function edit(index: number, key: "start" | "end" | "text", value: string) { setCues(all => all.map((c, i) => i === index ? { ...c, [key]: value } : c)); setConfirm(false); }
-  useWorkspaceReport("caption-settings", "captions", busy || proposalBusy ? "Working" : error || (!!result && !ready) ? "Needs attention" : ready ? dirty ? "Needs input" : "Ready" : "Needs input", "Saving or loading caption…");
+  useWorkspaceReport("caption-settings", "captions", busy || proposalBusy ? "Working" : error || (!!result && !ready) ? "Needs attention" : ready ? dirty ? "Needs input" : "Ready" : "Needs input", "Saving or loading caption…", dirty);
   return <section className="reference-section" aria-label="Captions">
     <h3>Captions</h3>
     <p className="hint">Manual text, imported SRT, or reviewed automatic transcription. Optional reference OCR updates only matching text, never your cues. Times use the final output timeline after cuts: start inclusive, end exclusive. Saving does not create a video preview.</p>
@@ -161,7 +162,8 @@ export function CaptionEditor({ projectId, planState, sequenceState = emptySeque
           <label>Start (seconds)<input aria-label={`Cue ${i + 1} start`} type="number" inputMode="decimal" aria-invalid={invalidIndex === i} aria-describedby={invalidIndex === i ? `cue-error-${projectId}` : undefined} min="0" max={duration ?? 120} step="any" value={c.start} onChange={e => edit(i, "start", e.target.value)} /></label>
           <label>End (seconds)<input aria-label={`Cue ${i + 1} end`} type="number" inputMode="decimal" aria-invalid={invalidIndex === i} aria-describedby={invalidIndex === i ? `cue-error-${projectId}` : undefined} min="0" max={duration ?? 120} step="any" value={c.end} onChange={e => edit(i, "end", e.target.value)} /></label>
           <label>Plain text<textarea aria-label={`Cue ${i + 1} text`} dir="auto" aria-invalid={invalidIndex === i} aria-describedby={invalidIndex === i ? `cue-error-${projectId}` : undefined} rows={2} value={c.text} onChange={e => edit(i, "text", e.target.value)} /></label>
-          {c.appearance && <details><summary>Cue appearance · {c.appearance.font_binding.family}</summary>
+          {!c.appearance && track?.font_binding && <button onClick={() => setCues(all => all.map((cue, n) => n === i ? { ...cue, appearance: { style: { ...style }, animation: { ...animation }, font_binding: track.font_binding! } } : cue))}>Customize this cue’s appearance</button>}
+          {c.appearance && <details open><summary>Cue appearance · {c.appearance.font_binding.family}</summary>
             <FontPicker projectId={projectId} revision={revision ?? 0} value={c.appearance.style.font} dirty={dirty} disabled={busy || proposalBusy} onChange={font => setCues(all => all.map((cue, n) => n === i ? { ...cue, appearance: { ...cue.appearance!, style: { ...cue.appearance!.style, font, font_origin: "manual" } } } : cue))} onUploaded={() => run("reload")} onBusy={setFontBusy} />
             <StyleControls value={c.appearance.style} onChange={value => setCues(all => all.map((cue, n) => n === i ? { ...cue, appearance: { ...cue.appearance!, style: value } } : cue))} />
             <button onClick={() => setCues(all => all.map((cue, n) => { if (n !== i) return cue; return { start: cue.start, end: cue.end, text: cue.text }; }))}>Use global appearance for this cue</button>
@@ -174,7 +176,7 @@ export function CaptionEditor({ projectId, planState, sequenceState = emptySeque
         <button className="button-primary" disabled={!canSave || (!dirty && !needsRebind)} onClick={() => { if (needsRebind) setConfirm(true); else void run("save"); }}>Save captions</button>
         {confirm && <div role="group" aria-label="Confirm caption timeline rebind"><p>Rebind to {mode === "sequence" ? `sequence revision ${sequenceState.revision}` : mode === "cuts" ? `cut plan revision ${planState.revision}` : "the whole clip"}? Text and entered times are preserved and every cue is revalidated. No cue shifts or truncation.</p><button disabled={!canSave} onClick={() => void run("save")}>Confirm rebind and save</button><button onClick={() => setConfirm(false)}>Cancel rebind</button></div>}
       </fieldset>
-      {appearance && track && <details><summary>Reference caption comparison and assisted styling</summary><CaptionAppearancePreview sourceKey={sourceKey} key={`appearance-${projectId}`} projectId={projectId} track={track} ready={ready} dirty={dirty} disabled={busy || proposalBusy || fontBusy || matchBusy || motionBusy} onMotionBusy={setMotionBusy} context={appearance} plan={planState} sequence={sequenceState} onFontChoice={font => setStyle(v => ({ ...v, font, font_origin: "assisted" }))} onMatchBusy={setMatchBusy} draftStyle={style} onAppearance={patch => setStyle(v => ({ ...v, ...patch }))} onAnimation={patch => setAnimation(v => readAnimation({ ...v, ...patch }))} /></details>}
+      {appearance && track && <details><summary>Reference evidence & assisted appearance · selected cue</summary><CaptionAppearancePreview sourceKey={sourceKey} key={`appearance-${projectId}`} projectId={projectId} track={track} ready={ready} dirty={dirty} disabled={busy || proposalBusy || fontBusy || matchBusy || motionBusy} onMotionBusy={setMotionBusy} context={appearance} plan={planState} sequence={sequenceState} onFontChoice={font => setStyle(v => ({ ...v, font, font_origin: "assisted" }))} onMatchBusy={setMatchBusy} draftStyle={style} onAppearance={patch => setStyle(v => ({ ...v, ...patch }))} onAnimation={patch => setAnimation(v => readAnimation({ ...v, ...patch }))} /></details>}
     </>}
     <button disabled={busy || proposalBusy || fontBusy || matchBusy || motionBusy} onClick={() => void run("reload")}>{dirty ? "Discard caption changes and reload" : "Reload saved captions"}</button>
     {busy && <p role="status">Saving, importing or loading captions…</p>}

@@ -63,7 +63,7 @@ export function FramePreview({ projectId, duration, revision, recipeReady, recip
     {duration === null ? <p>Save footage to choose a source frame.</p> : <p className="hint">Selected source range: {rangeStart.toFixed(3)}–{(rangeEnd ?? duration).toFixed(3)} seconds. The clip end selects its last available frame.</p>}
     {duration !== null && !validTime && <p role="alert">Choose a finite time from {rangeStart} to {rangeEnd ?? duration} seconds.</p>}
     {!recipeReady && <p>Save a valid color mode and its required matches before previewing.</p>}
-    {(recipeDirty || framing.dirty) && <p role="status">Preview excludes unsaved edits and uses saved settings. {recipeDirty && <button onClick={() => navigation?.open("style", `recipe-${projectId}-brightness`)}>{grading ? "Review and save color" : "Review and save recipe"}</button>} {framing.dirty && <button onClick={() => navigation?.open("export")}>Review and save framing</button>}</p>}
+    {(recipeDirty || framing.dirty) && <p role="status">Preview excludes unsaved edits and uses saved settings. {recipeDirty && <button onClick={() => navigation?.open("style", `recipe-${projectId}-brightness`)}>{grading ? "Review and save color" : "Review and save recipe"}</button>} {framing.dirty && <button onClick={() => navigation?.open("framing")}>Review and save framing</button>}</p>}
     <button disabled={!ready || !validTime || busy} onClick={() => void update()}>{busy ? "Updating preview…" : error ? "Retry preview" : "Update preview"}</button>
     {!preview && !busy && !error && <p>No preview yet. Select a time and update explicitly.</p>}
     {busy && <p role="status">Decoding one footage frame… Previous images remain visible. Processing is capped at 30 seconds.</p>}

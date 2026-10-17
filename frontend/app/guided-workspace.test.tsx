@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
-import { GuidedWorkspace, WorkspaceSection, useWorkspaceReport } from "./guided-workspace";
+import { GuidedWorkspace, WorkspaceSection, useWorkspaceNavigation, useWorkspaceReport } from "./guided-workspace";
 import { ColorRecipe } from "./color-recipe";
 import { RenderVideo } from "./render-video";
 
@@ -92,4 +92,22 @@ it("uses the compact section picker without remounting drafts and focuses the se
  expect(screen.getByRole("button", {name: "Save recipe"})).toBeEnabled();
  expect(picker).toHaveValue("style");
  expect(screen.getByRole("option", {name: "Audio · Ready"})).toBeInTheDocument();
+});
+
+
+function SelectionProbe() {
+  const navigation = useWorkspaceNavigation();
+  return <><button onClick={() => navigation?.select({kind: "slot", id: "slot-one", label: "Sequence slot 1", time: 2})}>Select test slot</button><button onClick={() => navigation?.select({kind: "cue", id: "0", label: "Caption cue 1", time: 3})}>Select test cue</button><output aria-label="Selection">{navigation?.selection?.id}</output></>;
+}
+it("retains independent slot and cue selection while categories change", () => {
+ render(<GuidedWorkspace hasFootage><SelectionProbe /></GuidedWorkspace>);
+ fireEvent.click(screen.getByRole("button", {name: "Select test slot"}));
+ fireEvent.click(screen.getByRole("button", {name: "Color"}));
+ expect(screen.getByLabelText("Selection")).toHaveTextContent("slot-one");
+ fireEvent.click(screen.getByRole("button", {name: "Select test cue"}));
+ expect(screen.getByLabelText("Selection")).toHaveTextContent("0");
+ fireEvent.click(screen.getByRole("button", {name: "Color"}));
+ expect(screen.getByLabelText("Selection")).toHaveTextContent("slot-one");
+ fireEvent.click(screen.getByRole("button", {name: "Captions"}));
+ expect(screen.getByLabelText("Selection")).toHaveTextContent("0");
 });

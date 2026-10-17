@@ -70,7 +70,7 @@ export function ColorRecipe({ projectId, analysesReady, footageDuration = null, 
   const action = useRef<AbortController | null>(null);
   const recipe = result?.recipe;
   const dirty = !!recipe && (fields.some(f => draft.selected[f.name] !== recipe.selected[f.name]) || draft.strength !== recipe.strength);
-  useWorkspaceReport("recipe", "style", grading.mode !== "basic" ? "Ready" : busy ? "Working" : error || result?.status === "stale" ? "Needs attention" : result?.status === "ready" && !dirty ? "Ready" : "Needs input", grading.mode === "basic" && busy ? "Saving or loading recipe…" : undefined);
+  useWorkspaceReport("recipe", "style", grading.mode !== "basic" ? "Ready" : busy ? "Working" : error || result?.status === "stale" ? "Needs attention" : result?.status === "ready" && !dirty ? "Ready" : "Needs input", grading.mode === "basic" && busy ? "Saving or loading recipe…" : undefined, dirty);
   function restore(value: Result) {
     setResult(value); setError(""); setConfirmRegenerate(false);
     if (value.recipe) setDraft({ selected: value.recipe.selected, strength: value.recipe.strength });
@@ -149,7 +149,7 @@ export function ColorRecipe({ projectId, analysesReady, footageDuration = null, 
     {busy && <p role="status">Saving or loading recipe…</p>}
     </section></details>
 
-    </WorkspaceSection><WorkspaceSection section="cuts"><EditPlan key={`plan-${projectId}`} projectId={projectId} recipeReady={activeReady && !activeDirty && !activeBusy} onState={setPlanState} /><SequenceEditor projectId={projectId} onState={setSequenceState} /></WorkspaceSection>
+    </WorkspaceSection><WorkspaceSection section="cuts"><details><summary>Single-clip cut plan</summary><EditPlan key={`plan-${projectId}`} projectId={projectId} recipeReady={activeReady && !activeDirty && !activeBusy} onState={setPlanState} /></details><SequenceEditor projectId={projectId} onState={setSequenceState} /></WorkspaceSection>
     <WorkspaceSection section="audio">
     <AudioChoices sourceKey={sourceKey} key={`audio-${projectId}`} projectId={projectId} onState={setAudioState} /></WorkspaceSection><WorkspaceSection section="captions">
     <CaptionEditor sourceKey={sourceKey} key={`captions-${projectId}`} projectId={projectId} planState={planState} sequenceState={sequenceState} onState={setCaptionState} appearance={{ gradingRevision: grading.revision, recipeRevision: activeRevision, recipeReady: activeReady, recipeDirty: activeDirty, recipeBusy: activeBusy, framing: framingState }} />

@@ -5,14 +5,14 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState, ty
 
 export const sections = { reference: "Reference", footage: "Media", cuts: "Cuts", style: "Color", captions: "Captions", audio: "Audio", framing: "Framing", export: "Export" };
 export type Section = keyof typeof sections;
-type Report = { section: Section; state: "Needs input" | "Ready" | "Working" | "Needs attention"; message?: string };
+type Report = { section: Section; state: "Needs input" | "Ready" | "Working" | "Needs attention"; message?: string; dirty?: boolean };
 type Action = { section: Section; label: string; focusId?: string };
 type Selection = { kind: "slot" | "cue"; id: string; label: string; time: number };
 const Context = createContext<null | { selection: Selection | null; select: (value: Selection) => void; preview: HTMLDivElement | null; strip: HTMLDivElement | null; active: Section; open: (section: Section, focusId?: string) => void; report: (key: string, value: Report | null) => void; next: (value: Action | null) => void }>(null);
 export function useWorkspaceNavigation() { return useContext(Context); }
-export function useWorkspaceReport(key: string, section: Section, state: Report["state"], message?: string) {
+export function useWorkspaceReport(key: string, section: Section, state: Report["state"], message?: string, dirty = false) {
   const report = useContext(Context)?.report;
-  useEffect(() => { report?.(key, { section, state, message }); }, [report, key, section, state, message]);
+  useEffect(() => { report?.(key, { section, state, message, dirty }); }, [report, key, section, state, message, dirty]);
   useEffect(() => () => report?.(key, null), [report, key]);
 }
 export function WorkspaceSection({ section, children }: { section: Section; children: ReactNode }) {
@@ -25,9 +25,17 @@ export function WorkspaceSurface({ name, children }: { name: "preview" | "strip"
 }
 export function GuidedWorkspace({ hasFootage, footageUnavailable = false, children }: { hasFootage: boolean; footageUnavailable?: boolean; children: ReactNode }) {
   const [active, setActive] = useState<Section>("cuts");
-  const [selection, setSelection] = useState<Selection | null>(null);
+  const [slotSelection, setSlotSelection] = useState<Selection | null>(null), [cueSelection, setCueSelection] = useState<Selection | null>(null);
+  const selection = active === "captions" ? cueSelection : ["cuts", "style"].includes(active) ? slotSelection : null;
+  const monitor = useRef<HTMLDivElement | null>(null);
   const [preview, setPreview] = useState<HTMLDivElement | null>(null), [strip, setStrip] = useState<HTMLDivElement | null>(null);
-  const select = useCallback((value: Selection) => { setSelection(value); }, []);
+  const select = useCallback((value: Selection) => {
+    if (value.kind === "slot") { setSlotSelection(value); setActive(previous => previous === "style" ? previous : "cuts"); }
+    else { setCueSelection(value); setActive("captions"); }
+    const player = monitor.current?.querySelector("video");
+    if (player && Number.isFinite(player.duration)) player.currentTime = Math.min(value.time, player.duration);
+  }, []);
+  const monitorRef = useCallback((node: HTMLDivElement | null) => { monitor.current = node; setPreview(node); }, []);
   const [reports, setReports] = useState<Record<string, Report>>({});
   const [action, setAction] = useState<Action | null>(null);
   const heading = useRef<HTMLHeadingElement>(null);
@@ -46,7 +54,7 @@ export function GuidedWorkspace({ hasFootage, footageUnavailable = false, childr
   function state(section: Section) {
     const values = Object.values(reports).filter(value => value.section === section);
     if (values.some(value => value.state === "Working")) return "Working";
-    const required = section === "audio" ? [reports["audio-settings"], reports["caption-settings"]].filter(Boolean) : section === "style" ? [reports.recipe].filter(Boolean) : values;
+    const required = section === "audio" ? [reports["audio-settings"]].filter(Boolean) : section === "captions" ? [reports["caption-settings"]].filter(Boolean) : section === "style" ? [reports.recipe].filter(Boolean) : values;
     if (required.some(value => value.state === "Needs attention")) return "Needs attention";
     if (section === "footage") return footageUnavailable ? "Needs attention" : hasFootage ? "Ready" : "Needs input";
     if (section === "style") return reports.recipe?.state ?? "Needs input";
@@ -54,10 +62,10 @@ export function GuidedWorkspace({ hasFootage, footageUnavailable = false, childr
   }
   return <Context.Provider value={{ active, open, report, next: setAction, selection, select, preview, strip }}>
     <div className="guided-workspace">
-      <div className="workspace-guidance"><p>Saved settings & output</p><button className="button-primary" onClick={() => open(next.section, next.focusId)}>{next.label}</button><p className="hint">Save edits in their own panel, then update the output. Category switches preserve drafts. The player shows the last export, not unsaved changes.</p></div>
+      <div className="workspace-guidance"><p role="status">{Object.values(reports).some(r => r.dirty) ? `Unsaved edits: ${Array.from(new Set(Object.values(reports).filter(r => r.dirty).map(r => sections[r.section]))).join(", ")}` : "No unsaved edits reported"}</p><button className="button-primary" onClick={() => open(next.section, next.focusId)}>{next.label}</button><p className="hint">Save edits in their own panel, then update the output. Category switches preserve drafts. The player shows the last export, not unsaved changes.</p></div>
       {Object.entries(reports).filter(([, value]) => value.state === "Working").map(([key, value]) => <p className="workspace-job" role="status" key={key}>{value.message || "Processing…"} <button onClick={() => open(value.section)}>View {sections[value.section]}</button></p>)}
       <div className="editor-layout"><nav className="workspace-nav" aria-label="Editing sections"><label className="workspace-section-picker">Editing section<select value={active} onChange={e => open(e.target.value as Section)}>{Object.entries(sections).map(([key, label]) => <option key={key} value={key}>{label} · {state(key as Section)}</option>)}</select></label><div className="workspace-section-buttons">{Object.entries(sections).map(([key, label]) => <button key={key} aria-label={label} aria-describedby={`section-state-${key}`} data-state={state(key as Section)} aria-current={active === key ? "page" : undefined} onClick={() => open(key as Section)}>{label}<small id={`section-state-${key}`}>{state(key as Section)}</small></button>)}</div></nav>
-      <div className="editor-stage"><div className="editor-preview" ref={setPreview} /><div className="editor-strip" ref={setStrip} /></div><div className="editor-inspector"><p className="editor-scope">{selection && ["cuts", "style", "captions"].includes(active) ? `${selection.label} · ${selection.time.toFixed(2)} s` : "Whole project"}</p><h2 className="workspace-section-title" ref={heading} tabIndex={-1}>{sections[active]}</h2>
+      <div className="editor-stage"><div className="editor-preview" ref={monitorRef} /><div className="editor-strip" ref={setStrip} /></div><div className="editor-inspector"><p className="editor-scope">{selection && ["cuts", "style", "captions"].includes(active) ? `${selection.label} · ${selection.time.toFixed(2)} s` : "Whole project"}</p><h2 className="workspace-section-title" ref={heading} tabIndex={-1}>{sections[active]}</h2>
       {children}
     </div></div></div>
   </Context.Provider>;

@@ -71,12 +71,12 @@ it("rejects a response for a different project and invalid source times", async 
 it("keeps its preview across workspace sections without decoding again", async () => {
   const fetcher = vi.fn(async () => ok(result())); vi.stubGlobal("fetch", fetcher);
   render(<GuidedWorkspace hasFootage><WorkspaceSection section="style"><FramePreview {...props} /></WorkspaceSection></GuidedWorkspace>);
-  fireEvent.click(screen.getByRole("button", { name: "Style & cuts" }));
+  fireEvent.click(screen.getByRole("button", { name: "Color" }));
   fireEvent.click(screen.getByRole("button", { name: "Update preview" }));
   const original = await screen.findByRole("img", { name: /Original footage/ });
   fireEvent.click(screen.getByRole("button", { name: "Export" }));
   expect(original).not.toBeVisible();
-  fireEvent.click(screen.getByRole("button", { name: "Style & cuts" }));
+  fireEvent.click(screen.getByRole("button", { name: "Color" }));
   expect(original).toBeVisible(); expect(fetcher).toHaveBeenCalledTimes(1);
 });
 

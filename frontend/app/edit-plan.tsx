@@ -82,7 +82,7 @@ export function EditPlan({ projectId, recipeReady, onState }: { projectId: strin
     } finally { if (action.current === controller) { action.current = null; if (!controller.signal.aborted) setBusy(false); } }
   }
   const continuous = !!plan && starts.every((s, i) => !i || Math.round(Number(s) * 30) === Math.round(Number(starts[i - 1]) * 30) + plan.segments[i - 1].output_end_frame - plan.segments[i - 1].output_start_frame);
-  useWorkspaceReport("cut-plan", "style", busy ? "Working" : error || result?.status === "stale" ? "Needs attention" : ready ? "Ready" : "Needs input", "Saving or loading cut plan…");
+  useWorkspaceReport("cut-plan", "cuts", busy ? "Working" : error || result?.status === "stale" ? "Needs attention" : ready ? "Ready" : "Needs input", "Saving or loading cut plan…", dirty);
   return <section className="reference-section" aria-label="Cut plan">
     <h3>Optional reference-paced cut plan</h3>
     <p className="hint">Optional for whole-clip export. An experimental timing suggestion from estimated reference shot lengths, not semantic matching. Review the footage ranges. No transitions are added. Audio and manual captions are saved separately below.</p>

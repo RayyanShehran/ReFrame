@@ -32,7 +32,7 @@ function parse(data: unknown): Operation {
 }
 export function GradingControls({ projectId, sourceKey, analysesReady, sequence, onState }: { projectId: string; sourceKey: string; analysesReady: boolean; sequence: SequenceState; onState: (state: GradingState) => void }) {
   const { operation, error, starting, start, refresh } = useMediaOperation(projectId, "grading", parse, 360);
-  const [draft, setDraft] = useState<Settings | null>(null), [selected, setSelected] = useState("");
+  const [draft, setDraft] = useState<Settings | null>(null), [selection, setSelection] = useState({ key: "", slot: "" });
   const [clips, setClips] = useState<SourceClip[]>([]), [slots, setSlots] = useState<Slot[]>([]);
   const [loadError, setLoadError] = useState(""), [confirm, setConfirm] = useState<"project" | "shot" | null>(null);
   const initialized = useRef(false);
@@ -43,7 +43,7 @@ export function GradingControls({ projectId, sourceKey, analysesReady, sequence,
   const primary = clips.find(c => c.primary);
   const validKeys = new Set(operation?.entries.filter(e => e.valid).map(e => e.match.key));
   const ready = !!saved && !!primary?.available && (saved.mode !== "transfer" || validKeys.has(`clip:${primary.id}`));
-  useWorkspaceReport("grading", "style", busy ? "Working" : dirty || !ready ? "Needs input" : "Ready", busy ? "Preparing reference color matches…" : undefined);
+  useWorkspaceReport("grading", "style", busy ? "Working" : dirty || !ready ? "Needs input" : "Ready", busy ? "Preparing reference color matches…" : undefined, dirty);
   const sequenceReady = !!saved && (saved.mode !== "transfer" || slots.every(s => s.clip_id && validKeys.has(saved.shot_slots.includes(s.id) ? `slot:${s.id}` : `clip:${s.clip_id}`)));
   const choices: PreviewChoice[] = [...clips.map(c => ({ key: `clip:${c.id}`, name: c.name, clipId: c.id, start: 0, end: c.metadata.duration_seconds })),
     ...slots.filter(s => s.clip_id).map((s, i) => ({ key: `slot:${s.id}`, name: `Slot ${i + 1} · ${clips.find(c => c.id === s.clip_id)?.name ?? "footage"}`, clipId: s.clip_id!, slotId: s.id, start: s.source_start_frame / 30, end: s.source_end_frame / 30 }))];
@@ -61,7 +61,7 @@ export function GradingControls({ projectId, sourceKey, analysesReady, sequence,
     return () => controller.abort();
   }, [projectId, sourceKey, sequence.revision, sequence.ready, refresh]);
   const selectedSlot = navigation?.selection?.kind === "slot" ? `slot:${navigation.selection.id}` : "";
-  const key = selected || (choices.some(c => c.key === selectedSlot) ? selectedSlot : "") || choices[0]?.key || "";
+  const key = (selection.slot === selectedSlot ? selection.key : "") || (choices.some(c => c.key === selectedSlot) ? selectedSlot : "") || choices[0]?.key || "";
   const entry = operation?.entries.find(e => e.match.key === key);
   const chosenSlot = slots.find(s => `slot:${s.id}` === key);
   const controls = draft?.controls[key] ?? defaultControls;
@@ -82,7 +82,7 @@ export function GradingControls({ projectId, sourceKey, analysesReady, sequence,
       <p role="status">{dirty ? "Unsaved color changes" : "Saved color mode"}: {colorModes[dirty ? draft!.mode : saved?.mode ?? "basic"]} · {dirty ? "Saved revision" : "Revision"} {saved?.revision ?? 0}</p>
       <p className="hint">Original bypasses color adjustments. Basic uses the existing recipe below. Transfer uses a separate fixed match for each clip; Basic is not added on top.</p>
       {draft.mode === "transfer" && <>
-        <label>Clip or slot to refine<select value={key} onChange={e => { setSelected(e.target.value); }}>{choices.map(c => <option key={c.key} value={c.key}>{c.name}</option>)}</select></label>
+        <label>Clip or slot to refine<select value={key} onChange={e => { setSelection({ key: e.target.value, slot: selectedSlot }); }}>{choices.map(c => <option key={c.key} value={c.key}>{c.name}</option>)}</select></label>
         <p className="editor-scope">Editing {chosenSlot ? "one sequence slot · assigned reference interval" : "one source clip · project reference look"}. These controls do not change other clips.</p><p role="status">{entry?.valid ? "Prepared match" : "Match required"}{entry?.message && ` · ${entry.message}`}</p>
         {chosenSlot && <>
           <label><input type="checkbox" checked={draft.shot_slots.includes(chosenSlot.id)} disabled={!entry?.valid || busy} onChange={e => setDraft({ ...draft, shot_slots: e.target.checked ? [...draft.shot_slots, chosenSlot.id] : draft.shot_slots.filter(id => id !== chosenSlot.id) })} />Use assigned reference shot for this slot</label>

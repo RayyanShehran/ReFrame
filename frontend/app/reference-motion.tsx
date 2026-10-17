@@ -40,7 +40,7 @@ export function ReferenceMotion({projectId,currentKey,baseStyle,frame,disabled,o
   void fetch(`${apiBase}/api/projects/${encodeURIComponent(projectId)}/reference-motion`,{signal:c.signal}).then(async response=>{const data=await response.json();if(!response.ok)throw new Error(data?.error?.message||"Motion settings could not load.");const r=parse(data);if(c.signal.aborted)return;setSaved(r);if(!restored.current){restored.current=true;if(r.suggestion){setStart(String(r.suggestion.request.start));setEnd(String(r.suggestion.request.end));setRegion(r.suggestion.request.region);}else if(r.current_selection)setRegion(r.current_selection.selection.rectangle);}}).catch(e=>{if(!c.signal.aborted)setError(e instanceof Error?e.message:"Load failed.");}).finally(()=>clearTimeout(timer));
   return()=>{c.abort();clearTimeout(timer);};
  },[projectId,currentKey]);
- useWorkspaceReport("reference-motion","audio",busy?"Working":error?"Needs attention":"Ready","Comparing reference caption motion…");
+ useWorkspaceReport("reference-motion","captions",busy?"Working":error?"Needs attention":"Ready","Comparing reference caption motion…");
  async function run(kind:"analyze"|"preview"|"compare"|"apply"|"reload"){
   if(action.current||disabled||(!prerequisite&&kind!=="reload")||(!valid&&kind!=="reload"))return;
   const c=new AbortController(),version=++generation.current;action.current=c;setBusy(true);setError("");const timer=setTimeout(()=>c.abort(),45000);
