@@ -128,7 +128,8 @@ export function AutomaticMaker() {
     } catch (cause) { if (!controller.signal.aborted) { setError(cause instanceof Error ? cause.message : "Generation failed."); if (cause instanceof Error && "code" in cause && cause.code === "generation_replace_required") setNeedsReplace(true); } }
     finally { if (action.current === controller) { action.current = null; setBusy(false); } }
   }
-  return <>
+  return <div className={customize ? "customize-open" : undefined}>
+    {customize && <header className="customize-header"><span className="brand">ReFrame.</span><p>Customize · save each panel, then update output</p><button onClick={() => setCustomize(false)}>Return to result</button></header>}
     <header className="topbar"><span className="brand">ReFrame<span className="brand-dot">.</span></span><span className="header-project">Reference in. Your video out.</span><button onClick={() => void open(null)}>New video</button></header>
     <section className="hero"><p className="eyebrow">[ Your reference. Your footage. ]</p><h1>Make it <em>your own.</em></h1><p className="intro">Paste a reference. Add your clips. Generate your video.</p></section>
     <section className="reference-section automatic-creation" aria-label="Create video">
@@ -162,5 +163,5 @@ export function AutomaticMaker() {
     {!outputId && projectId && <button onClick={() => { setCustomizeMounted(true); setCustomize(value => !value); }}>{customize ? "Close Customize" : "Customize"}</button>}
     {customizeMounted && <div hidden={!customize}><Workspace key={projectId} onProjectChange={id => void open(id)} /></div>}
     {!!projects.length && <details className="project-switcher"><summary>Saved videos</summary><ul>{projects.map(project => <li key={project.id}><button onClick={() => void open(project.id)}>{project.name}</button></li>)}</ul></details>}
-  </>;
+  </div>;
 }

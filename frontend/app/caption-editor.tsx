@@ -1,6 +1,6 @@
 "use client";
 
-import { useWorkspaceReport } from "./guided-workspace";
+import { useWorkspaceNavigation, useWorkspaceReport } from "./guided-workspace";
 import { useEffect, useRef, useState } from "react";
 import { Application, TranscriptionReview } from "./transcription-review";
 import { emptySequence, type SequenceState } from "./sequence-editor";
@@ -57,6 +57,8 @@ async function request(projectId: string, signal: AbortSignal, body?: unknown, f
 }
 const drafts = (cues: Cue[]): DraftCue[] => cues.map(c => ({ ...c, start: String(c.start), end: String(c.end) }));
 export function CaptionEditor({ projectId, planState, sequenceState = emptySequence, onState, appearance, sourceKey = "" }: { projectId: string; planState: PlanState; sequenceState?: SequenceState; onState: (state: CaptionState) => void; appearance?: AppearanceContext; sourceKey?: string }) {
+  const navigation = useWorkspaceNavigation();
+  const [selectedCue, setSelectedCue] = useState(0), [issuesOnly, setIssuesOnly] = useState(false);
   const [result, setResult] = useState<Result | null>(null);
   const [cues, setCues] = useState<DraftCue[]>([]);
   const [enabled, setEnabled] = useState(false);
@@ -128,7 +130,7 @@ export function CaptionEditor({ projectId, planState, sequenceState = emptySeque
     } finally { if (action.current === controller) { action.current = null; if (!controller.signal.aborted) setBusy(false); } }
   }
   function edit(index: number, key: "start" | "end" | "text", value: string) { setCues(all => all.map((c, i) => i === index ? { ...c, [key]: value } : c)); setConfirm(false); }
-  useWorkspaceReport("caption-settings", "audio", busy || proposalBusy ? "Working" : error || (!!result && !ready) ? "Needs attention" : ready ? dirty ? "Needs input" : "Ready" : "Needs input", "Saving or loading caption…");
+  useWorkspaceReport("caption-settings", "captions", busy || proposalBusy ? "Working" : error || (!!result && !ready) ? "Needs attention" : ready ? dirty ? "Needs input" : "Ready" : "Needs input", "Saving or loading caption…");
   return <section className="reference-section" aria-label="Captions">
     <h3>Captions</h3>
     <p className="hint">Manual text, imported SRT, or reviewed automatic transcription. Optional reference OCR updates only matching text, never your cues. Times use the final output timeline after cuts: start inclusive, end exclusive. Saving does not create a video preview.</p>
@@ -138,20 +140,24 @@ export function CaptionEditor({ projectId, planState, sequenceState = emptySeque
       <p role="status">{!ready ? result.font_available === false ? "Selected font unavailable" : "Stale caption timeline" : dirty ? "Unsaved caption changes" : track?.revision ? "Captions saved" : "Captions disabled by default"} · Caption revision {revision} · {provenance === "srt_import" ? "Imported SRT (editable)" : provenance === "automatic_transcription" ? "Automatic transcription (reviewed/editable)" : provenance === "automatic_reference" ? "Reference visible text (OCR, editable)" : provenance === "generated_output_audio" ? "Generated from assembled output audio (editable)" : "Manual text"}</p>
       {result.message && <p role="alert">{result.message}</p>}
       {result.font_warnings?.map(w => <p role="note" key={w}>{w}</p>)}
-      <details><summary>Automatic transcription and review</summary><TranscriptionReview key={projectId} projectId={projectId} revision={revision ?? 0} hasText={!!(cues.length || track?.cues.length || dirty)} draftToken={JSON.stringify(cues)} busy={busy}
+      <details><summary>Recognition & evidence · transcription and review</summary><TranscriptionReview key={projectId} projectId={projectId} revision={revision ?? 0} hasText={!!(cues.length || track?.cues.length || dirty)} draftToken={JSON.stringify(cues)} busy={busy}
         onBusy={setProposalBusy} onApply={(value: Application) => { setCues(drafts(value.cues)); setMode(value.timeline.mode); setProvenance(value.provenance); setAutomaticId(value.automatic_proposal_id); setEnabled(true); setPreview(null); setConfirmation(null); setError(""); }} /></details>
       <fieldset className="recipe-controls" aria-describedby={error ? `caption-save-error-${projectId}` : undefined} disabled={busy || proposalBusy || fontBusy || matchBusy || motionBusy}>
         <legend>Caption track</legend>
         <label><input type="checkbox" checked={enabled} onChange={e => { setEnabled(e.target.checked); setConfirm(false); }} /> Enable captions</label>
         <label>Caption timeline <select value={mode} onChange={e => { setMode(e.target.value as Mode); setConfirm(false); }}><option value="whole">Whole clip</option><option value="cuts" disabled={!planState.ready}>Saved cut plan</option><option value="sequence" disabled={!sequenceState.ready}>Multi-clip sequence</option></select></label>
         <p>{duration !== null ? `Selected output: ${duration.toFixed(3)} seconds${mode === "sequence" ? ` · Sequence revision ${sequenceState.revision}` : mode === "cuts" ? ` · Cut plan revision ${planState.revision}` : ""}.` : "Save footage and, for cuts, a valid cut plan first."} Select the matching render mode when captions are enabled.</p>
-        <FontPicker key={projectId} projectId={projectId} revision={revision ?? 0} value={style.font} dirty={dirty} disabled={busy || proposalBusy} onChange={font => setStyle(v => ({ ...v, font, font_origin: "manual" }))} onUploaded={() => run("reload")} onBusy={setFontBusy} />
+        <details><summary>Track appearance · defaults for cues without overrides</summary><FontPicker key={projectId} projectId={projectId} revision={revision ?? 0} value={style.font} dirty={dirty} disabled={busy || proposalBusy} onChange={font => setStyle(v => ({ ...v, font, font_origin: "manual" }))} onUploaded={() => run("reload")} onBusy={setFontBusy} />
         <StyleControls value={style} onChange={setStyle} />
-        <AnimationControls value={animation} onChange={setAnimation} />
+        <AnimationControls value={animation} onChange={setAnimation} /></details>
         <label>Import SRT<input type="file" accept=".srt,text/plain,application/x-subrip" onChange={e => { const file = e.target.files?.[0]; e.target.value = ""; if (file) void run("import", file); }} /></label>
         <p className="hint">UTF-8, at most 128 KiB, 200 cues, 200 characters and three explicit lines per cue. Formatting-looking text is shown literally.</p>
         {preview && <div role="group" aria-label="SRT import preview"><h4>SRT preview: {preview.length} cues</h4><ol>{preview.map((c, i) => <li key={i}>{c.start}–{c.end} seconds <span className="caption-text" dir="auto">{c.text}</span></li>)}</ol><p>Replacing changes only this draft. All cue times are revalidated when saved.</p><button onClick={() => { setCues(drafts(preview)); setProvenance("srt_import"); setAutomaticId(null); setPreview(null); setConfirm(false); }}>Replace draft with imported cues</button><button onClick={() => setPreview(null)}>Cancel import</button></div>}
-        {cues.map((c, i) => <fieldset key={i} className="caption-cue"><legend>Cue {i + 1}</legend>
+        <div className="caption-cue-browser"><h4>Text & timing · select one cue</h4>
+        <label><input type="checkbox" checked={issuesOnly} onChange={e => setIssuesOnly(e.target.checked)} /> Show cues needing correction</label>
+        <ol className="cue-list">{cues.map((c, i) => (!issuesOnly || invalidIndex === i) && <li key={i}><button aria-pressed={selectedCue === i} onClick={() => { setSelectedCue(i); navigation?.select({ kind: "cue", id: String(i), label: `Caption cue ${i + 1}`, time: Number(c.start) || 0 }); }}><span>{c.start}–{c.end} s {invalidIndex === i ? " · Fix timing/text" : ""}</span><span dir="auto">{c.text || "Empty cue"}</span></button></li>)}</ol>
+        <p className="hint">This filter shows validation issues in this draft. Recognition uncertainty remains in Recognition & evidence.</p></div>
+        {cues.map((c, i) => <fieldset key={i} hidden={i !== Math.min(selectedCue, cues.length - 1)} className="caption-cue"><legend>Cue {i + 1}</legend>
           <label>Start (seconds)<input aria-label={`Cue ${i + 1} start`} type="number" inputMode="decimal" aria-invalid={invalidIndex === i} aria-describedby={invalidIndex === i ? `cue-error-${projectId}` : undefined} min="0" max={duration ?? 120} step="any" value={c.start} onChange={e => edit(i, "start", e.target.value)} /></label>
           <label>End (seconds)<input aria-label={`Cue ${i + 1} end`} type="number" inputMode="decimal" aria-invalid={invalidIndex === i} aria-describedby={invalidIndex === i ? `cue-error-${projectId}` : undefined} min="0" max={duration ?? 120} step="any" value={c.end} onChange={e => edit(i, "end", e.target.value)} /></label>
           <label>Plain text<textarea aria-label={`Cue ${i + 1} text`} dir="auto" aria-invalid={invalidIndex === i} aria-describedby={invalidIndex === i ? `cue-error-${projectId}` : undefined} rows={2} value={c.text} onChange={e => edit(i, "text", e.target.value)} /></label>
@@ -162,9 +168,9 @@ export function CaptionEditor({ projectId, planState, sequenceState = emptySeque
           </details>}
           <span>{Array.from(c.text).length}/200 characters</span><button onClick={() => { setCues(all => all.filter((_, n) => n !== i)); setConfirm(false); }}>Delete cue {i + 1}</button>
         </fieldset>)}
-        {invalidIndex >= 0 && <p role="alert" id={`cue-error-${projectId}`}>Cue {invalidIndex + 1}: use finite ordered nonoverlapping times inside the output, nonempty text, at most 200 characters and two lines.</p>}
+        {invalidIndex >= 0 && <p role="alert" id={`cue-error-${projectId}`}>Cue {invalidIndex + 1}: use finite ordered nonoverlapping times inside the output, nonempty text, at most 200 characters and three lines.</p>}
         {enabled && !cues.length && <p>Add at least one cue before enabling captions.</p>}
-        <button disabled={cues.length >= 200} onClick={() => { const start = cues.length ? Number(cues[cues.length - 1].end) : 0; setCues(all => [...all, { start: String(Number.isFinite(start) ? start : 0), end: String(Math.min(duration ?? 120, (Number.isFinite(start) ? start : 0) + 1)), text: "" }]); setConfirm(false); }}>Add cue</button>
+        <button disabled={cues.length >= 200} onClick={() => { const start = cues.length ? Number(cues[cues.length - 1].end) : 0; setSelectedCue(cues.length); setCues(all => [...all, { start: String(Number.isFinite(start) ? start : 0), end: String(Math.min(duration ?? 120, (Number.isFinite(start) ? start : 0) + 1)), text: "" }]); setConfirm(false); }}>Add cue</button>
         <button className="button-primary" disabled={!canSave || (!dirty && !needsRebind)} onClick={() => { if (needsRebind) setConfirm(true); else void run("save"); }}>Save captions</button>
         {confirm && <div role="group" aria-label="Confirm caption timeline rebind"><p>Rebind to {mode === "sequence" ? `sequence revision ${sequenceState.revision}` : mode === "cuts" ? `cut plan revision ${planState.revision}` : "the whole clip"}? Text and entered times are preserved and every cue is revalidated. No cue shifts or truncation.</p><button disabled={!canSave} onClick={() => void run("save")}>Confirm rebind and save</button><button onClick={() => setConfirm(false)}>Cancel rebind</button></div>}
       </fieldset>

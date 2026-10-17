@@ -27,13 +27,13 @@ it("keeps a real unsaved recipe across sections without fetching or saving it ag
   const fetcher = vi.fn(async (url: string) => ({ ok: true, json: async () => url.endsWith("/color-recipe") ? saved : idle } as Response));
   vi.stubGlobal("fetch", fetcher);
   render(<GuidedWorkspace hasFootage><ColorRecipe projectId="one" analysesReady /></GuidedWorkspace>);
-  fireEvent.click(screen.getByRole("button", { name: "Style & cuts" }));
+  fireEvent.click(screen.getByRole("button", { name: "Color" }));
   const slider = await screen.findByRole("slider", { name: /Brightness offset/ });
   fireEvent.change(slider, { target: { value: "-.15" } });
   const count = fetcher.mock.calls.length;
-  fireEvent.click(screen.getByRole("button", { name: "Audio & captions" }));
+  fireEvent.click(screen.getByRole("button", { name: "Audio" }));
   expect(slider).not.toBeVisible();
-  fireEvent.click(screen.getByRole("button", { name: "Style & cuts" }));
+  fireEvent.click(screen.getByRole("button", { name: "Color" }));
   expect(slider).toBeVisible();
   expect(slider).toHaveValue("-0.15");
   expect(screen.getByRole("button", { name: "Save recipe" })).toBeEnabled();
@@ -47,7 +47,7 @@ it("does not require optional cuts or captions to render a whole clip", async ()
   await screen.findByText(/Whole clip · Cuts optional/);
   expect(screen.getByRole("button", { name: "Render video" })).toBeEnabled();
   expect(screen.getByText(/Saved captions: disabled/)).toBeVisible();
-  expect(screen.getByRole("button", { name: "Audio & captions" })).toHaveAccessibleDescription("Ready");
+  expect(screen.getByRole("button", { name: "Audio" })).toHaveAccessibleDescription("Ready");
   fireEvent.change(screen.getByLabelText("Render mode"), { target: { value: "cuts" } });
   expect(screen.getByRole("button", { name: "Render video" })).toBeDisabled();
 });
@@ -58,22 +58,22 @@ it("links an actual render blocker to its section without starting work", async 
   render(<GuidedWorkspace hasFootage><SourceStatus /><WorkspaceSection section="export"><RenderVideo projectId="one" revision={1} recipeReady dirty={false} busy={false} audioState={{ revision: 2, ready: true, dirty: true, busy: false }} /></WorkspaceSection><WorkspaceSection section="audio"><p>Audio draft editor</p></WorkspaceSection></GuidedWorkspace>);
   fireEvent.click(screen.getByRole("button", { name: "Export" }));
   expect(await screen.findByRole("button", { name: "Render video" })).toBeDisabled();
-  fireEvent.click(screen.getByRole("button", { name: "Open Audio & captions" }));
+  fireEvent.click(screen.getByRole("button", { name: "Open Audio" }));
   expect(screen.getByText("Audio draft editor")).toBeVisible();
-  await waitFor(() => expect(screen.getByRole("heading", { name: "Audio & captions" })).toHaveFocus());
+  await waitFor(() => expect(screen.getByRole("heading", { name: "Audio" })).toHaveFocus());
   expect(fetcher.mock.calls.every(call => (call[1] as RequestInit | undefined)?.method !== "POST")).toBe(true);
 });
 
 it("resets section, draft and running status when switching project identity", async () => {
   vi.stubGlobal("fetch", vi.fn(async (url: string) => ({ ok: true, json: async () => url.endsWith("/color-recipe") ? saved : idle } as Response)));
   const view = render(<GuidedWorkspace key="one" hasFootage><SourceStatus working /><ColorRecipe projectId="one" analysesReady /></GuidedWorkspace>);
-  fireEvent.click(screen.getByRole("button", { name: "Style & cuts" }));
+  fireEvent.click(screen.getByRole("button", { name: "Color" }));
   fireEvent.change(await screen.findByRole("slider", { name: /Brightness offset/ }), { target: { value: "-.2" } });
   expect(screen.getByText("Analyzing footage colors…")).toBeVisible();
   view.rerender(<GuidedWorkspace key="two" hasFootage><SourceStatus /><ColorRecipe projectId="two" analysesReady /></GuidedWorkspace>);
-  expect(screen.getByRole("button", { name: "Reference" })).toHaveAttribute("aria-current", "step");
+  expect(screen.getByRole("button", { name: "Cuts" })).toHaveAttribute("aria-current", "page");
   expect(screen.queryByText("Analyzing footage colors…")).not.toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: "Style & cuts" }));
+  fireEvent.click(screen.getByRole("button", { name: "Color" }));
   expect(await screen.findByRole("slider", { name: /Brightness offset/ })).toHaveValue("0.1");
   expect(screen.getByRole("button", { name: "Save recipe" })).toBeDisabled();
 });
@@ -86,10 +86,10 @@ it("uses the compact section picker without remounting drafts and focuses the se
  const slider = await screen.findByRole("slider", {name: /Brightness offset/});
  fireEvent.change(slider, {target: {value: "-.15"}});
  fireEvent.change(picker, {target: {value: "audio"}});
- await waitFor(() => expect(screen.getByRole("heading", {name: "Audio & captions"})).toHaveFocus());
+ await waitFor(() => expect(screen.getByRole("heading", {name: "Audio"})).toHaveFocus());
  fireEvent.change(picker, {target: {value: "style"}});
  expect(slider).toHaveValue("-0.15");
  expect(screen.getByRole("button", {name: "Save recipe"})).toBeEnabled();
  expect(picker).toHaveValue("style");
- expect(screen.getByRole("option", {name: "Audio & captions · Ready"})).toBeInTheDocument();
+ expect(screen.getByRole("option", {name: "Audio · Ready"})).toBeInTheDocument();
 });

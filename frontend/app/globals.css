@@ -241,3 +241,42 @@ footer { color: var(--secondary); padding-top: 40px; font-size: 12px; }
 .caption-correction-grid fieldset { padding: 1rem; }
 .caption-correction-grid input[type=number], .caption-correction-grid textarea { display: block; width: 100%; min-height: 44px; padding: .5rem; border: 1px solid var(--border, #333); background: #080808; color: inherit; }
 .caption-correction-grid label:has(input[type=checkbox]) { display: flex; align-items: center; }
+.editor-layout { display:grid; grid-template-columns:140px minmax(0,1.4fr) minmax(320px,1fr); gap:20px; align-items:start; }
+.editor-layout > *, .editor-inspector *, .editor-stage * { min-width:0; }
+.editor-layout .workspace-nav { display:block; position:sticky; top:12px; margin:0; padding:0; }
+.editor-layout .workspace-section-buttons { display:grid; gap:6px; }
+.editor-layout .workspace-section-buttons button { text-align:left; padding:12px; width:100%; }
+.editor-layout .workspace-section-buttons button[aria-current] { border-color:var(--accent); background:var(--raised); }
+.editor-layout .workspace-section-picker { display:none; }
+.editor-inspector { height:calc(100vh - 100px); min-height:420px; overflow:auto; padding:0 8px 24px; border-left:1px solid var(--border); }
+.editor-inspector .reference-section { border:0; padding:16px 8px; margin:0 0 16px; }
+.editor-inspector .workspace-section-title { margin:4px 8px 12px; }
+.editor-inspector .color-workbench, .editor-inspector .export-workbench, .editor-inspector .sequence-editor { display:block; }
+.editor-inspector .frame-preview-images { grid-template-columns:minmax(0,1fr); }
+.editor-inspector :is(input:not([type=checkbox]),select,textarea) { max-width:100%; }
+.editor-scope { color:var(--accent); font-size:12px; margin:8px; overflow-wrap:anywhere; }
+.editor-stage { position:sticky; top:12px; }
+.output-monitor { background:var(--deep); border:1px solid var(--border); padding:16px; }
+.output-monitor video { display:block; width:100%; height:clamp(180px,36vh,480px); object-fit:contain; background:black; margin:12px 0; }
+.output-monitor button, .output-monitor a { margin:8px 12px 8px 0; }
+.editor-strip { margin-top:16px; }
+.editor-strip .sequence-slots { display:flex; gap:8px; overflow-x:auto; max-height:230px; padding:8px 0; }
+.editor-strip .sequence-slots li { flex:0 0 190px; padding:12px; border:1px solid var(--border); overflow-wrap:anywhere; }
+.editor-strip .sequence-slots button { min-height:44px; margin:2px; white-space:normal; }
+.cue-list { list-style:none; padding:0; max-height:220px; overflow:auto; }
+.cue-list button { display:grid; gap:6px; width:100%; text-align:start; padding:12px; border:1px solid var(--border); }
+.cue-list button[aria-pressed=true], .sequence-slots button[aria-pressed=true] { border-color:var(--accent); }
+.cue-list button span:first-child { font-size:12px; color:var(--muted); }
+.editor-inspector .caption-cue[hidden] { display:none; }
+.editor-inspector .caption-cue { display:grid; grid-template-columns:minmax(0,1fr); }
+.editor-inspector details { margin-block:12px; }
+.editor-inspector summary { padding:10px 0; }
+.customize-open > :is(.hero,.automatic-creation,.automatic-result,details,.caption-recovery), .customize-open > .topbar { display:none; }
+.customize-header { display:flex; gap:16px; align-items:center; padding:16px 0; border-bottom:1px solid var(--border); }
+.customize-header p { flex:1; margin:0; }
+.customize-open .footage-section > .project-heading { padding-top:12px; }
+.customize-open .footage-section > .project-heading .eyebrow { display:none; }
+.customize-open .footage-section > .project-heading h1 { font-size:24px; margin:8px 0; }
+.customize-open .topbar { display:none; }
+@media(max-width:1099px) { .editor-layout { grid-template-columns:120px minmax(0,1fr); } .editor-stage { grid-column:2; position:static; } .editor-inspector { grid-column:2; height:auto; min-height:0; overflow:visible; } .editor-layout .workspace-nav { grid-column:1; grid-row:1/3; } }
+@media(max-width:600px) { .editor-layout { display:flex; flex-direction:column; gap:12px; } .editor-layout > * { width:100%; } .editor-layout .workspace-nav { position:static; } .editor-layout .workspace-section-buttons { display:none; } .editor-layout .workspace-section-picker { display:grid; } .editor-inspector { border-left:0; padding:0 0 24px; } .output-monitor { padding:12px; } .output-monitor video { height:190px; } .editor-strip .sequence-slots { max-height:180px; } .editor-strip .sequence-slots li { flex-basis:160px; } .customize-header { flex-wrap:wrap; } }

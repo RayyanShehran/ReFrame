@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { apiBase, clipRequest, readLibrary, type SourceClip } from "./clip-library";
 import { AssemblyReview, type Assignment } from "./assembly-review";
-import { useWorkspaceReport } from "./guided-workspace";
+import { WorkspaceSurface, useWorkspaceNavigation, useWorkspaceReport } from "./guided-workspace";
 
 type Slot = Assignment & { source_end_frame: number; output_start_frame: number; output_end_frame: number; source_hash: string | null };
 type Sequence = { schema_version: 1; revision: number; slots: Slot[]; output_frames: number };
@@ -20,6 +20,7 @@ function parse(data: unknown): Result {
 }
 const drafts = (slots: Assignment[]): Draft[] => slots.map(s => ({ id: s.id, clip_id: s.clip_id, start: String(s.source_start_frame / 30), duration: String(s.duration_frames / 30), reference_start_frame: s.reference_start_frame, reference_end_frame: s.reference_end_frame }));
 export function SequenceEditor({ projectId, onState }: { projectId: string; onState: (state: SequenceState) => void }) {
+  const navigation = useWorkspaceNavigation();
   const [result, setResult] = useState<Result | null>(null), [slots, setSlots] = useState<Draft[]>([]);
   const [clips, setClips] = useState<SourceClip[]>([]), [selected, setSelected] = useState("");
   const [busy, setBusy] = useState(false), [error, setError] = useState(""), [confirm, setConfirm] = useState(false);
@@ -31,7 +32,7 @@ export function SequenceEditor({ projectId, onState }: { projectId: string; onSt
   const revision = sequence?.revision ?? null;
   const ready = result?.status === "ready";
   useEffect(() => { onState({ revision, ready, dirty, busy, duration: sequence ? sequence.output_frames / 30 : undefined }); }, [onState, revision, ready, dirty, busy, sequence]);
-  useWorkspaceReport("sequence", "style", busy ? "Working" : ready && !dirty ? "Ready" : error || result?.status === "stale" ? "Needs attention" : "Needs input");
+  useWorkspaceReport("sequence", "cuts", busy ? "Working" : ready && !dirty ? "Ready" : error || result?.status === "stale" ? "Needs attention" : "Needs input");
   function restore(data: unknown) {
     setReview(null); const value = parse(data); setResult(value); setSlots(drafts(value.sequence?.slots ?? [])); setSelected(value.sequence?.slots[0]?.id ?? ""); setConfirm(false); setError("");
   }
@@ -55,7 +56,7 @@ export function SequenceEditor({ projectId, onState }: { projectId: string; onSt
   const bounded = total <= 3600 && slots.length >= 1 && slots.length <= 60;
   const rangeValid = !!slot && !!source?.available && !problem(slot);
   function patch(change: Partial<Draft>) { setPlayingRange(false); player.current?.pause(); setSlots(v => v.map(s => s.id === selected ? { ...s, ...change } : s)); }
-  function select(id: string) { setReview(null); player.current?.pause(); setPlayingRange(false); setSelected(id); }
+  function select(id: string) { setReview(null); player.current?.pause(); setPlayingRange(false); setSelected(id); const n = slots.findIndex(s => s.id === id); navigation?.select({ kind: "slot", id, label: `Sequence slot ${n + 1}`, time: slots.slice(0, n).reduce((t, s) => t + Number(s.duration), 0) }); }
   function move(index: number, direction: number) { setSlots(v => { const next = [...v]; [next[index], next[index + direction]] = [next[index + direction], next[index]]; return next; }); }
   async function run(kind: "generate" | "save" | "reload") {
     if (action.current) return;
@@ -78,11 +79,11 @@ export function SequenceEditor({ projectId, onState }: { projectId: string; onSt
       <p>Saved revision {sequence.revision} · {sequence.output_frames / 30} seconds · 30 fps · at most 60 slots / 120 seconds</p>
       {result?.message && <p role="status">{result.message}</p>}
       <div className="sequence-editor">
-        <div><ol className="sequence-slots">{slots.map((s, i) => <li key={s.id}>
+        <div><WorkspaceSurface name="strip"><p className="eyebrow">Sequence · select a slot to edit</p><ol className="sequence-slots">{slots.map((s, i) => <li key={s.id}>
           <button aria-pressed={selected === s.id} onClick={() => select(s.id)}>Slot {i + 1} · {Number(s.duration).toFixed(3)} s · {clips.find(c => c.id === s.clip_id)?.name ?? "Unassigned"}</button>
           <button aria-label={`Move slot ${i+1} earlier`} disabled={busy || i === 0} onClick={() => move(i, -1)}>↑ Earlier</button><button aria-label={`Move slot ${i+1} later`} disabled={busy || i === slots.length - 1} onClick={() => move(i, 1)}>↓ Later</button>
           <button aria-label={`Remove slot ${i+1}`} disabled={busy || slots.length === 1} onClick={() => { const next = slots.filter(v => v.id !== s.id); setSlots(next); if (selected === s.id) select(next[0].id); }}>Remove slot</button>
-        </li>)}</ol><button disabled={busy || slots.length >= 60} onClick={() => { const id = crypto.randomUUID(); setSlots(v => [...v, { id, clip_id: null, start: "0", duration: "1" }]); select(id); }}>Add slot</button></div>
+        </li>)}</ol></WorkspaceSurface><button disabled={busy || slots.length >= 60} onClick={() => { const id = crypto.randomUUID(); setSlots(v => [...v, { id, clip_id: null, start: "0", duration: "1" }]); select(id); }}>Add slot</button></div>
         {slot && <div className="sequence-trim" role="group" aria-label="Selected source range">
           <h4>Slot {slots.findIndex(s => s.id === slot.id) + 1}</h4>
           <p className="hint">{slot.reference_start_frame != null && slot.reference_end_frame != null ? `Associated reference ${(slot.reference_start_frame/30).toFixed(3)}–${(slot.reference_end_frame/30).toFixed(3)} s. This interval stays with the slot when reordered or resized.` : "No reference interval: automatic selection uses measurements for this slot. Regenerate slots from reference pacing to establish shot associations."}</p>

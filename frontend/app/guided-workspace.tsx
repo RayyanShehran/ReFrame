@@ -1,12 +1,14 @@
 "use client";
 
+import { createPortal } from "react-dom";
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 
-export const sections = { reference: "Reference", footage: "Footage", style: "Style & cuts", audio: "Audio & captions", export: "Export" };
+export const sections = { reference: "Reference", footage: "Media", cuts: "Cuts", style: "Color", captions: "Captions", audio: "Audio", framing: "Framing", export: "Export" };
 export type Section = keyof typeof sections;
 type Report = { section: Section; state: "Needs input" | "Ready" | "Working" | "Needs attention"; message?: string };
 type Action = { section: Section; label: string; focusId?: string };
-const Context = createContext<null | { active: Section; open: (section: Section, focusId?: string) => void; report: (key: string, value: Report | null) => void; next: (value: Action | null) => void }>(null);
+type Selection = { kind: "slot" | "cue"; id: string; label: string; time: number };
+const Context = createContext<null | { selection: Selection | null; select: (value: Selection) => void; preview: HTMLDivElement | null; strip: HTMLDivElement | null; active: Section; open: (section: Section, focusId?: string) => void; report: (key: string, value: Report | null) => void; next: (value: Action | null) => void }>(null);
 export function useWorkspaceNavigation() { return useContext(Context); }
 export function useWorkspaceReport(key: string, section: Section, state: Report["state"], message?: string) {
   const report = useContext(Context)?.report;
@@ -17,8 +19,15 @@ export function WorkspaceSection({ section, children }: { section: Section; chil
   const workspace = useContext(Context);
   return <div className="workspace-pane" hidden={!!workspace && workspace.active !== section}>{children}</div>;
 }
+export function WorkspaceSurface({ name, children }: { name: "preview" | "strip"; children: ReactNode }) {
+  const workspace = useContext(Context);
+  return workspace ? workspace[name] ? createPortal(children, workspace[name]) : null : <>{children}</>;
+}
 export function GuidedWorkspace({ hasFootage, footageUnavailable = false, children }: { hasFootage: boolean; footageUnavailable?: boolean; children: ReactNode }) {
-  const [active, setActive] = useState<Section>("reference");
+  const [active, setActive] = useState<Section>("cuts");
+  const [selection, setSelection] = useState<Selection | null>(null);
+  const [preview, setPreview] = useState<HTMLDivElement | null>(null), [strip, setStrip] = useState<HTMLDivElement | null>(null);
+  const select = useCallback((value: Selection) => { setSelection(value); }, []);
   const [reports, setReports] = useState<Record<string, Report>>({});
   const [action, setAction] = useState<Action | null>(null);
   const heading = useRef<HTMLHeadingElement>(null);
@@ -43,13 +52,13 @@ export function GuidedWorkspace({ hasFootage, footageUnavailable = false, childr
     if (section === "style") return reports.recipe?.state ?? "Needs input";
     return required.length && required.every(value => value.state === "Ready") ? "Ready" : "Needs input";
   }
-  return <Context.Provider value={{ active, open, report, next: setAction }}>
+  return <Context.Provider value={{ active, open, report, next: setAction, selection, select, preview, strip }}>
     <div className="guided-workspace">
-      <div className="workspace-guidance"><p>Next step</p><button className="button-primary" onClick={() => open(next.section, next.focusId)}>{next.label}</button><p className="hint">Open a section to continue. Switching sections keeps unsaved edits; refresh restores saved settings only. Cuts and captions are optional.</p></div>
+      <div className="workspace-guidance"><p>Saved settings & output</p><button className="button-primary" onClick={() => open(next.section, next.focusId)}>{next.label}</button><p className="hint">Save edits in their own panel, then update the output. Category switches preserve drafts. The player shows the last export, not unsaved changes.</p></div>
       {Object.entries(reports).filter(([, value]) => value.state === "Working").map(([key, value]) => <p className="workspace-job" role="status" key={key}>{value.message || "Processing…"} <button onClick={() => open(value.section)}>View {sections[value.section]}</button></p>)}
-      <nav className="workspace-nav" aria-label="Editing sections"><label className="workspace-section-picker">Editing section<select value={active} onChange={e => open(e.target.value as Section)}>{Object.entries(sections).map(([key, label]) => <option key={key} value={key}>{label} · {state(key as Section)}</option>)}</select></label><div className="workspace-section-buttons">{Object.entries(sections).map(([key, label]) => <button key={key} aria-label={label} aria-describedby={`section-state-${key}`} data-state={state(key as Section)} aria-current={active === key ? "step" : undefined} onClick={() => open(key as Section)}>{label}<small id={`section-state-${key}`}>{state(key as Section)}</small></button>)}</div></nav>
-      <h2 className="workspace-section-title" ref={heading} tabIndex={-1}>{sections[active]}</h2>
+      <div className="editor-layout"><nav className="workspace-nav" aria-label="Editing sections"><label className="workspace-section-picker">Editing section<select value={active} onChange={e => open(e.target.value as Section)}>{Object.entries(sections).map(([key, label]) => <option key={key} value={key}>{label} · {state(key as Section)}</option>)}</select></label><div className="workspace-section-buttons">{Object.entries(sections).map(([key, label]) => <button key={key} aria-label={label} aria-describedby={`section-state-${key}`} data-state={state(key as Section)} aria-current={active === key ? "page" : undefined} onClick={() => open(key as Section)}>{label}<small id={`section-state-${key}`}>{state(key as Section)}</small></button>)}</div></nav>
+      <div className="editor-stage"><div className="editor-preview" ref={setPreview} /><div className="editor-strip" ref={setStrip} /></div><div className="editor-inspector"><p className="editor-scope">{selection && ["cuts", "style", "captions"].includes(active) ? `${selection.label} · ${selection.time.toFixed(2)} s` : "Whole project"}</p><h2 className="workspace-section-title" ref={heading} tabIndex={-1}>{sections[active]}</h2>
       {children}
-    </div>
+    </div></div></div>
   </Context.Provider>;
 }

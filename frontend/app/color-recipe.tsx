@@ -149,12 +149,12 @@ export function ColorRecipe({ projectId, analysesReady, footageDuration = null, 
     {busy && <p role="status">Saving or loading recipe…</p>}
     </section></details>
 
-    <EditPlan key={`plan-${projectId}`} projectId={projectId} recipeReady={activeReady && !activeDirty && !activeBusy} onState={setPlanState} /><SequenceEditor projectId={projectId} onState={setSequenceState} /></WorkspaceSection>
+    </WorkspaceSection><WorkspaceSection section="cuts"><EditPlan key={`plan-${projectId}`} projectId={projectId} recipeReady={activeReady && !activeDirty && !activeBusy} onState={setPlanState} /><SequenceEditor projectId={projectId} onState={setSequenceState} /></WorkspaceSection>
     <WorkspaceSection section="audio">
-    <AudioChoices sourceKey={sourceKey} key={`audio-${projectId}`} projectId={projectId} onState={setAudioState} />
+    <AudioChoices sourceKey={sourceKey} key={`audio-${projectId}`} projectId={projectId} onState={setAudioState} /></WorkspaceSection><WorkspaceSection section="captions">
     <CaptionEditor sourceKey={sourceKey} key={`captions-${projectId}`} projectId={projectId} planState={planState} sequenceState={sequenceState} onState={setCaptionState} appearance={{ gradingRevision: grading.revision, recipeRevision: activeRevision, recipeReady: activeReady, recipeDirty: activeDirty, recipeBusy: activeBusy, framing: framingState }} />
     </WorkspaceSection><WorkspaceSection section="export">
     <div className="export-workbench"><RenderVideo grading={grading} savedStrength={grading.mode === "basic" ? recipe?.strength : undefined} savedValues={grading.mode === "basic" ? recipe?.selected : undefined} framingState={framingState} projectId={projectId} revision={activeRevision} recipeReady={activeReady} dirty={activeDirty} busy={activeBusy} planState={planState} sequenceState={sequenceState} audioState={audioState} captionState={captionState} />
-    <FramingControls key={`framing-${projectId}`} projectId={projectId} onState={setFramingState} /></div>
+    </div></WorkspaceSection><WorkspaceSection section="framing"><FramingControls key={`framing-${projectId}`} projectId={projectId} onState={setFramingState} />
   </WorkspaceSection></>;
 }

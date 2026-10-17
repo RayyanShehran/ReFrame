@@ -3,7 +3,7 @@
 import { colorModes, type GradingState } from "./grading-controls";
 import { MediaOperation, useMediaOperation } from "./use-media-operation";
 import { useEffect, useState } from "react";
-import { sections, useWorkspaceNavigation, type Section } from "./guided-workspace";
+import { WorkspaceSurface, sections, useWorkspaceNavigation, type Section } from "./guided-workspace";
 import { emptySequence, type SequenceState } from "./sequence-editor";
 import { PlanState } from "./edit-plan";
 import { AudioState, audioModeLabels } from "./audio-choices";
@@ -54,22 +54,22 @@ export function RenderVideo({ grading, savedStrength, savedValues, projectId, re
   block(sequence && grading && !grading.sequenceReady, "style", "Match every assigned clip or reference shot before rendering the sequence.");
   block(dirty, "style", "Save your unsaved color changes before rendering.");
   block(busy, "style", "Wait for the color operation to finish.");
-  block(cuts && !planState?.ready, "style", "Generate or regenerate a valid saved cut plan before rendering cuts.");
-  block(cuts && planState?.dirty, "style", "Save your unsaved cut changes before rendering.");
-  block(cuts && planState?.busy, "style", "Wait for the cut plan operation to finish.");
-  block(sequence && !sequenceState.ready, "style", "Save a valid sequence with a clip assigned to every slot.");
-  block(sequence && sequenceState.dirty, "style", "Save your unsaved sequence changes before rendering.");
-  block(sequence && sequenceState.busy, "style", "Wait for the sequence operation to finish.");
+  block(cuts && !planState?.ready, "cuts", "Generate or regenerate a valid saved cut plan before rendering cuts.");
+  block(cuts && planState?.dirty, "cuts", "Save your unsaved cut changes before rendering.");
+  block(cuts && planState?.busy, "cuts", "Wait for the cut plan operation to finish.");
+  block(sequence && !sequenceState.ready, "cuts", "Save a valid sequence with a clip assigned to every slot.");
+  block(sequence && sequenceState.dirty, "cuts", "Save your unsaved sequence changes before rendering.");
+  block(sequence && sequenceState.busy, "cuts", "Wait for the sequence operation to finish.");
   block(!audioState.ready, "audio", "Load and save valid audio choices before rendering.");
   block(audioState.dirty, "audio", "Save your unsaved audio changes before rendering.");
   block(audioState.busy, "audio", "Wait for the audio operation to finish.");
-  block(!captionState.ready, "audio", "Load and save valid captions, or disable them, before rendering.");
-  block(captionState.dirty, "audio", "Save your unsaved caption changes before rendering.");
-  block(captionState.busy, "audio", "Wait for the caption operation to finish.");
-  block(!captionMatches, "audio", "Explicitly rebind and save captions for this render mode in the Captions panel.");
-  block(!framingState.ready, "export", "Load valid saved framing before rendering.");
-  block(framingState.dirty, "export", "Save your unsaved framing changes before rendering.");
-  block(framingState.busy, "export", "Wait for the framing operation to finish.");
+  block(!captionState.ready, "captions", "Load and save valid captions, or disable them, before rendering.");
+  block(captionState.dirty, "captions", "Save your unsaved caption changes before rendering.");
+  block(captionState.busy, "captions", "Wait for the caption operation to finish.");
+  block(!captionMatches, "captions", "Explicitly rebind and save captions for this render mode in the Captions panel.");
+  block(!framingState.ready, "framing", "Load valid saved framing before rendering.");
+  block(framingState.dirty, "framing", "Save your unsaved framing changes before rendering.");
+  block(framingState.busy, "framing", "Wait for the framing operation to finish.");
   const actionSection = blockers[0]?.section ?? "export";
   const actionLabel = blockers[0]?.message ?? (running || starting ? "View rendering progress" : current ? "Play or download your video" : "Review settings and render");
   useEffect(() => { next?.({ section: actionSection, label: actionLabel }); }, [next, actionSection, actionLabel]);
@@ -81,7 +81,13 @@ export function RenderVideo({ grading, savedStrength, savedValues, projectId, re
     output.spec.edit_plan && planState?.revision != null && output.spec.edit_plan.revision !== planState.revision && "cut plan",
   ].filter(Boolean) : [];
   const url = output ? `${apiBase}/api/projects/${encodeURIComponent(projectId)}/outputs/${output.output_id}` : "";
-  return <section className="reference-section" aria-label="Rendered video">
+  return <><WorkspaceSurface name="preview"><div className="output-monitor" aria-label="Output monitor">
+    <p className="eyebrow">Last exported video</p>
+    {output ? <><video key={output.output_id} className="rendered-video" controls playsInline preload="metadata" src={`${url}/video`} aria-label={`Rendered video, recipe revision ${output.spec.recipe_revision}`} />
+    <p role="status">{running ? "Rendering replacement…" : outdated ? "Update required · saved settings changed" : "Saved output"} · {output.width} × {output.height}</p><a className="download-link" href={`${url}/download`}>Download MP4</a></> : <p>No exported video yet. Save your settings and render from Export.</p>}
+    <button onClick={() => navigation?.open("export")}>Review & update output</button>
+    <p className="hint">Not a live preview. Unsaved edits do not change this video.</p>
+    </div></WorkspaceSurface><section className="reference-section" aria-label="Rendered video">
     <h3>Rendered video</h3>
     <p className="hint">Uses the saved color mode, framing, audio choices and optional captions, with optional saved cuts. No transitions. These controls have no live preview; render to see the actual result.</p>
     {navigation && <button onClick={() => navigation.open("style", `preview-${projectId}`)}>Review before/after frame</button>}
@@ -115,9 +121,8 @@ export function RenderVideo({ grading, savedStrength, savedValues, projectId, re
       {output.spec.captions?.enabled && <p>{fontLabel(output.spec.captions.font_binding, output.spec.captions.style?.font_origin)} · Reference appearance not automatically verified</p>}
       {output.font_warnings?.map(w => <p role="note" key={w}>{w}</p>)}
       {outdated && <p className="hint">{changed.length ? `Saved ${changed.join(", ")} changed since this output.` : "The saved settings or source no longer match this output."} This output stays playable and downloadable until replacement succeeds.</p>}
-      <video key={output.output_id} className="rendered-video" controls preload="metadata" src={`${url}/video`} aria-label={`Rendered video, recipe revision ${output.spec.recipe_revision}`} />
-      <p><a className="download-link" href={`${url}/download`}>Download MP4</a> · {(output.size_bytes / 1024 / 1024).toFixed(2)} MiB</p>
+
     </>}
     {!operation && !error && <p role="status">Loading render status…</p>}
-  </section>;
+  </section></>;
 }

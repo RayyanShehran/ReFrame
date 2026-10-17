@@ -44,7 +44,6 @@ export function ProjectColors({ projectId, hasFootage, footageDuration = null, l
         <p className="hint">Differences describe sampled pixels and can reflect different scene content. They are not exposure stops, white-balance corrections or a ready-to-apply grade.</p>
       </>}
     </section>
-    {mediaReady && <PacingBlueprint projectId={projectId} />}
-    </WorkspaceSection>
+    </WorkspaceSection><WorkspaceSection section="cuts">{mediaReady && <PacingBlueprint projectId={projectId} />}</WorkspaceSection>
   </Preparation>;
 }
