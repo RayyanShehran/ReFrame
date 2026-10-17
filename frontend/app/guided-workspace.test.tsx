@@ -111,3 +111,14 @@ it("retains independent slot and cue selection while categories change", () => {
  fireEvent.click(screen.getByRole("button", {name: "Captions"}));
  expect(screen.getByLabelText("Selection")).toHaveTextContent("0");
 });
+
+
+function PartialCaptionStatus() {
+ useWorkspaceReport("caption-settings", "captions", "Ready");
+ useWorkspaceReport("caption-proposal", "captions", "Needs attention");
+ return null;
+}
+it("flags incomplete recognition even when the separate saved caption track is valid", () => {
+ render(<GuidedWorkspace hasFootage><PartialCaptionStatus /></GuidedWorkspace>);
+ expect(screen.getByRole("button", {name:"Captions"})).toHaveAccessibleDescription("Needs attention");
+});

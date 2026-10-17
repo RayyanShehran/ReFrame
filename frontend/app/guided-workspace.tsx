@@ -57,7 +57,7 @@ export function GuidedWorkspace({ hasFootage, footageUnavailable = false, childr
     const values = Object.values(reports).filter(value => value.section === section);
     if (values.some(value => value.state === "Working")) return "Working";
     if (values.some(value => value.dirty)) return "Unsaved";
-    const required = section === "cuts" && reports.sequence?.state === "Ready" ? [reports.sequence] : section === "audio" ? [reports["audio-settings"]].filter(Boolean) : section === "captions" ? [reports["caption-settings"]].filter(Boolean) : section === "style" ? [reports.recipe].filter(Boolean) : values;
+    const required = section === "cuts" && reports.sequence?.state === "Ready" ? [reports.sequence] : section === "audio" ? [reports["audio-settings"]].filter(Boolean) : section === "captions" ? [reports["caption-settings"], reports["caption-proposal"]].filter(Boolean) : section === "style" ? [reports.recipe].filter(Boolean) : values;
     if (required.some(value => value.state === "Needs attention")) return "Needs attention";
     if (section === "footage") return footageUnavailable ? "Needs attention" : hasFootage ? "Ready" : "Needs input";
     if (section === "style") return reports.recipe?.state ?? "Needs input";

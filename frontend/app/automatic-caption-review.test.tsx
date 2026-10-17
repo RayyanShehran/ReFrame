@@ -25,7 +25,7 @@ it("keeps the edited draft on a revision conflict", async () => {
   fireEvent.click(screen.getByText("Correct uncertain words beside the reference"));
   fireEvent.change(screen.getByLabelText("Visible words"), { target: { value: "My correction" } });
   fireEvent.click(screen.getByRole("button", { name: "Save corrections" }));
-  await screen.findByRole("alert"); expect(screen.getByLabelText("Visible words")).toHaveValue("My correction");
+  await screen.findByText("Caption reading changed. Reload before correcting."); expect(screen.getByLabelText("Visible words")).toHaveValue("My correction");
   expect(screen.getByRole("status")).toHaveTextContent("Unsaved corrections");
 });
 
