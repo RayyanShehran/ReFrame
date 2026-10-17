@@ -18,7 +18,7 @@ function parse(data: unknown, projectId: string, revision: number, framingRevisi
 
 export function FramePreview({ projectId, duration, revision, recipeReady, recipeDirty, recipeBusy, framing, grading }: { projectId: string; duration: number | null; revision: number | null; recipeReady: boolean; recipeDirty: boolean; recipeBusy: boolean; framing: FramingState; grading?: GradingState }) {
   const navigation = useWorkspaceNavigation();
-  const selectedSlot = navigation?.selection?.kind === "slot" ? `slot:${navigation.selection.id}` : "";
+  const selectedSlot = navigation?.selection && navigation.selection.kind !== "cue" ? `${navigation.selection.kind}:${navigation.selection.id}` : "";
   const [selection, setSelection] = useState({ key: "", slot: "" });
   const choiceKey = selection.slot === selectedSlot ? selection.key : "";
   const choice = grading?.choices.find(c => c.key === (choiceKey || selectedSlot)) ?? grading?.choices[0];

@@ -5,7 +5,7 @@ import { Connectivity } from "./connectivity";
 import { ClipLibrary } from "./clip-library";
 import { parseClipDetails, type ClipDetails } from "./clip-upload";
 import { ReferenceSelection } from "./reference-selection";
-import { GuidedWorkspace, WorkspaceSection } from "./guided-workspace";
+import { GuidedWorkspace, WorkspaceSection, useWorkspaceReport } from "./guided-workspace";
 import { ProjectColors } from "./project-colors";
 
 type Project = {
@@ -47,7 +47,12 @@ function project(data: unknown): Project {
   return { ...data, clip: data.clip_status === "ready" ? parseClipDetails(data.clip, true) : null } as Project;
 }
 
-export function Workspace({ onProjectChange, onCaptionReviewTarget }: { onProjectChange?: (id: string | null) => void; onCaptionReviewTarget?: (node: HTMLDivElement | null) => void } = {}) {
+function ProposalDraftStatus({ dirty }: { dirty: boolean }) {
+  useWorkspaceReport("caption-proposal", "captions", dirty ? "Needs input" : "Ready", undefined, dirty);
+  return null;
+}
+
+export function Workspace({ onProjectChange, onCaptionReviewTarget, captionReviewDirty = false }: { onProjectChange?: (id: string | null) => void; onCaptionReviewTarget?: (node: HTMLDivElement | null) => void; captionReviewDirty?: boolean } = {}) {
   const [projectId, setProjectId] = useState<string | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [current, setCurrent] = useState<Project | null>(null);
@@ -174,6 +179,7 @@ export function Workspace({ onProjectChange, onCaptionReviewTarget }: { onProjec
     {current && <section className="footage-section" aria-label="Saved project workspace">
       <div className="project-heading"><p className="eyebrow">[ Editing workspace ]</p><h1>{current.name}</h1></div>
       <GuidedWorkspace key={current.id} hasFootage={current.clip_status === "ready"} footageUnavailable={!["empty", "ready"].includes(current.clip_status)}>
+      <ProposalDraftStatus dirty={captionReviewDirty} />
       <WorkspaceSection section="reference"><div className="reference-card"><h3>{current.reference.title || "TikTok reference"}</h3>
         <p>Creator: {current.reference.author_name || "Unavailable"}</p>
         <a href={current.reference.canonical_url} target="_blank" rel="noreferrer">Open reference on TikTok</a>
