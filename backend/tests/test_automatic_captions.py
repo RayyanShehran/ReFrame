@@ -1503,3 +1503,32 @@ def test_real_dark_printed_caption_retains_full_frame_ocr(
     assert [c.text for c in cues] == ["CLEAR DARK WORDS"]
     assert evidence["completion"]["status"] == "complete"
     assert evidence["completion"]["observed_discovery_frames"] == 3
+
+
+def test_reliable_similar_words_are_real_timeline_changes():
+    before, after = detection("We can walk away"), detection("We can talk away")
+    assert not automatic.same(before, after)
+    changes = automatic.track(lambda f: [before if f < 8 else after], [0, 15, 29], set())
+    assert [(f, d.text) for f, d in changes] == [(0, before.text), (8, after.text)]
+
+
+def test_partial_retry_cannot_replace_supported_complete_line():
+    full, partial = detection("You can talk to me"), detection("talk to me")
+    full.confidence, partial.confidence = 88, 99
+    assert automatic.merge_readings([full], [partial]) == [full]
+    other = detection("You can walk to me")
+    other.confidence = 99
+    assert automatic.merge_readings([full], [other]) == [other]
+
+
+def test_pixel_supported_complete_line_survives_partial_reading_not_conflict():
+    full, partial = detection("You can talk to me"), detection("talk to me")
+    shape = b"\xff\x00" * 100
+    recovered = automatic.recover_lines(
+        15, [(full.rectangle, shape)], [(0, full.rectangle, shape, full)], [partial]
+    )
+    assert [d.text for d in recovered] == [full.text]
+    conflict = detection("You can walk to me")
+    assert automatic.recover_lines(
+        15, [(full.rectangle, shape)], [(0, full.rectangle, shape, full)], [conflict]
+    ) == [conflict]

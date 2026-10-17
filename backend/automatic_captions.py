@@ -28,7 +28,7 @@ import reference_motion as motion
 import video_render as render
 from references import ReferenceError
 
-METHOD = "visible-tsv-adaptive-v18"
+METHOD = "visible-tsv-adaptive-v19"
 MAX_READS = 600
 MAX_APPEARANCES = 8
 TOTAL_SECONDS = 300
@@ -193,6 +193,13 @@ def merge_readings(detections, candidates):
                 overlaps.append(i)
         if not overlaps:
             result.append(candidate)
+        elif any(
+            reliable_wording(result[i])
+            and len(word_key(result[i].text)) > len(word_key(candidate.text))
+            and not wording_conflicts(candidate.text, result[i].text)
+            for i in overlaps
+        ):
+            continue
         elif candidate.confidence > max(result[i].confidence for i in overlaps):
             result = [d for i, d in enumerate(result) if i not in overlaps]
             result.append(candidate)
@@ -237,7 +244,11 @@ def same(a, b):
         return a is b
     return (
         a.text.count("\n") == b.text.count("\n")
-        and SequenceMatcher(None, a.text.casefold(), b.text.casefold()).ratio() >= 0.85
+        and (
+            word_key(a.text) == word_key(b.text)
+            or not (reliable_wording(a) and reliable_wording(b))
+            and SequenceMatcher(None, a.text.casefold(), b.text.casefold()).ratio() >= 0.85
+        )
         and abs(a.rectangle.y - b.rectangle.y) < 0.08
         and abs(a.rectangle.x - b.rectangle.x) < 0.08
         and math.dist(normalized_ink(a.ink), normalized_ink(b.ink)) <= 0.4
@@ -407,7 +418,12 @@ def track(read, frames, ignored, *, boundaries=None, absence=None, verified_abse
                     absence[-1] = (absence[-1][0], right / 30)
                 else:
                     absence.append((left / 30, right / 30))
-    return refined
+    # Refinement readings can fluctuate; use supported observed words without bridging absence.
+    result = []
+    for frame, detected in consolidate(refined):
+        if not result or not same(result[-1][1], detected):
+            result.append((frame, detected))
+    return result
 
 
 @contextmanager
@@ -983,7 +999,7 @@ def recover_lines(index, signatures, prototypes, fallback):
                 for d in fallback
                 if overlaps_line(d.rectangle, rectangle)
                 and reliable_wording(d)
-                and word_key(d.text) != word_key(chosen.text)
+                and wording_conflicts(d.text, chosen.text)
             ]
             if conflicting:
                 continue
