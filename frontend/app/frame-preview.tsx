@@ -17,15 +17,17 @@ function parse(data: unknown, projectId: string, revision: number, framingRevisi
 }
 
 export function FramePreview({ projectId, duration, revision, recipeReady, recipeDirty, recipeBusy, framing, grading }: { projectId: string; duration: number | null; revision: number | null; recipeReady: boolean; recipeDirty: boolean; recipeBusy: boolean; framing: FramingState; grading?: GradingState }) {
-  const [choiceKey, setChoiceKey] = useState("");
-  const choice = grading?.choices.find(c => c.key === choiceKey) ?? grading?.choices[0];
+  const navigation = useWorkspaceNavigation();
+  const selectedSlot = navigation?.selection?.kind === "slot" ? `slot:${navigation.selection.id}` : "";
+  const [selection, setSelection] = useState({ key: "", slot: "" });
+  const choiceKey = selection.slot === selectedSlot ? selection.key : "";
+  const choice = grading?.choices.find(c => c.key === (choiceKey || selectedSlot)) ?? grading?.choices[0];
   const rangeStart = choice?.start ?? 0, rangeEnd = choice?.end ?? duration;
   const [draftTime, setTime] = useState<string | null>(null);
   const time = draftTime ?? (rangeEnd !== null ? String((rangeStart + rangeEnd) / 2) : "");
   const [preview, setPreview] = useState<Preview | null>(null);
   const [busy, setBusy] = useState(false), [error, setError] = useState("");
   const action = useRef<AbortController | null>(null), generation = useRef(0);
-  const navigation = useWorkspaceNavigation();
   const validTime = duration !== null && !!time.trim() && Number.isFinite(Number(time)) && Number(time) >= rangeStart && Number(time) <= (rangeEnd ?? 0) && (!choice?.slotId || Number(time) < (rangeEnd ?? 0));
   const ready = recipeReady && revision !== null && framing.ready && framing.revision !== null && !recipeBusy && !framing.busy;
   const outdated = !!preview && (!recipeReady || preview.recipe_revision !== revision || preview.framing_revision !== framing.revision || (grading && (preview.grading_revision !== grading.revision || preview.clip_id !== choice?.clipId || preview.slot_id !== (choice?.slotId ?? null) || preview.inspectedVersion !== choice?.version)));
@@ -58,7 +60,7 @@ export function FramePreview({ projectId, duration, revision, recipeReady, recip
   return <section className="reference-section" aria-label="Before and after frame preview">
     <h3 id={`preview-${projectId}`} tabIndex={-1}>Reference / original / graded frame</h3>
     <p className="hint">A still frame using saved color and framing. Review cuts, audio and captions through the video render. Images may downscale to a maximum edge of 960 pixels; this is not an encoded-video quality preview.</p>
-    {grading && <label>Clip or slot to inspect<select value={choice?.key ?? ""} onChange={e => { setChoiceKey(e.target.value); changeTime(""); setTime(null); }}>{grading.choices.map(c => <option key={c.key} value={c.key}>{c.name}</option>)}</select></label>}
+    {grading && <label>Clip or slot to inspect<select value={choice?.key ?? ""} onChange={e => { setSelection({ key: e.target.value, slot: selectedSlot }); changeTime(""); setTime(null); }}>{grading.choices.map(c => <option key={c.key} value={c.key}>{c.name}</option>)}</select></label>}
     <label>Source time (seconds)<input type="number" min={rangeStart} max={rangeEnd ?? 0} step="any" value={time} disabled={duration === null} onChange={e => changeTime(e.target.value)} /></label>
     {duration === null ? <p>Save footage to choose a source frame.</p> : <p className="hint">Selected source range: {rangeStart.toFixed(3)}–{(rangeEnd ?? duration).toFixed(3)} seconds. The clip end selects its last available frame.</p>}
     {duration !== null && !validTime && <p role="alert">Choose a finite time from {rangeStart} to {rangeEnd ?? duration} seconds.</p>}

@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 
 export const fontChoices = ['default', 'custom', 'patrickhand-regular', 'amiri-regular', 'amiri-bold', 'anton-regular', 'barlowcondensed-regular', 'barlowcondensed-bold', 'barlowcondensed-italic', 'poppins-regular', 'poppins-bold', 'poppins-italic', 'varelaround-regular', 'spacemono-regular', 'spacemono-bold', 'spacemono-italic', 'crimsontext-regular', 'crimsontext-bold', 'crimsontext-italic'] as const;
 export type FontChoice = typeof fontChoices[number];
-export type FontBinding = { kind: "default" | "custom" | "builtin"; candidate_id?: FontChoice | null; font_id: string | null; sha256: string; family: string; style: string };
+export type FontBinding = { kind: "default" | "custom" | "builtin"; candidate_id?: FontChoice | null; font_id?: string | null; sha256: string; family: string; style: string };
 export type CaptionStyle = { color: string; size: "small" | "medium" | "large"; placement: "bottom-center" | "center"; font: FontChoice; font_origin: "manual" | "assisted"; size_percent: number | null; outline_color: string; outline_percent: number | null; shadow_color: string; shadow_percent: number; alignment: "left" | "center" | "right"; horizontal: number | null; vertical: number | null; bold: boolean; italic: boolean };
 export const defaultStyle: CaptionStyle = { color: "white", size: "medium", placement: "bottom-center", font: "default", font_origin: "manual", size_percent: null, outline_color: "#000000", outline_percent: null, shadow_color: "#000000", shadow_percent: 0, alignment: "center", horizontal: null, vertical: null, bold: false, italic: false };
 const color = (v: unknown) => typeof v === "string" && /^(white|yellow|#[0-9a-f]{6})$/i.test(v);
@@ -16,7 +16,7 @@ export function readStyle(value: unknown): CaptionStyle {
   return s;
 }
 export function validFont(f: FontBinding): boolean {
-  return !!f && ["default", "custom", "builtin"].includes(f.kind) && /^[0-9a-f]{64}$/.test(f.sha256) && typeof f.family === "string" && f.family.length > 0 && f.family.length <= 128 && typeof f.style === "string" && f.style.length <= 128 && (f.kind === "builtin" ? f.font_id === null && fontChoices.some(choice => choice !== "default" && choice !== "custom" && choice === f.candidate_id) : f.kind === "default" ? f.font_id === null : typeof f.font_id === "string" && /^[0-9a-f-]{36}$/.test(f.font_id));
+  return !!f && ["default", "custom", "builtin"].includes(f.kind) && /^[0-9a-f]{64}$/.test(f.sha256) && typeof f.family === "string" && f.family.length > 0 && f.family.length <= 128 && typeof f.style === "string" && f.style.length <= 128 && (f.kind === "builtin" ? (f.font_id === null || f.font_id === undefined) && fontChoices.some(choice => choice !== "default" && choice !== "custom" && choice === f.candidate_id) : f.kind === "default" ? (f.font_id === null || f.font_id === undefined) : typeof f.font_id === "string" && /^[0-9a-f-]{36}$/.test(f.font_id));
 }
 export const fontChoice = (f: FontBinding): FontChoice => f.kind === "builtin" ? f.candidate_id! : f.kind;
 export const fontLabel = (f?: FontBinding, origin?: string) => origin === "assisted" && f ? `Suggested font, user selected · ${f.family} (${f.style})` : !f || f.kind === "default" ? "Default font · DejaVu Sans" : `Manually selected font · ${f.family} (${f.style})`;

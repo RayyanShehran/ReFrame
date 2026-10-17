@@ -47,7 +47,7 @@ function project(data: unknown): Project {
   return { ...data, clip: data.clip_status === "ready" ? parseClipDetails(data.clip, true) : null } as Project;
 }
 
-export function Workspace({ onProjectChange }: { onProjectChange?: (id: string | null) => void } = {}) {
+export function Workspace({ onProjectChange, onCaptionReviewTarget }: { onProjectChange?: (id: string | null) => void; onCaptionReviewTarget?: (node: HTMLDivElement | null) => void } = {}) {
   const [projectId, setProjectId] = useState<string | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [current, setCurrent] = useState<Project | null>(null);
@@ -180,6 +180,7 @@ export function Workspace({ onProjectChange }: { onProjectChange?: (id: string |
         <p className="hint">Saved metadata snapshot from {current.reference_inspected_at}. The reference is fixed for this project.</p>
       </div></WorkspaceSection>
       {current.status === "active" && <ProjectColors key={current.id} projectId={current.id} hasFootage={current.clip_status === "ready"} footageDuration={current.clip?.duration_seconds ?? null} libraryKey={current.updated_at} />}
+      <WorkspaceSection section="captions"><div ref={onCaptionReviewTarget} /></WorkspaceSection>
       <WorkspaceSection section="footage">{current.status === "deleting" ? <p role="alert">Deletion is incomplete. Retry deletion from the project list.</p> :
         current.clip_status === "empty" || current.clip_status === "ready" ?
           null :

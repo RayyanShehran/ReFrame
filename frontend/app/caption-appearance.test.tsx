@@ -123,3 +123,11 @@ it("binds sequence previews to saved revisions and blocks unsaved sequence chang
   view.rerender(<CaptionAppearancePreview {...props} track={sequenceTrack} sequence={{ ...sequence, dirty: true }} />);
   expect(screen.getByRole("button", { name: "Update caption preview" })).toBeDisabled();
 });
+
+
+it("accepts omitted null-only optional font keys in persisted cue appearances", async () => {
+ const { validFont } = await import("./caption-style-controls");
+ expect(validFont({kind: "default", sha256: "a".repeat(64), family: "DejaVu Sans", style: "Book"})).toBe(true);
+ expect(validFont({kind: "builtin", candidate_id: "patrickhand-regular", sha256: "a".repeat(64), family: "Patrick Hand", style: "Regular"})).toBe(true);
+ expect(validFont({kind: "default", font_id: "unexpected", sha256: "a".repeat(64), family: "DejaVu Sans", style: "Book"})).toBe(false);
+});

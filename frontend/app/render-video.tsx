@@ -32,12 +32,13 @@ function parse(data: unknown): Operation {
 }
 
 export function RenderVideo({ grading, savedStrength, savedValues, projectId, revision, recipeReady, dirty, busy, planState, sequenceState = emptySequence, audioState = { revision: 0, ready: true, dirty: false, busy: false }, framingState = { revision: 0, ready: true, dirty: false, busy: false }, captionState = { revision: 0, ready: true, dirty: false, busy: false, enabled: false, mode: null, planRevision: null } }: { grading?: GradingState; savedStrength?: number; savedValues?: { brightness: number; contrast: number; saturation: number }; projectId: string; revision: number | null; recipeReady: boolean; dirty: boolean; busy: boolean; planState?: PlanState; sequenceState?: SequenceState; audioState?: AudioState; captionState?: CaptionState; framingState?: FramingState }) {
-  const [mode, setMode] = useState("whole");
-  const cuts = mode === "cuts", sequence = mode === "sequence";
-  const captionMatches = !captionState.enabled || (captionState.mode === mode && (!cuts || captionState.planRevision === planState?.revision) && (!sequence || captionState.sequenceRevision === sequenceState.revision));
+  const [chosenMode, setMode] = useState<string | null>(null);
   const { operation, error, starting, start, refresh } = useMediaOperation(projectId, "render", parse, 360);
   useEffect(() => { refresh(); }, [grading?.revision, grading?.version, refresh]);
   const output = operation?.output;
+  const mode = chosenMode ?? (output?.spec.sequence ? "sequence" : output?.spec.edit_plan ? "cuts" : "whole");
+  const cuts = mode === "cuts", sequence = mode === "sequence";
+  const captionMatches = !captionState.enabled || (captionState.mode === mode && (!cuts || captionState.planRevision === planState?.revision) && (!sequence || captionState.sequenceRevision === sequenceState.revision));
   const outdated = !!output && (operation?.outdated || !recipeReady || output.spec.recipe_revision !== revision || (grading && (output.spec.grading?.settings.revision ?? 0) !== grading.revision) ||
     !framingState.ready || (output.spec.framing?.revision ?? 0) !== framingState.revision ||
     !captionState.ready || (output.spec.captions?.revision ?? 0) !== captionState.revision ||

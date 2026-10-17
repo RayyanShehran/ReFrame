@@ -280,3 +280,22 @@ footer { color: var(--secondary); padding-top: 40px; font-size: 12px; }
 .customize-open .topbar { display:none; }
 @media(max-width:1099px) { .editor-layout { grid-template-columns:120px minmax(0,1fr); } .editor-stage { grid-column:2; position:static; } .editor-inspector { grid-column:2; height:auto; min-height:0; overflow:visible; } .editor-layout .workspace-nav { grid-column:1; grid-row:1/3; } }
 @media(max-width:600px) { .editor-layout { display:flex; flex-direction:column; gap:12px; } .editor-layout > * { width:100%; } .editor-layout .workspace-nav { position:static; } .editor-layout .workspace-section-buttons { display:none; } .editor-layout .workspace-section-picker { display:grid; } .editor-inspector { border-left:0; padding:0 0 24px; } .output-monitor { padding:12px; } .output-monitor video { height:190px; } .editor-strip .sequence-slots { max-height:180px; } .editor-strip .sequence-slots li { flex-basis:160px; } .customize-header { flex-wrap:wrap; } }
+
+.editor-layout .workspace-section-buttons { grid-template-columns:minmax(0,1fr); }
+.guided-workspace .workspace-guidance { display:flex; flex-wrap:wrap; gap:12px; padding:12px; margin-bottom:16px; }
+.guided-workspace .workspace-guidance > p:first-child { flex:1; }
+.guided-workspace .workspace-guidance > .hint { flex-basis:100%; margin:0; }
+.workspace-next-hint { color:var(--muted); font-size:12px; margin:0; }
+.editor-inspector .caption-cue > label { display:grid; gap:6px; }
+
+@media(min-width:1100px) {
+ .customize-open { position:relative; }
+ .customize-open .project-switcher { position:absolute; top:16px; right:185px; width:200px; z-index:10; margin:0; }
+ .customize-open .project-switcher[open] { width:min(600px,70vw); max-height:70vh; overflow:auto; background:var(--deep); }
+ .customize-open .project-switcher > summary { padding:10px; }
+ .customize-open .customize-header { padding-right:410px; min-height:64px; }
+ .customize-open .customize-header > button { position:absolute; right:0; top:10px; }
+ .customize-open .project-heading { display:none; }
+ .customize-open .footage-section { padding-top:12px; }
+ .editor-inspector { height:calc(100dvh - 220px); min-height:320px; }
+}

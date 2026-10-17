@@ -115,3 +115,13 @@ it("blocks unsaved audio and binds its saved revision while preserving outdated 
   fireEvent.click(screen.getByRole("button", { name: "Render video" }));
   await waitFor(() => expect(fetch).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ method: "POST" })));
 });
+
+
+it("restores the saved sequence render mode without overwriting an explicit selection", async () => {
+ vi.stubGlobal("fetch",vi.fn(async()=>ok({...ready,output:{...ready.output,spec:{recipe_revision:2,sequence:{revision:3}}}})));
+ render(<RenderVideo projectId="one" revision={2} recipeReady dirty={false} busy={false} sequenceState={{revision:3,ready:true,dirty:false,busy:false}} />);
+ await screen.findByText(/Multi-clip sequence revision 3/);
+ expect(screen.getByLabelText("Render mode")).toHaveValue("sequence");
+ fireEvent.change(screen.getByLabelText("Render mode"),{target:{value:"whole"}});
+ expect(screen.getByLabelText("Render mode")).toHaveValue("whole");
+});

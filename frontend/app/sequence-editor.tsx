@@ -34,7 +34,7 @@ export function SequenceEditor({ projectId, onState }: { projectId: string; onSt
   useEffect(() => { onState({ revision, ready, dirty, busy, duration: sequence ? sequence.output_frames / 30 : undefined }); }, [onState, revision, ready, dirty, busy, sequence]);
   useWorkspaceReport("sequence", "cuts", busy ? "Working" : ready && !dirty ? "Ready" : error || result?.status === "stale" ? "Needs attention" : "Needs input", undefined, dirty);
   function restore(data: unknown) {
-    setReview(null); const value = parse(data); setResult(value); setSlots(drafts(value.sequence?.slots ?? [])); setSelected(value.sequence?.slots[0]?.id ?? ""); setConfirm(false); setError("");
+    setReview(null); const value = parse(data); setResult(value); setSlots(drafts(value.sequence?.slots ?? [])); setSelected(previous => value.sequence?.slots.some(s => s.id === previous) ? previous : value.sequence?.slots[0]?.id ?? ""); setConfirm(false); setError("");
   }
   useEffect(() => {
     const controller = new AbortController();

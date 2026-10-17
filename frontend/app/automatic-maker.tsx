@@ -44,6 +44,7 @@ export function AutomaticMaker() {
   const [busy, setBusy] = useState(false), [error, setError] = useState(""), [customize, setCustomize] = useState(false);
   const [allowReuse, setAllowReuse] = useState(false), [replace, setReplace] = useState(false), [needsReplace, setNeedsReplace] = useState(false);
   const [customizeMounted, setCustomizeMounted] = useState(false), [acceptPartial, setAcceptPartial] = useState(false);
+  const [reviewTarget, setReviewTarget] = useState<HTMLDivElement | null>(null);
   const [reviewDirty, setReviewDirty] = useState(false), [replaceVerified, setReplaceVerified] = useState(false);
   const [outputId, setOutputId] = useState<string | null>(null);
   const items = useRef<Item[]>([]), action = useRef<AbortController | null>(null), currentId = useRef<string | null>(null);
@@ -129,7 +130,7 @@ export function AutomaticMaker() {
     finally { if (action.current === controller) { action.current = null; setBusy(false); } }
   }
   return <div className={customize ? "customize-open" : undefined}>
-    {customize && <header className="customize-header"><span className="brand">ReFrame.</span><p>Customize · save each panel, then update output</p><button onClick={() => setCustomize(false)}>Return to result</button></header>}
+    {customize && <header className="customize-header"><span className="brand">ReFrame.</span><p>{projects.find(p => p.id === projectId)?.name || "Your project"} · Customize</p><button onClick={() => setCustomize(false)}>Return to result</button></header>}
     <header className="topbar"><span className="brand">ReFrame<span className="brand-dot">.</span></span><span className="header-project">Reference in. Your video out.</span><button onClick={() => void open(null)}>New video</button></header>
     <section className="hero"><p className="eyebrow">[ Your reference. Your footage. ]</p><h1>Make it <em>your own.</em></h1><p className="intro">Paste a reference. Add your clips. Generate your video.</p></section>
     <section className="reference-section automatic-creation" aria-label="Create video">
@@ -159,9 +160,9 @@ export function AutomaticMaker() {
     </section>
     {outputId && projectId && <section className="reference-section automatic-result" aria-label="Your video"><h2>Your video</h2>{operation?.status !== "ready" && <p className="hint">Your previous video stays available until a replacement succeeds.</p>}<video controls playsInline preload="metadata" src={`${apiBase}/api/projects/${projectId}/outputs/${outputId}/video`} aria-label="Generated video" /><a className="button-link" href={`${apiBase}/api/projects/${projectId}/outputs/${outputId}/download`}>Download video</a><button onClick={() => { setCustomizeMounted(true); setCustomize(value => !value); }}>{customize ? "Close Customize" : "Customize"}</button>{!!operation?.notices.length && <details><summary>About this result</summary><ul>{Array.from(new Set(operation.notices)).map(note => <li key={note}>{note}</li>)}</ul></details>}</section>}
     {operation?.status === "ready" && !!operation.caption_review?.unreadable_samples && !!operation.caption_review?.cues.length && <details><summary>Saved caption reading — incomplete</summary><p>These detected words were retained for review. Check the saved caption mode for this video.</p><ul>{operation.caption_review.cues.map((cue, i) => <li key={i}>{cue.start.toFixed(2)}–{cue.end.toFixed(2)}: {cue.text}</li>)}</ul></details>}
-    {projectId && operation?.caption_review && <><AutomaticCaptionReview key={`${projectId}:${operation.revision}:${operation.status}`} projectId={projectId} revision={operation.revision} review={operation.caption_review} disabled={!!running} onSaved={generation.refresh} onDirty={setReviewDirty} />{(!!operation.caption_review.verified_cues?.length || !!operation.caption_review.corrected_cues?.length) && <label><input type="checkbox" checked={replaceVerified} disabled={!!running || reviewDirty} onChange={e => setReplaceVerified(e.target.checked)} /> Replace my verified or corrected cues on the next retry</label>}</>}
+    {projectId && operation?.caption_review && <><AutomaticCaptionReview portalTarget={customize ? reviewTarget : null} key={`${projectId}:${operation.revision}:${operation.status}`} projectId={projectId} revision={operation.revision} review={operation.caption_review} disabled={!!running} onSaved={generation.refresh} onDirty={setReviewDirty} />{(!!operation.caption_review.verified_cues?.length || !!operation.caption_review.corrected_cues?.length) && <label><input type="checkbox" checked={replaceVerified} disabled={!!running || reviewDirty} onChange={e => setReplaceVerified(e.target.checked)} /> Replace my verified or corrected cues on the next retry</label>}</>}
     {!outputId && projectId && <button onClick={() => { setCustomizeMounted(true); setCustomize(value => !value); }}>{customize ? "Close Customize" : "Customize"}</button>}
-    {customizeMounted && <div hidden={!customize}><Workspace key={projectId} onProjectChange={id => void open(id)} /></div>}
+    {customizeMounted && <div hidden={!customize}><Workspace key={projectId} onCaptionReviewTarget={setReviewTarget} onProjectChange={id => void open(id)} /></div>}
     {!!projects.length && <details className="project-switcher"><summary>Saved videos</summary><ul>{projects.map(project => <li key={project.id}><button onClick={() => void open(project.id)}>{project.name}</button></li>)}</ul></details>}
   </div>;
 }

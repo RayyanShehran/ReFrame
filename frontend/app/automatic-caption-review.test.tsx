@@ -28,3 +28,18 @@ it("keeps the edited draft on a revision conflict", async () => {
   await screen.findByRole("alert"); expect(screen.getByLabelText("Visible words")).toHaveValue("My correction");
   expect(screen.getByRole("status")).toHaveTextContent("Unsaved corrections");
 });
+
+
+it("keeps correction drafts when moving between result and Customize surfaces", () => {
+ const target = document.createElement("div"); document.body.append(target);
+ const props = {projectId:"one",revision:1,review:{cues:[{start:1,end:2,text:"Original"}],unreadable_samples:1},disabled:false,onSaved:vi.fn(),onDirty:vi.fn()};
+ const view=render(<AutomaticCaptionReview {...props} />);
+ fireEvent.click(screen.getByText("Correct uncertain words beside the reference"));
+ fireEvent.change(screen.getByLabelText("Visible words"),{target:{value:"My retained correction"}});
+ view.rerender(<AutomaticCaptionReview {...props} portalTarget={target} />);
+ fireEvent.click(screen.getByText("Correct uncertain words beside the reference"));
+ expect(screen.getByLabelText("Visible words")).toHaveValue("My retained correction");
+ view.rerender(<AutomaticCaptionReview {...props} />);
+ expect(screen.getByLabelText("Visible words")).toHaveValue("My retained correction");
+ view.unmount(); target.remove();
+});
