@@ -28,7 +28,7 @@ import reference_motion as motion
 import video_render as render
 from references import ReferenceError
 
-METHOD = "visible-tsv-adaptive-v20"
+METHOD = "visible-tsv-adaptive-v21"
 MAX_READS = 600
 MAX_APPEARANCES = 8
 TOTAL_SECONDS = 300
@@ -980,6 +980,18 @@ def read_tracked(index, read_frame, cache, signatures, prototypes):
         recover_lines(index, signatures.get(index, []), prototypes, found) if prototypes else found
     )
     return cache[index]
+
+
+def remember_lines(index, signatures, readings, prototypes):
+    for rectangle, shape in signatures:
+        for d in readings:
+            if (
+                reliable_wording(d)
+                and abs(d.rectangle.y - rectangle.y) < 0.025
+                and 0.8 <= d.rectangle.width / rectangle.width <= 1.25
+                and overlaps_line(d.rectangle, rectangle)
+            ):
+                prototypes.append((index, rectangle, shape, d))
 
 
 def recover_lines(index, signatures, prototypes, fallback):
@@ -2347,16 +2359,12 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
             cache[f] = []
             unresolved[f] = "Detected region has no completed representative reading"
     handwriting_images.clear()
-    for index, shapes in signatures.items():
-        for rectangle, shape in shapes:
-            for d in cache.get(index, []):
-                if (
-                    overlaps_line(d.rectangle, rectangle)
-                    and d.rectangle.width / rectangle.width >= 0.8
-                ):
-                    prototypes.append((index, rectangle, shape, d))
     for index in cache:
+        remember_lines(index, signatures.get(index, []), cache[index], prototypes)
+    for index in sorted(cache):
         cache[index] = recover_lines(index, signatures.get(index, []), prototypes, cache[index])
+        # Carry wording only through glyphs verified at this frame, retaining the sample origin.
+        remember_lines(index, signatures.get(index, []), cache[index], prototypes)
     counts = Counter(d.text for f in frames for d in read(f))
 
     # Read nearby frames at their own timestamps; never assign recovered text to an earlier frame.

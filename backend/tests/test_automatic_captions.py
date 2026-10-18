@@ -1630,3 +1630,33 @@ def test_partial_discovery_mask_does_not_turn_unselected_frames_into_caption_gap
     monkeypatch.setattr(automatic, "discovery_images", partial_thumbnails)
     monkeypatch.setattr(automatic, "recognition_frames", lambda _: [15, 60])
     test_real_visible_text_timing_and_appearance(local, monkeypatch, True)
+
+
+def test_overlapping_different_region_cannot_inherit_caption_words():
+    line = detection("Observed lower caption")
+    line.rectangle = automatic.match.Rectangle(x=0.25, y=0.47, width=0.4, height=0.055)
+    title = automatic.match.Rectangle(x=0.3, y=0.44, width=0.31, height=0.105)
+    assert automatic.overlaps_line(title, line.rectangle)
+    shape = b"\xff\x00" * 100
+    prototypes = []
+    automatic.remember_lines(30, [(title, shape)], [line], prototypes)
+    assert prototypes == []
+    assert automatic.recover_lines(45, [(title, shape)], prototypes, []) == []
+
+
+def test_verified_glyph_continuity_retains_wording_and_sample_provenance():
+    line = detection("Independently read caption")
+    line.frame_index = 0
+    line.sample_rectangle = line.rectangle
+    line.sample_text = line.text
+    shape = b"\xff\x00" * 100
+    prototypes = [(0, line.rectangle, shape, line)]
+    for frame in (60, 120, 180):
+        signatures = [(line.rectangle, shape)]
+        rows = automatic.recover_lines(frame, signatures, prototypes, [])
+        assert [d.text for d in rows] == [line.text]
+        assert rows[0].frame_index == 0 and rows[0].sample_rectangle == line.rectangle
+        automatic.remember_lines(frame, signatures, rows, prototypes)
+    assert automatic.recover_lines(195, [], prototypes, []) == []
+    changed = b"\x00\xff" * 100
+    assert automatic.recover_lines(195, [(line.rectangle, changed)], prototypes, []) == []
