@@ -125,3 +125,11 @@ it("restores the saved sequence render mode without overwriting an explicit sele
  fireEvent.change(screen.getByLabelText("Render mode"),{target:{value:"whole"}});
  expect(screen.getByLabelText("Render mode")).toHaveValue("whole");
 });
+
+
+it("labels reference-aspect automatic framing accurately", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => ok(idle)));
+  render(<RenderVideo projectId="one" revision={2} recipeReady dirty={false} busy={false} framingState={{ revision: 2, ready: true, busy: false, dirty: false, format: "reference", fit: "automatic", dimensions: "1280 x 720" }} />);
+  expect(await screen.findByText("Saved fit: Automatic (per-slot Fill or Fit)")).toBeInTheDocument();
+  expect(screen.getByText("Saved format: Reference aspect · 1280 x 720")).toBeInTheDocument();
+});

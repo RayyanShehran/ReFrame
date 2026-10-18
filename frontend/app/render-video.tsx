@@ -90,7 +90,7 @@ export function RenderVideo({ grading, savedStrength, savedValues, projectId, re
     <p className="hint">Not a live preview. Unsaved edits do not change this video.</p>
     </div></WorkspaceSurface><section className="reference-section" aria-label="Rendered video">
     <h3>Rendered video</h3>
-    <p className="hint">Uses the saved color mode, framing, audio choices and optional captions, with optional saved cuts. No transitions. These controls have no live preview; render to see the actual result.</p>
+    <p className="hint">Uses the saved color mode, framing, audio choices and optional captions, with optional saved cuts. No transitions. Use the saved framing preview to inspect a slot; render to check the full video.</p>
     {navigation && <button onClick={() => navigation.open("style", `preview-${projectId}`)}>Review before/after frame</button>}
     <label>Render mode <select value={mode} onChange={e => setMode(e.target.value)} disabled={starting || running}>
       <option value="whole">Whole clip (color + saved audio)</option><option value="cuts">Saved cut plan (cuts + color)</option><option value="sequence">Multi-clip sequence (saved slots)</option></select></label>
@@ -103,7 +103,7 @@ export function RenderVideo({ grading, savedStrength, savedValues, projectId, re
       <p>Saved audio: {audioState.ready ? audioModeLabels[audioState.mode ?? "original"] : "unavailable"} · Revision {audioState.revision ?? "loading"}</p>
       <p>Saved captions: {captionState.enabled ? "enabled" : "disabled"} · Revision {captionState.revision ?? "loading"}</p>
       <p>Saved format: {framingState.ready ? formatLabels[framingState.format ?? "original"] : "loading"}{framingState.dimensions ? ` · ${framingState.dimensions}` : ""}</p>
-      {framingState.format && framingState.format !== "original" && <p>Saved fit: {framingState.fit === "fill" ? "Fill (crop edges)" : "Fit (whole image)"}</p>}
+      {framingState.format && framingState.format !== "original" && <p>Saved fit: {framingState.fit === "automatic" ? "Automatic (per-slot Fill or Fit)" : framingState.fit === "fill" ? "Fill (crop edges)" : "Fit (whole image)"}</p>}
       {(dirty || audioState.dirty || captionState.dirty || framingState.dirty || (cuts && planState?.dirty) || (sequence && sequenceState.dirty)) && <p role="status">Unsaved drafts are not included. Save the changes below before rendering.</p>}
     </div>
     {blockers.map(({ section, message }) => <p key={message} role="status">{message}{navigation && <> <button onClick={() => navigation.open(section)}>Open {sections[section]}</button></>}</p>)}
