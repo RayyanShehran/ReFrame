@@ -23,7 +23,7 @@ it("saves framing, restores it and keeps Reset as a draft change", async () => {
     if (url.endsWith("/source")) return ok(geometry);
     if (options.method === "POST") {
       const body = JSON.parse(options.body as string);
-      expect(body).toEqual({ expected_revision: 0, format: "square", fit: "fill", horizontal: .8, vertical: .5 });
+      expect(body).toMatchObject({ expected_revision: 0, format: "square", fit: "fill", horizontal: .8, vertical: .5 });
       saved = { status: "ready", settings: { ...initial.settings, ...body, revision: 1 } };
     }
     return ok(saved);
@@ -65,3 +65,39 @@ it("uses normalized display geometry for crop axes and retains draft after confl
   expect(screen.getByLabelText("Vertical crop position")).toHaveValue("20");
   expect(screen.getByText(/Unsaved framing changes/)).toBeInTheDocument();
 });
+
+it("keeps selected-slot drafts, hides saved previews after edits, and restores overrides", async () => {
+  const a = "11111111-1111-4111-8111-111111111111", b = "22222222-2222-4222-8222-222222222222";
+  const picture = { width: 2, height: 2, png_base64: "iVBORw0KGgoAAA==" };
+  let saved = { status: "ready", settings: { ...initial.settings, format: "square", fit: "automatic", bars: "auto", slots: {}, canvas: null, decisions: {}, revision: 1 } };
+  const grading = { revision: 1, mode: "original" as const, ready: true, dirty: false, busy: false, sequenceReady: true, sequenceRevision: 2, choices: [a,b].map((id,i) => ({ key: `slot:${id}`, name: `Shot ${i+1}`, clipId: id, slotId: id, start: 0, end: 1, version: "v1" })) };
+  vi.stubGlobal("fetch", vi.fn(async (url: string, options: RequestInit) => {
+    if (url.includes("/source")) return ok(geometry);
+    if (url.endsWith("/frame-preview")) return ok({ edited: picture, framing_revision: saved.settings.revision, grading_revision: 1, slot_id: a, framing_note: "Center Fill" });
+    if (options.method === "POST") {
+      const body = JSON.parse(options.body as string);
+      saved = { ...saved, settings: { ...saved.settings, ...body, revision: saved.settings.revision+1 } };
+    }
+    return ok(saved);
+  }));
+  const view = render(<FramingControls projectId="one" onState={vi.fn()} grading={grading} />);
+  await screen.findByLabelText("Slot to frame");
+  fireEvent.click(screen.getByRole("button", { name: "Update saved framing preview" }));
+  expect(await screen.findByAltText(/Actual selected footage/)).toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText("Slot framing"), { target: { value: "fill" } });
+  fireEvent.change(screen.getByLabelText("Slot zoom"), { target: { value: "1.25" } });
+  expect(screen.queryByAltText(/Actual selected footage/)).not.toBeInTheDocument();
+  expect(screen.getByText(/Preview pending/)).toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText("Slot to frame"), { target: { value: `slot:${b}` } });
+  fireEvent.change(screen.getByLabelText("Slot to frame"), { target: { value: `slot:${a}` } });
+  expect(screen.getByLabelText("Slot zoom")).toHaveValue("1.25");
+  fireEvent.click(screen.getByRole("button", { name: "Save framing" }));
+  await screen.findByText(/Framing saved.*Revision 2/);
+  view.unmount();
+  render(<FramingControls projectId="one" onState={vi.fn()} grading={grading} />);
+  expect(await screen.findByLabelText("Slot zoom")).toHaveValue("1.25");
+  fireEvent.click(screen.getByRole("button", { name: "Reset selected slot to automatic" }));
+  expect(screen.getByLabelText("Slot framing")).toHaveValue("automatic");
+  expect(screen.getByText(/Unsaved framing changes/)).toBeInTheDocument();
+});
+

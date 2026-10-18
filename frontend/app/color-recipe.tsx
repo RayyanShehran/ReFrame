@@ -155,6 +155,6 @@ export function ColorRecipe({ projectId, analysesReady, footageDuration = null, 
     <CaptionEditor sourceKey={sourceKey} key={`captions-${projectId}`} projectId={projectId} planState={planState} sequenceState={sequenceState} onState={setCaptionState} appearance={{ gradingRevision: grading.revision, recipeRevision: activeRevision, recipeReady: activeReady, recipeDirty: activeDirty, recipeBusy: activeBusy, framing: framingState }} />
     </WorkspaceSection><WorkspaceSection section="export">
     <div className="export-workbench"><RenderVideo grading={grading} savedStrength={grading.mode === "basic" ? recipe?.strength : undefined} savedValues={grading.mode === "basic" ? recipe?.selected : undefined} framingState={framingState} projectId={projectId} revision={activeRevision} recipeReady={activeReady} dirty={activeDirty} busy={activeBusy} planState={planState} sequenceState={sequenceState} audioState={audioState} captionState={captionState} />
-    </div></WorkspaceSection><WorkspaceSection section="framing"><FramingControls key={`framing-${projectId}`} projectId={projectId} onState={setFramingState} />
+    </div></WorkspaceSection><WorkspaceSection section="framing"><FramingControls key={`framing-${projectId}`} projectId={projectId} grading={grading} onState={setFramingState} />
   </WorkspaceSection></>;
 }

@@ -11,7 +11,7 @@ from types import SimpleNamespace
 from typing import Literal
 from uuid import UUID
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 
 import color_analysis as color
 import footage_analysis as footage
@@ -33,6 +33,16 @@ class SlotChoices(color.Schema):
     bars: Literal["auto", "off"] = "auto"
     # Explicit user corrections, fractions of the oriented display (left, top, right, bottom).
     insets: tuple[float, float, float, float] | None = None
+
+    @field_validator("insets", mode="before")
+    @classmethod
+    def numeric_insets(cls, values):
+        if values is not None and (
+            not isinstance(values, (list, tuple))
+            or any(type(x) not in (int, float) for x in values)
+        ):
+            raise ValueError("Border trims must be finite numeric fractions")
+        return values
 
     @model_validator(mode="after")
     def bounds(self):
@@ -193,6 +203,7 @@ def inspect_source(project_id, clip_id=None):
 
     deadline = time.monotonic() + 20
     source = footage.source(project_id, deadline=deadline)
+    primary_path = source["path"]
     if clip_id:
         import clip_library
 
@@ -206,7 +217,8 @@ def inspect_source(project_id, clip_id=None):
     try:
         video, _, _ = probe(source["path"], directory, deadline)
         width, height = display_dimensions(video)
-        original, _, _ = geometry(video, Settings())
+        primary_video = video if not clip_id else probe(primary_path, directory, deadline)[0]
+        original, _, _ = geometry(primary_video, Settings())
         return SourceGeometry(
             display_width=width,
             display_height=height,

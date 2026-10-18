@@ -103,10 +103,16 @@ def test_mixed_real_sources_borders_dark_fit_override_preview_and_caption_canvas
     assert decisions[slots[5]["id"]]["insets"] == [0, 0, 0, 0]
     assert client.get(base + "/framing").json() == response.json()
     assert client.get(base + "/captions").json() == before
+    # Compare preview/export in the same saved color mode on every FFmpeg version.
+    assert (
+        client.post(base + "/grading", json=dict(expected_revision=0, mode="original")).status_code
+        == 200
+    )
     response = client.post(
         base + "/render",
         json=dict(
-            expected_revision=2,
+            expected_revision=0,
+            expected_grading_revision=1,
             expected_sequence_revision=2,
             expected_caption_revision=1,
             expected_framing_revision=1,
@@ -127,7 +133,6 @@ def test_mixed_real_sources_borders_dark_fit_override_preview_and_caption_canvas
     assert max(pixel(shots[0], 5, 5)) < 20
     assert pixel(shots[0], 36, 36)[0] > 25
     # Real preview agrees with the corresponding export, with grading set to original.
-    client.post(base + "/grading", json=dict(expected_revision=0, mode="original"))
     preview = client.post(
         base + "/frame-preview",
         json=dict(
