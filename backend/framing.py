@@ -496,8 +496,10 @@ def transform(video, settings, slot=None, *, canvas=None):
             "framing_stale",
             "This slot's framing evidence is stale. Save framing to inspect the changed range.",
         )
-    insets = controls.insets or (
-        decision.insets if decision and controls.bars == "auto" else (0, 0, 0, 0)
+    insets = (
+        (controls.insets or (decision.insets if decision else (0, 0, 0, 0)))
+        if controls.bars == "auto"
+        else (0, 0, 0, 0)
     )
     w, h = int(width) // 2 * 2, int(height) // 2 * 2
     x, y = int(insets[0] * w) // 2 * 2, int(insets[1] * h) // 2 * 2

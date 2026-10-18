@@ -147,3 +147,18 @@ def test_enabling_auto_after_off_refreshes_evidence_and_then_reuses_it(local, mo
         )
         assert response.status_code == 200, response.text
         assert len(calls) == (1 if revision in (1, 2, 3) else 2)
+
+
+def test_bar_removal_off_disables_but_retains_manual_trim_settings():
+    sid, cid = uuid4(), uuid4()
+    slot = SimpleNamespace(
+        id=sid, clip_id=cid, source_hash="a" * 64, source_start_frame=0, source_end_frame=30
+    )
+    controls = framing.SlotChoices(fit="fit", bars="off", insets=(0, 0.2, 0, 0.2))
+    settings = framing.Settings(format="square", slots={sid: controls})
+    assert framing.transform({"width": 640, "height": 600}, settings, slot)[0] == ""
+    controls.bars = "auto"
+    assert (
+        "crop=640:360:0:120" in framing.transform({"width": 640, "height": 600}, settings, slot)[0]
+    )
+    assert controls.insets == (0, 0.2, 0, 0.2)

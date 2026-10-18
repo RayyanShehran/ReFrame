@@ -99,5 +99,7 @@ it("keeps selected-slot drafts, hides saved previews after edits, and restores o
   fireEvent.click(screen.getByRole("button", { name: "Reset selected slot to automatic" }));
   expect(screen.getByLabelText("Slot framing")).toHaveValue("automatic");
   expect(screen.getByText(/Unsaved framing changes/)).toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText("Embedded-bar removal"), { target: { value: "off" } });
+  expect(screen.getByLabelText("Top border trim")).toBeDisabled();
 });
 
