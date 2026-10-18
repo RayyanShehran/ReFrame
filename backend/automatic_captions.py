@@ -28,7 +28,7 @@ import reference_motion as motion
 import video_render as render
 from references import ReferenceError
 
-METHOD = "visible-tsv-adaptive-v21"
+METHOD = "visible-tsv-adaptive-v22"
 MAX_READS = 600
 MAX_APPEARANCES = 8
 TOTAL_SECONDS = 300
@@ -994,6 +994,15 @@ def remember_lines(index, signatures, readings, prototypes):
                 prototypes.append((index, rectangle, shape, d))
 
 
+def conflicting_reading(index, detected, conflicts):
+    return any(
+        abs(frame - index) <= 90
+        and overlaps_line(old.rectangle, detected.rectangle)
+        and word_key(old.text) == word_key(detected.text)
+        for frame, old in conflicts
+    )
+
+
 def recover_lines(index, signatures, prototypes, fallback):
     recovered = []
     for rectangle, signature in signatures:
@@ -1640,6 +1649,7 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
     handwriting_completed_requests = 0
     signatures = {}
     prototypes = []
+    conflicting_readings = []
     absent_frames = set()
     discovery = set(frames)
     candidate_layouts = {}
@@ -2115,6 +2125,9 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
         try:
             result = read_tracked(index, read_frame, cache, signatures, prototypes)
             for d in result:
+                if conflicting_reading(index, d, conflicting_readings):
+                    d.needs_review = True
+                    unresolved[index] = "Credible recognizers disagree"
                 compact = "".join(c for c in d.text.casefold() if c.isalnum())
                 if creator and SequenceMatcher(None, compact, creator).ratio() >= 0.85:
                     ignored.add(d.text)
@@ -2313,6 +2326,9 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
                             if reliable_wording(old) and wording_conflicts(old.text, d.text)
                         ]
                         if competing:
+                            for old in competing:
+                                old.needs_review = True
+                                conflicting_readings.append((index, old))
                             unresolved[index] = "Credible recognizers disagree"
                             continue
                         if not d.needs_review and related:
@@ -2359,6 +2375,11 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
             cache[f] = []
             unresolved[f] = "Detected region has no completed representative reading"
     handwriting_images.clear()
+    for index, readings in cache.items():
+        for d in readings:
+            if conflicting_reading(index, d, conflicting_readings):
+                d.needs_review = True
+                unresolved[index] = "Credible recognizers disagree"
     for index in cache:
         remember_lines(index, signatures.get(index, []), cache[index], prototypes)
     for index in sorted(cache):

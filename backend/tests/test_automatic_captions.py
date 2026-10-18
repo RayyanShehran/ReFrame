@@ -1660,3 +1660,17 @@ def test_verified_glyph_continuity_retains_wording_and_sample_provenance():
     assert automatic.recover_lines(195, [], prototypes, []) == []
     changed = b"\x00\xff" * 100
     assert automatic.recover_lines(195, [(line.rectangle, changed)], prototypes, []) == []
+
+
+def test_conflicting_ocr_cannot_reappear_as_reliable_at_refinement_frames():
+    disputed = detection("A disputed final word")
+    conflicts = [(30, disputed)]
+    for index in (30, 33, 60, 120):
+        copied = detection(disputed.text)
+        assert automatic.conflicting_reading(index, copied, conflicts)
+    assert not automatic.conflicting_reading(121, disputed, conflicts)
+    independent = detection("A different observed reading")
+    assert not automatic.conflicting_reading(33, independent, conflicts)
+    independent.text = disputed.text
+    independent.rectangle = automatic.match.Rectangle(x=0.2, y=0.1, width=0.5, height=0.1)
+    assert not automatic.conflicting_reading(33, independent, conflicts)
