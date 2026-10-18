@@ -216,6 +216,7 @@ def specification(
                 "Rebind and save captions for this output timeline before rendering.",
             )
     saved_framing = framing_choices.read(project_id).settings
+    framing_choices.validate(project_id, saved_framing, sequence)
     if expected_framing_revision is None:
         if saved_framing.revision:
             raise ReferenceError(409, "revision_conflict", "Include the saved framing revision.")
@@ -737,20 +738,17 @@ def assemble_sequence(
         if not math.isfinite(video_start):
             raise ValueError("Invalid source timestamp")
         metadata = color.inspect_colors(video)
-        if spec.framing.format == "original":
-            display_w, display_h = framing_choices.display_dimensions(video)
-            factor = min(canvas[0] / display_w, canvas[1] / display_h)
-            scale = (
-                max(2, int(display_w * factor) // 2 * 2),
-                max(2, int(display_h * factor) // 2 * 2),
-            )
-            final = f"pad={canvas[0]}:{canvas[1]}:(ow-iw)/2:(oh-ih)/2:color=black"
-        else:
-            scale, _, final = framing_choices.geometry(video, spec.framing)
+        # Evidence is bound to the original saved range, even for a short caption preview.
+        binding_slot = next(s for s in original_sequence.slots if s.id == slot.id)
+        active, scale, _, final, _ = framing_choices.transform(
+            video, spec.framing, binding_slot, canvas=canvas
+        )
         graph = (
             f"[0:{video['index']}]setpts=PTS-STARTPTS,fps=30:round=near,"
             f"trim=start_frame={slot.source_start_frame}:end_frame={slot.source_end_frame},"
-            f"setpts=N/(30*TB),{resize_filter(*scale, metadata)},"
+            f"setpts=N/(30*TB),"
+            + (active + "," if active else "")
+            + f"{resize_filter(*scale, metadata)},"
             f"{grading_filter(spec, directory, slot.clip_id, slot)}"
             + (f",{final}" if final else "")
             + "[v]"
@@ -876,13 +874,14 @@ def pipeline(source, directory, stop, deadline):
         if not math.isfinite(video_start):
             raise ValueError("Invalid video start timestamp")
         metadata = color.inspect_colors(video)
-        (scale_width, scale_height), (width, height), canvas_filter = framing_choices.geometry(
-            video, spec.framing
+        active, (scale_width, scale_height), (width, height), canvas_filter, _ = (
+            framing_choices.transform(video, spec.framing)
         )
         if spec.sequence:
             scale_width, scale_height = video["width"], video["height"]
             width, height = scale_width, scale_height
             canvas_filter = ""
+            active = ""
         subtitle_filter, font_warnings = subtitle(
             spec.captions, source["project_id"], directory, width, height, deadline
         )
@@ -894,7 +893,9 @@ def pipeline(source, directory, stop, deadline):
             else spec.effective
         )
         # Normalize range before eq; output is tagged limited BT.709. Autorotation is enabled.
-        resize = resize_filter(scale_width, scale_height, metadata)
+        resize = (active + "," if active else "") + resize_filter(
+            scale_width, scale_height, metadata
+        )
         filters = whole_video_filter(
             resize, values, "null" if spec.sequence else grading_filter(spec, directory)
         )

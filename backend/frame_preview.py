@@ -64,6 +64,7 @@ class Preview(color.Schema):
     edited: Image
     warnings: list[str]
     ffmpeg_version: str
+    framing_note: str | None = None
 
 
 def snapshot(project_id, request, deadline):
@@ -185,8 +186,8 @@ def image(path, expected):
 
 
 @contextmanager
-def operation():
-    deadline = time.monotonic() + TOTAL_SECONDS
+def operation(*, seconds=TOTAL_SECONDS):
+    deadline = time.monotonic() + seconds
     previous_stop = getattr(engine._control, "stop", None)
     engine._control.stop = None
     directory = None
@@ -205,7 +206,9 @@ def operation():
         ) from None
     except engine.ProbeTimeout:
         raise ReferenceError(
-            408, "preview_timeout", "Processing exceeded its 30-second deadline. Retry explicitly."
+            408,
+            "preview_timeout",
+            f"Processing exceeded its {seconds}-second deadline. Retry explicitly.",
         ) from None
     except (engine.SizeLimit, engine.ToolOutputError):
         raise ReferenceError(
@@ -246,12 +249,15 @@ def generate(project_id, request):
             source["path"], video, duration, request.timestamp_seconds, directory, deadline
         )
         original_scale, original_canvas, _ = framing.geometry(video, framing.Settings())
-        edited_scale, edited_canvas, final = framing.geometry(video, settings)
+        active, edited_scale, edited_canvas, final, _ = framing.transform(video, settings)
         original_size, edited_size = display_size(original_canvas), display_size(edited_canvas)
         values = recipe.effective(saved.selected, saved.strength)
         original_filter = render.resize_filter(*original_scale, metadata)
         edited_filter = (
-            render.resize_filter(*edited_scale, metadata) + "," + render.color_filter(values)
+            (active + "," if active else "")
+            + render.resize_filter(*edited_scale, metadata)
+            + ","
+            + render.color_filter(values)
         )
         if final:
             edited_filter += "," + final
@@ -371,7 +377,16 @@ def generate_graded(project_id, request):
         selected = moment(
             source_path, video, duration, request.timestamp_seconds, directory, deadline
         )
-        scale, canvas, final = framing.geometry(video, settings)
+        project_canvas = settings.canvas if settings.format == "reference" else None
+        if settings.format == "original" and slot:
+            primary = footage.source(project_id, deadline=deadline)
+            primary_video, _, _ = render.probe(
+                primary["path"], directory, deadline, temp_budget=TEMP_BUDGET
+            )
+            project_canvas = framing.geometry(primary_video, settings)[1]
+        active, scale, canvas, final, note = framing.transform(
+            video, settings, slot, canvas=project_canvas
+        )
         size = display_size(canvas)
         resize = render.resize_filter(*scale, metadata)
         grade_filter = (
@@ -388,6 +403,7 @@ def generate_graded(project_id, request):
             filters = ",".join(
                 p
                 for p in (
+                    active,
                     resize,
                     effect,
                     final,
@@ -457,5 +473,6 @@ def generate_graded(project_id, request):
             original=before,
             edited=after,
             warnings=metadata.warnings,
+            framing_note=note,
             ffmpeg_version=version,
         )

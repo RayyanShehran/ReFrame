@@ -252,12 +252,18 @@ async def read_framing(project_id: str):
 
 @app.post("/api/projects/{project_id}/framing", response_model=framing.Result)
 async def save_framing(project_id: str, request: framing.SaveRequest):
-    async with projects.operation_lock:
-        return await projects.storage_call(framing.save, project_id, request)
+    async with reference_jobs.start_lock:
+        if reference_jobs.active or reference_jobs.stopping:
+            raise ReferenceError(
+                409, "reference_busy", "Wait for current processing before saving framing."
+            )
+        async with projects.operation_lock:
+            await projects.storage_call(reference_jobs.check_quarantine)
+            return await projects.storage_call(framing.save, project_id, request)
 
 
 @app.get("/api/projects/{project_id}/framing/source", response_model=framing.SourceGeometry)
-async def framing_source(project_id: str):
+async def framing_source(project_id: str, clip_id: str | None = None):
     async with reference_jobs.start_lock:
         if reference_jobs.active:
             raise ReferenceError(
@@ -267,7 +273,7 @@ async def framing_source(project_id: str):
             )
         async with projects.operation_lock:
             await projects.storage_call(reference_jobs.check_quarantine)
-            return await projects.storage_call(framing.inspect_source, project_id)
+            return await projects.storage_call(framing.inspect_source, project_id, clip_id)
 
 
 @app.get("/api/projects/{project_id}/captions", response_model=captions.Result)
