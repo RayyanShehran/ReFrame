@@ -1,5 +1,39 @@
 # Retained caption baseline provenance and recovery — 2026-10-18
 
+## Bounded reply decision — 2026-10-18
+
+**NO-GO for unattended completion with the current recognition/acceptance approach.** This is a bounded decision, not a claim that the words are unreadable or that TrOCR cannot read them. Fresh TrOCR reads all three complete lines correctly; safe automatic acceptance and continuous saved publication remain unresolved. No production patch, saved-track change, manual replacement or export was made.
+
+### One fresh experiment, only the failed replies
+
+Same retained source/hash/operation as below; actual project remains revision **61**. Four native 1920×1080 frames at **27.2, 28.4, 29.1 and 29.7 s** were decoded locally. Complete source crops were visually inspected before inference. Both upper lines and the lower reply have all letters visible. Some production masks omit the beginning of the second upper line; the lower color-separated crop also includes shoulder/background ink after the last word. The complete grayscale crop retains the lower word and punctuation.
+
+Two distinct frames per line, two preparations each (complete inverted/autocontrasted grayscale context and color-separated image): **12 unique image inputs**. Diagnostic rectangles were selected by inspecting this reference; they are not automatic production localization and were not added to product code. Expected wording stayed outside inference; no text prompts, dictionaries or replacements were provided.
+
+Installed paths only: Tesseract 5.5.3.20260724, pinned English data, single-line mode; MIT-labelled TrOCR-base revision `eaacaf452b06415df8f10bb6fad3a4c11e609406`, CPU Torch 2.7.1 / Transformers 4.57.6, local-only fp32 greedy decoding, 80-token bound. One model batch, no repeated identical input and no download. Existing owned-process runner retained output/staging/deadline containment; the diagnostic batch had a 180-second stage limit and finished without timeout or capped outputs.
+
+| Line / inspected frames | Fresh TrOCR result | Fresh Tesseract result | Saved status |
+| --- | --- | --- | --- |
+| “Okay. But I’m never gonna” — 27.2 / 28.4 s | Same correct words on all 4 preparations; model scores 0.979986–0.988109 | 0/4 meet existing reliable-wording criteria; empty or I/L/T errors/low token confidence | Correct automatic words already exist; upper line still has gaps when the combined block is rejected. Not newly resolved in saved track. |
+| “do any of that, anyway.” — 27.2 / 28.4 s | Same correct words on all 4; 0.945008–0.995734 | Both separated crops correctly read the full line and meet existing criteria; context empty/low-confidence | Confirms clipping/selection contributes to malformed earlier crops. Existing normal selection/grouping still rejects conflicting blocks; no complete saved timing established. |
+| “Well, that’s okay, too.” — 29.1 / 29.7 s | Same correct words on all 4; 0.865275–0.952602 | 0/4 reliable: ending read as `00).`, `LOC gag`, `LOO}` or `tocge,` | Correct model words exist, but an earlier high-confidence OCR “tool” conflicts. Automatic acceptance remains unresolved. |
+
+Scores are model/token diagnostics, not calibrated probabilities. Punctuation/case variants above normalize identically; no words were supplied to obtain that agreement.
+
+**Fresh versus reused:** all 12 experimental image hashes were cache misses: **12 new TrOCR input evaluations in one process/batch, 12 new Tesseract evaluations, 0 experimental cache hits**. Total 92.281 s; model portion 89.281 s. Two separate source/model-bound cache lookups confirmed that the current project already holds correct “too” context readings at 29.0 and 29.5 s (scores 0.904248 / 0.933388). Those were inspected, not rerun or substituted for the fresh experiment. No cache was cleared, refreshed or written; all experimental results stay outside the project database.
+
+### Failure boundary and decision
+
+The remaining words are not simply lost during publication. `automatic_captions.detect` explicitly marks a competing reliable OCR/model reading as a conflict before accepting the model, then refuses a cue spanning that conflict. The prior source-bound trace already contains the same correct model words; the current cache still contains them. Fresh recognition corroborates those words but does not remove the conflicting OCR evidence or establish automatic full-crop localization/timing. The previous normal targeted selection/tracking/publication check remains a failed acceptance check, not a successful one relabelled after this experiment. No repeat of its known-identical whole-reference request was made.
+
+Accepting manually selected diagnostic boxes as automatic localization, allowing the correct model words to override the other reader solely because they match the visually checked answer, or changing cross-reader trust from this one reference would require a separately validated recognition/acceptance change. That is outside this bounded attempt. There is no demonstrated small lost-cue publication bug to patch here; manufacturing a guard relaxation would not establish reliable completion.
+
+**Stop this approach. Minimum next option:** optional manual correction/review of these three reply lines and their visible timings in the existing editor. It was not applied. A separately scoped alternative-recognizer evaluation is another option, not started. Do not bypass incomplete-caption approval.
+
+Actual saved score remains **227.7133 correct / 1.8 wrong / 22.5667 missing / 3.7867 extra word-seconds**, with the same exact manual/title exclusions. All **30 database tables** have unchanged contents and all **19 existing media/output files** match their pre-experiment SHA-256; both projects, 16 clips, recovered opening, protected “Boys you meet.” correction, fonts/settings and prior captions-off output remain intact. No new manual correction is included. Customize and unrelated `next-env.d.ts` remain untouched.
+
+**Full handwritten captioned export: not produced. Handwritten acceptance: not passed. Image mode: 0%.** No whole-reference run, rendering, browser walkthrough, transcription or TikTok request was repeated. This documentation-only result requires no new regression tests or local suite rerun. Private source-bound candidates, complete crop contact sheet, raw recognizer outputs, current-cache checks and preservation fingerprints are retained under `caption-reply-decision-20261018`, outside Git. Diagnosis stopped within the 60-minute effort bound; final CI waiting is separate.
+
 ## Comparison contract
 
 The stronger retained review is **mixed**, not a single automatic run: automatic evidence accumulated across targeted retries; one explicit protected manual correction; older reviews restored after failed verification; several legacy boundaries with unknown history. A `fresh` event inside a trace is raw automatic evidence; an `after` review or publication replay alone is not. No evaluation wording was supplied to production.

@@ -2,6 +2,12 @@
 
 Current default is automatic reference-video generation; Customize retains the advanced editor. Earlier sections record historical milestone boundaries. [Current workflow, verification and limits](AUTOMATIC_GENERATION.md).
 
+## Bounded handwritten-reply decision — 2026-10-18
+
+**NO-GO for unattended completion with the current approach.** One new bounded experiment used 12 complete source-bound crops (four native frames; two preparations per line): **12 fresh TrOCR + 12 fresh Tesseract evaluations, zero experimental cache hits**, no download/cache changes. TrOCR correctly read all three reply lines, including “too”; Tesseract still failed the lower ending. Correct cached model words already exist; explicit cross-reader conflicts and incomplete automatic localization/timing prevent safe saved completion. [Exact lines, outputs and decision](CAPTION_BASELINE_PROVENANCE.md#bounded-reply-decision--2026-10-18).
+
+No production patch manufactured and no saved change: revision **61**, 227.7133 correct / 1.8 wrong / 22.5667 missing / 3.7867 extra word-seconds. All database contents and 19 existing media/output files unchanged; recovered opening, protected manual correction, both projects/all 16 clips and Customize preserved. No full captioned export, whole-reference retry, browser/render repeat or incomplete-caption override. **Handwritten acceptance not passed; image mode 0%.** Minimum next option is optional manual reply correction in the existing editor; no new task started.
+
 ## Current caption recovery — 2026-10-18
 
 **Partial recovery, not complete handwritten acceptance.** [Per-cue baseline provenance, interval comparison and final actual-project evidence](CAPTION_BASELINE_PROVENANCE.md). The stronger review is mixed accumulated/retried/restored evidence with one manual correction and some unknown historical timing, not a clean automatic target.
