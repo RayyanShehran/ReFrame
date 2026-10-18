@@ -1,10 +1,20 @@
 # Caption temporal acceptance — 2026-10-17
 
-## Decision
+## Current caption recovery — 2026-10-18
+
+**Partial recovery, not complete handwritten acceptance.** [Per-cue baseline provenance, interval comparison and final actual-project evidence](CAPTION_BASELINE_PROVENANCE.md). The stronger review is mixed accumulated/retried/restored evidence with one manual correction and some unknown historical timing, not a clean automatic target.
+
+Source-region binding/verified glyph continuity and refinement-conflict propagation corrected. Actual saved score improves **196.9133 / 3.2 / 51.9667 / 3.7867 → 227.7133 / 1.8000 / 22.5667 / 3.7867** (correct / wrong / missing / extra word-seconds, exact manual interval/title excluded). Both opening phases are continuous. Stronger mixed review remains 236.7133 / 0 / 15.3667 / 1.92; final replies remain wrong/missing.
+
+First whole integration failed to publish coarse replacements. A normal targeted actual-project retry saved fine observations; an additional whole retry retained them: revision **61**, **185.24 s**, 19 saved cues, 18 unresolved regions. This is accumulated automatic evidence plus a separately protected manual cue, not a recorded-input replay or restored proposal. No forced handwritten export. Existing video/settings/fonts/analyses and both projects/all 16 clips remain intact.
+
+**Caption repair 63% of the last reported correct-word deficit recovered; complete handwritten acceptance 0% / not passed.** The remaining deficit is 9.0 word-seconds; conflicting final replies, coarse whole-run timing and scenery false blockers remain. Customize stays unchanged and previously verified. Image mode **0%**; overall reassessment remains with the architect. Earlier results below are historical.
+
+## Historical decision before this recovery
 
 **Handwritten reference remains partial and is not accepted for automatic complete export.** This follow-up implements interval evaluation and targeted tracking/reading corrections, but the fresh whole-track accuracy still regresses and scenery false blockers remain. Caption follow-up estimate **60%**, an engineering completion estimate, not an accuracy score. Customize is delivered separately; [inventory and browser evidence](CUSTOMIZE_WORKSPACE.md). Overlay extraction remains outside production. Image mode **0%**.
 
-## Acceptance follow-up — 2026-10-18
+## Earlier acceptance follow-up — 2026-10-18
 
 **Partial repair, not handwritten acceptance.** Customize implementation **100%**, scoped UI verification **100%**, caption regression repair **60%**, complete handwritten acceptance **0%**. These are task-completion estimates, not accuracy percentages. Correct reading selection improved, but continuous baseline quality is not restored; no complete handwritten export was made. The whole-run result below is fresh recognition in an isolated copy; the separately labelled final publication replay is not a second extraction or a restored proposal. The real project's current review/output was not replaced.
 
