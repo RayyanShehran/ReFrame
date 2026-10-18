@@ -56,6 +56,7 @@ class SlotChoices(color.Schema):
 
 
 class Decision(color.Schema):
+    sampled: bool = False
     algorithm: Literal["stable-borders-center-v1"] = ALGORITHM
     clip_id: UUID
     source_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
@@ -111,9 +112,11 @@ def read(project_id):
 
 
 def save(project_id, request, *, stop=None, deadline=None):
+    deadline = min(deadline or time.monotonic() + 120, time.monotonic() + 120)
     if read(project_id).settings.revision != request.expected_revision:
         raise ReferenceError(409, "revision_conflict", "Framing changed. Reload before saving.")
     prepared = prepare(project_id, request, stop=stop, deadline=deadline)
+    color.guard(stop, deadline)
     with projects.database() as connection:
         row = record(project_id, connection)
         if (row["revision"] if row else 0) != request.expected_revision:
@@ -362,6 +365,7 @@ def sample_decision(path, clip, start, end, directory, deadline):
         raise ValueError("Missing framing samples")
     insets, note = detect_borders([raw[i * w * h : (i + 1) * w * h] for i in range(5)], w, h)
     return Decision(
+        sampled=True,
         clip_id=clip.id,
         source_hash=clip.sha256,
         start_frame=start,
@@ -395,29 +399,28 @@ def prepare(project_id, request, *, stop=None, deadline=None):
             video, _, _ = probe(source["path"], directory, deadline, temp_budget=16 * 1024 * 1024)
             canvas = geometry(video, Settings())[1]
         seq = sequence.read(project_id)
-        routes = seq.sequence.slots if seq.status == "ready" else []
+        routes = list(seq.sequence.slots) if seq.status == "ready" else []
         if request.slots and any(key not in {s.id for s in routes} for key in request.slots):
             raise ReferenceError(
                 409, "framing_stale", "A framing slot changed. Reload the sequence."
             )
         decisions = {}
         previous = read(project_id).settings
-        if not routes:
-            path, clip = clip_library.source(
-                project_id,
-                UUID(footage.source(project_id)["identity"].clip_id[5:37]),
-                stop=stop,
-                deadline=deadline,
+        path, clip = clip_library.source(
+            project_id,
+            UUID(footage.source(project_id)["identity"].clip_id[5:37]),
+            stop=stop,
+            deadline=deadline,
+        )
+        routes += [
+            SimpleNamespace(
+                id="whole",
+                clip_id=clip.id,
+                source_hash=clip.sha256,
+                source_start_frame=0,
+                source_end_frame=int(clip.metadata.duration_seconds * 30),
             )
-            routes = [
-                SimpleNamespace(
-                    id="whole",
-                    clip_id=clip.id,
-                    source_hash=clip.sha256,
-                    source_start_frame=0,
-                    source_end_frame=int(clip.metadata.duration_seconds * 30),
-                )
-            ]
+        ]
         for slot in routes:
             color.guard(stop, deadline)
             controls = request.slots.get(
@@ -443,11 +446,16 @@ def prepare(project_id, request, *, stop=None, deadline=None):
                 continue
             key = str(slot.id)
             old = previous.decisions.get(key)
-            if old and (old.algorithm, old.source_hash, old.start_frame, old.end_frame) == (
-                ALGORITHM,
-                slot.source_hash,
-                slot.source_start_frame,
-                slot.source_end_frame,
+            if (
+                old
+                and old.sampled
+                and (old.algorithm, old.source_hash, old.start_frame, old.end_frame)
+                == (
+                    ALGORITHM,
+                    slot.source_hash,
+                    slot.source_start_frame,
+                    slot.source_end_frame,
+                )
             ):
                 decisions[key] = old
                 continue
@@ -471,6 +479,12 @@ def transform(video, settings, slot=None, *, canvas=None):
     )
     key = str(slot.id) if slot else "whole"
     decision = settings.decisions.get(key)
+    if settings.revision and controls.bars == "auto" and controls.insets is None and not decision:
+        raise ReferenceError(
+            409,
+            "framing_stale",
+            "This range needs framing inspection. Save framing before previewing or rendering.",
+        )
     if (
         decision
         and slot
@@ -499,7 +513,7 @@ def transform(video, settings, slot=None, *, canvas=None):
     if mode == "automatic":
         mode = "fill" if retained >= 0.72 else "fit"
         note += (
-            " Center Fill."
+            " Fixed Fill (center by default)."
             if mode == "fill"
             else " Fit: filling would discard over 28% of the active image."
         )

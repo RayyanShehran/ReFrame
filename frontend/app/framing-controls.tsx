@@ -45,9 +45,11 @@ const editable = (s: Settings): Choices => ({ format: s.format, fit: s.fit, hori
 
 export function FramingControls({ projectId, onState, grading }: { projectId: string; onState: (state: FramingState) => void; grading?: GradingState }) {
   const navigation = useWorkspaceNavigation();
-  const [selected, setSelected] = useState("");
+  const [selection, setSelection] = useState({ key: "", slot: "" });
   const selectedId = navigation?.selection?.kind === "slot" ? navigation.selection.id : null;
-  const choice = grading?.choices.find(c => c.key === (selected || (selectedId ? `slot:${selectedId}` : ""))) ?? grading?.choices[0];
+  const navigationKey = selectedId ? `slot:${selectedId}` : "";
+  const choiceKey = selection.slot === navigationKey ? selection.key : "";
+  const choice = grading?.choices.find(c => c.key === (choiceKey || navigationKey)) ?? grading?.choices[0];
   const [preview, setPreview] = useState<SlotPreview | null>(null), [previewBusy, setPreviewBusy] = useState(false);
   const previewAction = useRef<AbortController | null>(null);
   const [result, setResult] = useState<Result | null>(null), [draft, setDraft] = useState(defaults);
@@ -137,18 +139,18 @@ export function FramingControls({ projectId, onState, grading }: { projectId: st
       </fieldset>
       {grading?.choices.length ? <fieldset className="recipe-controls" disabled={busy || previewBusy}>
         <legend>Selected slot only</legend>
-        <label>Slot to frame <select value={choice?.key ?? ""} onChange={e => setSelected(e.target.value)}>{grading.choices.map(c => <option key={c.key} value={c.key}>{c.name}</option>)}</select></label>
+        <label>Slot to frame <select value={choice?.key ?? ""} onChange={e => setSelection({ key: e.target.value, slot: navigationKey })}>{grading.choices.map(c => <option key={c.key} value={c.key}>{c.name}</option>)}</select></label>
         {slot && <>
           <label>Slot framing <select value={slot.fit} onChange={e => changeSlot({ fit: e.target.value as SlotChoices["fit"] })}><option value="automatic">Automatic</option><option value="fill">Fill</option><option value="fit">Fit</option></select></label>
           <label>Embedded-bar removal <select value={slot.bars} onChange={e => changeSlot({ bars: e.target.value as SlotChoices["bars"] })}><option value="auto">Auto</option><option value="off">Off</option></select></label>
           {(["horizontal", "vertical"] as const).map((axis, i) => <label key={axis}>{axis === "horizontal" ? "Left / right" : "Top / bottom"} crop position: {Math.round(slot[axis]*100)}%<input aria-label={`Slot ${axis} position`} type="range" min="0" max="100" value={slot[axis]*100} disabled={!slotFill || slotMovement[i] < 2} onChange={e => changeSlot({ [axis]: Number(e.target.value)/100 })} /></label>)}
-          <label>Slot zoom: {slot.zoom.toFixed(2)}�<input aria-label="Slot zoom" type="range" min="1" max="2" step="0.01" disabled={!slotFill} value={slot.zoom} onChange={e => changeSlot({ zoom: Number(e.target.value) })} /></label>
+          <label>Slot zoom: {slot.zoom.toFixed(2)}×<input aria-label="Slot zoom" type="range" min="1" max="2" step="0.01" disabled={!slotFill} value={slot.zoom} onChange={e => changeSlot({ zoom: Number(e.target.value) })} /></label>
           <details><summary>Correct embedded borders manually</summary><p>Crop fractions apply after orientation. Inspect the whole image first; burned-in words cannot move independently.</p>{(["Left", "Top", "Right", "Bottom"] as const).map((label, i) => <label key={label}>{label} trim (%)<input aria-label={`${label} border trim`} type="number" min="0" max="45" step="0.5" value={(slot.insets?.[i] ?? 0)*100} onChange={e => { const insets = [...(slot.insets ?? [0,0,0,0])] as [number,number,number,number]; insets[i] = Number(e.target.value)/100; changeSlot({ insets }); }} /></label>)}</details>
           <button onClick={() => { changeSlot({ ...automaticSlot, insets: null }); }}>Reset selected slot to automatic</button>
           <p>{result.settings.decisions?.[choice!.slotId!]?.note}</p>
         </>}
         {dirty && <p role="status">Preview pending: save framing changes, then update preview. No old preview represents this draft.</p>}
-        <button disabled={dirty || !grading.ready || grading.dirty || grading.busy || grading.mode === "basic"} onClick={() => void updatePreview()}>{previewBusy ? "Updating framing preview�" : "Update saved framing preview"}</button>
+        <button disabled={dirty || !grading.ready || grading.dirty || grading.busy || grading.mode === "basic"} onClick={() => void updatePreview()}>{previewBusy ? "Updating framing preview×" : "Update saved framing preview"}</button>
         {grading.mode === "basic" && <p>Use the existing before/after preview in Color for Basic recipe mode.</p>}
         {!dirty && preview && preview.framing_revision === result.settings.revision && preview.grading_revision === grading.revision && preview.slot_id === (choice?.slotId ?? null) && preview.inspected === choice?.version && <figure><Image unoptimized src={`data:image/png;base64,${preview.edited.png_base64}`} width={preview.edited.width} height={preview.edited.height} alt="Actual selected footage with saved framing and color, before final captions" style={{ maxWidth: "100%", height: "auto" }} /><figcaption>{preview.framing_note} Saved revision {preview.framing_revision}. Final captions remain on the canvas.</figcaption></figure>}
       </fieldset> : null}

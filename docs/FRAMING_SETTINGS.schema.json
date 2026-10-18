@@ -1,10 +1,159 @@
 {
+  "$defs": {
+    "Decision": {
+      "additionalProperties": false,
+      "properties": {
+        "sampled": {
+          "default": false,
+          "title": "Sampled",
+          "type": "boolean"
+        },
+        "algorithm": {
+          "const": "stable-borders-center-v1",
+          "default": "stable-borders-center-v1",
+          "title": "Algorithm",
+          "type": "string"
+        },
+        "clip_id": {
+          "format": "uuid",
+          "title": "Clip Id",
+          "type": "string"
+        },
+        "source_hash": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Source Hash",
+          "type": "string"
+        },
+        "start_frame": {
+          "minimum": 0,
+          "title": "Start Frame",
+          "type": "integer"
+        },
+        "end_frame": {
+          "exclusiveMinimum": 0,
+          "title": "End Frame",
+          "type": "integer"
+        },
+        "insets": {
+          "maxItems": 4,
+          "minItems": 4,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Insets",
+          "type": "array"
+        },
+        "note": {
+          "maxLength": 500,
+          "title": "Note",
+          "type": "string"
+        }
+      },
+      "required": [
+        "clip_id",
+        "source_hash",
+        "start_frame",
+        "end_frame",
+        "insets",
+        "note"
+      ],
+      "title": "Decision",
+      "type": "object"
+    },
+    "SlotChoices": {
+      "additionalProperties": false,
+      "properties": {
+        "fit": {
+          "default": "automatic",
+          "enum": [
+            "automatic",
+            "fit",
+            "fill"
+          ],
+          "title": "Fit",
+          "type": "string"
+        },
+        "horizontal": {
+          "default": 0.5,
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Horizontal",
+          "type": "number"
+        },
+        "vertical": {
+          "default": 0.5,
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Vertical",
+          "type": "number"
+        },
+        "zoom": {
+          "default": 1,
+          "maximum": 2,
+          "minimum": 1,
+          "title": "Zoom",
+          "type": "number"
+        },
+        "bars": {
+          "default": "auto",
+          "enum": [
+            "auto",
+            "off"
+          ],
+          "title": "Bars",
+          "type": "string"
+        },
+        "insets": {
+          "anyOf": [
+            {
+              "maxItems": 4,
+              "minItems": 4,
+              "prefixItems": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                }
+              ],
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Insets"
+        }
+      },
+      "title": "SlotChoices",
+      "type": "object"
+    }
+  },
   "additionalProperties": false,
   "properties": {
     "format": {
       "default": "original",
       "enum": [
         "original",
+        "reference",
         "portrait",
         "square",
         "landscape"
@@ -16,10 +165,31 @@
       "default": "fit",
       "enum": [
         "fit",
-        "fill"
+        "fill",
+        "automatic"
       ],
       "title": "Fit",
       "type": "string"
+    },
+    "bars": {
+      "default": "off",
+      "enum": [
+        "auto",
+        "off"
+      ],
+      "title": "Bars",
+      "type": "string"
+    },
+    "slots": {
+      "additionalProperties": {
+        "$ref": "#/$defs/SlotChoices"
+      },
+      "maxProperties": 60,
+      "propertyNames": {
+        "format": "uuid"
+      },
+      "title": "Slots",
+      "type": "object"
     },
     "horizontal": {
       "default": 0.5,
@@ -34,6 +204,36 @@
       "minimum": 0,
       "title": "Vertical",
       "type": "number"
+    },
+    "canvas": {
+      "anyOf": [
+        {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "integer"
+            }
+          ],
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Canvas"
+    },
+    "decisions": {
+      "additionalProperties": {
+        "$ref": "#/$defs/Decision"
+      },
+      "maxProperties": 61,
+      "title": "Decisions",
+      "type": "object"
     },
     "schema_version": {
       "const": 1,

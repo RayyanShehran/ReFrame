@@ -318,7 +318,11 @@ def caption_frame(project_id, request):
                 path, directory, deadline, temp_budget=preview.TEMP_BUDGET
             )
         metadata = color.inspect_colors(video)
-        active, scale, canvas, final, _ = framing.transform(video, spec.framing)
+        if spec.sequence:
+            active, final = "", ""
+            scale = canvas = (video["width"], video["height"])
+        else:
+            active, scale, canvas, final, _ = framing.transform(video, spec.framing)
         resize = (active + "," if active else "") + render.resize_filter(*scale, metadata)
         if spec.sequence:
             canvas = (video["width"], video["height"])

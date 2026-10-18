@@ -567,3 +567,12 @@ No production caption changes or full-reference WITH-captions export. OCR remain
 Supported printed/multiline/Arabic-English fixtures remain complete, with a fresh automatic three-cut captioned render and matching download bytes. One independent existing uploaded-video interval reads 7/0/0; its remaining timeline is unverified. No-caption scenery still causes false blocking regions (zero false cues). [Profiles, per-example results, exact verification boundary, restoration and estimates](CAPTION_DISCOVERY.md). Both projects/all 16 clips, corrections, analyses/settings/fonts and previous output remain preserved. Image mode **0%**; overall acceptance stays with the architect.
 
 Final v18 correction preserves full-frame OCR fallback when geometry finds no region; unknown checks stay partial. Real black/white and gray/gray fixtures recover all three words, without model inference. No additional whole-reference extraction; handwritten acceptance and restoration disclosure above remain unchanged.
+
+
+## Consistent framing follow-up — 2026-10-19
+
+Automatic framing **100% implemented**; conservative embedded-bar handling **100% implemented**; verification **90%** (browser access unavailable), pending acceptance; exact-commit CI is reported at handoff. Untouched automatic generations use the retained reference display aspect; existing saved choices remain. Project defaults and selected-slot overrides share the actual preview/export transform, stable range-bound evidence, explicit saving/reset, revision checks and source validation. No subject-aware crop or identical-padding claim.
+
+Mixed generated media exercises both border axes, genuine darkness, Fit fallback, noncentral overrides and preview/export crop-edge agreement. The actual 15-slot manually captioned replacement is **1280 × 720 / 39.633333 s / 1,189 frames**; four padded ranges receive disclosed reviewed corrections. Every caption, cut, grade and audio setting remains unchanged; decoded audio matches the prior output exactly. Prior captioned/captions-off videos are archived, source hashes and other saved data preserved. Full visual sampling, decode, download/range and persistence checks passed; interactive browser playback/refresh was not exercised. [Method, limits and output identifiers](CONSISTENT_FRAMING.md).
+
+No OCR, model download, new TikTok request or caption-recognition change. Automatic handwritten recreation remains unsupported for the earlier reference. Image mode **0%**.

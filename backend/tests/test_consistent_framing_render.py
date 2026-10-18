@@ -26,7 +26,7 @@ def test_mixed_real_sources_borders_dark_fit_override_preview_and_caption_canvas
         "color=yellow:s=320x180,pad=320:240:0:30:black",
         "color=cyan:s=180x320,pad=240:320:30:0:black",
         "color=0x080808:s=320x180",
-        "color=blue:s=320x180,drawbox=x=0:y=0:w=100:h=180:color=red:t=fill",
+        "color=blue:s=320x180,drawbox=x=0:y=0:w=80:h=180:color=red:t=fill",
     ]
     paths = []
     for i, f in enumerate(filters):
@@ -88,7 +88,7 @@ def test_mixed_real_sources_borders_dark_fit_override_preview_and_caption_canvas
     )
     assert caption.status_code == 200, caption.text
     before = client.get(base + "/captions").json()
-    controls = {slots[-1]["id"]: dict(fit="fill", horizontal=0, vertical=0.5, zoom=1.8, bars="off")}
+    controls = {slots[-1]["id"]: dict(fit="fill", horizontal=0, vertical=0.5, zoom=1.4, bars="off")}
     response = client.post(
         base + "/framing",
         json=dict(
@@ -150,7 +150,15 @@ def test_mixed_real_sources_borders_dark_fit_override_preview_and_caption_canvas
     png.write_bytes(base64.b64decode(preview.json()["edited"]["png_base64"]))
     actual = frame(png, 0)
     expected = shots[-1]
-    assert sum(abs(a - b) for a, b in zip(actual, expected)) / len(actual) < 6
+
+    # Compare the actual crop edge, independently of FFmpeg-version RGB conversion.
+    def red_edge(raw):
+        row = [pixel(raw, x, 36) for x in range(72)]
+        labels = [r > b + 80 for r, g, b in row]
+        assert 10 < sum(labels) < 65, (row[0], row[36], row[-1])
+        return max(i for i, red in enumerate(labels) if red)
+
+    assert abs(red_edge(actual) - red_edge(expected)) <= 1
     # Changing only one saved source interval invalidates just its decision until a framing save.
     assigned[-1]["source_start_frame"] = 10
     assert (

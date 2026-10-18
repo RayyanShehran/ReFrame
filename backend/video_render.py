@@ -874,14 +874,15 @@ def pipeline(source, directory, stop, deadline):
         if not math.isfinite(video_start):
             raise ValueError("Invalid video start timestamp")
         metadata = color.inspect_colors(video)
-        active, (scale_width, scale_height), (width, height), canvas_filter, _ = (
-            framing_choices.transform(video, spec.framing)
-        )
         if spec.sequence:
+            # The assembled slots already share the saved canvas; do not frame them twice.
             scale_width, scale_height = video["width"], video["height"]
             width, height = scale_width, scale_height
-            canvas_filter = ""
-            active = ""
+            canvas_filter, active = "", ""
+        else:
+            active, (scale_width, scale_height), (width, height), canvas_filter, _ = (
+                framing_choices.transform(video, spec.framing)
+            )
         subtitle_filter, font_warnings = subtitle(
             spec.captions, source["project_id"], directory, width, height, deadline
         )

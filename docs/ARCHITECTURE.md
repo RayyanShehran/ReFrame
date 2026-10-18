@@ -153,6 +153,8 @@ Finite, ordered segment/word intervals and nonempty plain text must lie inside o
 
 ## Saved output framing
 
+The consistent-framing extension adds a reference-aspect canvas, conservative embedded-border evidence and revisioned source/range-bound slot overrides, retaining legacy defaults. Preview and export share the stable transform; caption timing remains independent. [Policy, bounds, compatibility and actual-export evidence](CONSISTENT_FRAMING.md).
+
 SQLite migration **12** additively creates `framing_settings` (project foreign-key cascade, revision ≥1, JSON). [Settings schema 1](FRAMING_SETTINGS.schema.json) stores format original/portrait/square/landscape, fit/fill, finite strict horizontal/vertical positions **0–1**, revision and UTC creation/update dates. Absent settings mean Original/Fit/center, revision **0**. `GET /api/projects/{UUID}/framing` restores defaults or saved settings; `POST` accepts choices plus `expected_revision`, checks the current revision inside the transaction and returns 409 on conflict. Reset is a frontend draft operation. Analyses, recipes, audio, cut plans and caption/transcription timing bindings are untouched.
 
 Render POST adds `expected_framing_revision` (omission only at unchanged default zero). Specification schema 1 includes the exact framing snapshot; older specifications default to Original/revision zero. Saved framing uses renderer **sdr-eq-mp4-v6**. A saved revision change marks old output outdated, retaining playback/download until successful atomic replacement. Publication retains the existing source-hash/current-operation/project/deadline guards. An edit during rendering may publish its bound older settings explicitly outdated. Headers add `X-Framing-Revision` and `X-Output-Format`.

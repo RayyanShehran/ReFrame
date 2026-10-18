@@ -103,3 +103,47 @@ def test_saved_whole_override_restoration_revisions_and_analysis_preservation(lo
     )
     loaded = framing.Settings.model_validate_json(json.dumps(response.json()["settings"]))
     assert loaded.decisions["whole"].source_hash
+
+
+@pytest.mark.parametrize(
+    "insets", [[False, 0, 0, 0], ["0.2", 0, 0, 0], [float("nan"), 0, 0, 0], [0.4, 0, 0.4, 0]]
+)
+def test_invalid_manual_border_corrections(insets):
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        framing.SlotChoices(insets=insets)
+
+
+def test_enabling_auto_after_off_refreshes_evidence_and_then_reuses_it(local, monkeypatch):
+    client, directory, _ = local
+    saved, _ = seed_analyses(client, directory)
+    pid = saved["id"]
+    calls = []
+
+    def sample(path, clip, start, end, directory, deadline):
+        calls.append((start, end))
+        return framing.Decision(
+            sampled=True,
+            clip_id=clip.id,
+            source_hash=clip.sha256,
+            start_frame=start,
+            end_frame=end,
+            insets=(0, 0.1, 0, 0.1),
+            note="Real boundary mocked only",
+        )
+
+    monkeypatch.setattr(framing, "sample_decision", sample)
+    url = f"/api/projects/{pid}/framing"
+    assert (
+        client.post(
+            url, json=dict(expected_revision=0, format="square", fit="automatic", bars="off")
+        ).status_code
+        == 200
+    )
+    for revision, bars in [(1, "auto"), (2, "auto"), (3, "off"), (4, "auto")]:
+        response = client.post(
+            url, json=dict(expected_revision=revision, format="square", fit="automatic", bars=bars)
+        )
+        assert response.status_code == 200, response.text
+        assert len(calls) == (1 if revision in (1, 2, 3) else 2)
