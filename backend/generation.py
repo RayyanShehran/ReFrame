@@ -632,7 +632,14 @@ def begin_operation(project_id, request):
         options=request,
         completed=completed,
         notices=prior.notices if completed else [],
-        caption_review=prior.caption_review if old == bound else None,
+        # Reviewed cues bind to the reference, not to other saved edits; reuse revalidates source.
+        caption_review=(
+            prior.caption_review
+            if old
+            and (old["reference_url"], old["reference"])
+            == (bound["reference_url"], bound["reference"])
+            else None
+        ),
     )
     with projects.database() as db:
         db.execute(
