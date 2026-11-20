@@ -545,16 +545,52 @@ def transform(video, settings, slot=None, *, canvas=None):
     return active, scale, canvas, final, note
 
 
-def automatic_default(project_id, stop=None, deadline=None):
-    """Untouched framing uses the reference; saved edits survive retries."""
-    if read(project_id).settings.revision == 0:
+def automatic_default(project_id, stop=None, deadline=None, replace=False):
+    """Untouched framing uses the reference; saved choices survive retries and follow a rebuilt
+    sequence. Per-slot edits for slots that no longer exist are dropped only with `replace`."""
+    import sequence
+
+    settings = read(project_id).settings
+    if settings.revision == 0:
         return save(
             project_id,
             SaveRequest(expected_revision=0, format="reference", fit="automatic", bars="auto"),
             stop=stop,
             deadline=deadline,
         )
-    return read(project_id)
+    current = sequence.read(project_id)
+    slots = {slot.id: slot for slot in current.sequence.slots} if current.status == "ready" else {}
+    orphaned = [key for key in settings.slots if key not in slots]
+
+    def covered(slot):
+        decision = settings.decisions.get(str(slot.id))
+        if decision:
+            return (
+                decision.clip_id,
+                decision.source_hash,
+                decision.start_frame,
+                decision.end_frame,
+            ) == (slot.clip_id, slot.source_hash, slot.source_start_frame, slot.source_end_frame)
+        controls = settings.slots.get(slot.id) or settings
+        return controls.bars == "off" or getattr(controls, "insets", None) is not None
+
+    if not orphaned and all(covered(slot) for slot in slots.values()):
+        return read(project_id)
+    if orphaned and not replace:
+        raise ReferenceError(
+            409,
+            "framing_stale",
+            "The sequence changed, so saved per-shot framing no longer matches. "
+            "Adjust framing in Customize, or confirm replacement.",
+        )
+    choices = settings.model_dump(include=set(Choices.model_fields))
+    choices["slots"] = {key: value for key, value in settings.slots.items() if key in slots}
+    return save(
+        project_id,
+        SaveRequest(expected_revision=settings.revision, **choices),
+        stop=stop,
+        deadline=deadline,
+    )
 
 
 def validate(project_id, settings, sequence=None):

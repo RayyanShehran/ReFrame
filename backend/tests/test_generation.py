@@ -6,6 +6,7 @@ import time
 
 import pytest
 
+import framing
 import generation
 import projects
 import reference_engine as engine
@@ -429,6 +430,48 @@ def test_visual_failure_can_continue_with_measurements_and_retained_checkpoints(
     assert sequence.read(pid).sequence.revision == slot_revision + 1  # Assignment save only.
     assert any("subject-aware matching was not used" in n for n in ready["notices"])
     monkeypatch.setattr(generation.visual_matching, "analyze", original)
+
+
+def test_replace_confirmed_retry_rebuilds_sequence_and_refreshes_framing(local, monkeypatch):
+    client, directory, _ = local
+    pid = seed(client, directory)
+    monkeypatch.setattr(generation.visual_matching, "readiness", lambda: {"ready": True})
+    monkeypatch.setattr(
+        generation.visual_matching, "analyze", lambda *a, **k: pytest.fail("No visual work")
+    )
+    url = f"/api/projects/{pid}/generation"
+    options = {
+        "captions": "off",
+        "audio": "mute",
+        "replace_customized": True,
+        "matching_mode": "measurements",
+    }
+    assert client.post(url, json=options).status_code == 202
+    first = wait(client, url)
+    assert first["status"] == "ready", first
+    old = sequence.read(pid).sequence.slots
+    saved = framing.read(pid).settings
+    # A user per-shot edit bound to a slot that the replace-confirmed retry rebuilds.
+    body = saved.model_dump(mode="json", include=set(framing.Choices.model_fields)) | {
+        "expected_revision": saved.revision,
+        "slots": {str(old[0].id): {"fit": "fill", "horizontal": 0.25}},
+    }
+    response = client.post(f"/api/projects/{pid}/framing", json=body)
+    assert response.status_code == 200, response.text
+    edited = framing.read(pid).settings.revision
+    assert client.post(url, json=options | {"expected_revision": 1}).status_code == 202
+    done = wait(client, url)
+    # Previously failed at render with framing_stale.
+    assert done["status"] == "ready", (done["stage"], done["failure_code"], done["message"])
+    new = sequence.read(pid).sequence.slots
+    assert not {slot.id for slot in old} & {slot.id for slot in new}
+    settings = framing.read(pid).settings
+    assert settings.revision == edited + 1 and not settings.slots
+    assert settings.format == saved.format and settings.fit == saved.fit
+    assert all(
+        settings.decisions[str(slot.id)].start_frame == slot.source_start_frame for slot in new
+    )
+    assert done["output_id"] != first["output_id"]
 
 
 @pytest.mark.parametrize("choice", ["off", "partial"])
