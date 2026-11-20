@@ -636,8 +636,8 @@ def begin_operation(project_id, request):
         caption_review=(
             prior.caption_review
             if old
-            and (old["reference_url"], old["reference"])
-            == (bound["reference_url"], bound["reference"])
+            and (old.get("reference_url"), old.get("reference"))
+            == (bound.get("reference_url"), bound.get("reference"))
             else None
         ),
     )
