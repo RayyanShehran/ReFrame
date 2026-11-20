@@ -175,7 +175,8 @@ def test_real_pcm_keeps_video_relative_audio_timing(
         "disabled",
     ]
     if gap:
-        args += ["-af", f"aselect='not(between(t,0.8,{0.8 + gap}))'"]
+        # Shift later frames to open a timestamp gap; FFmpeg 8.0's aselect drops no audio frames.
+        args += ["-af", f"asetpts='PTS+gte(T,0.8)*{gap}/TB'"]
     subprocess.run(args + [str(path)], check=True, capture_output=True, timeout=10)
     metadata = json.loads(
         subprocess.run(
