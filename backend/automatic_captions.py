@@ -386,7 +386,10 @@ def track(read, frames, ignored, *, boundaries=None, absence=None, verified_abse
     try:
         intervals = list(zip(observations, observations[1:]))
         refinements = {}
-        for i in discovery_order(list(range(len(intervals)))):
+        order = discovery_order(list(range(len(intervals))))
+        # Observed changes first: probing unchanged intervals must not starve boundary refinement.
+        changed = {i for i in order if not same(intervals[i][0][1], intervals[i][1][1])}
+        for i in [i for i in order if i in changed] + [i for i in order if i not in changed]:
             (left, a), (right, b) = intervals[i]
             refinements[i] = refine(left, a, right, b)
         for i in range(len(intervals)):
