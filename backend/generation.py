@@ -827,7 +827,13 @@ async def worker(project_id, operation_id, data, stop):
             if notice not in operation.notices:
                 operation.notices.append(notice)
         saved_sequence = sequence.read(project_id).sequence
-        await locked(framing.automatic_default, project_id, stop, deadline)
+        await locked(
+            framing.automatic_default,
+            project_id,
+            stop,
+            deadline,
+            operation.options.replace_customized,
+        )
         await stage(STAGES[2])
         if "grading" not in operation.completed:
             revision = grading.read_settings(project_id).revision
