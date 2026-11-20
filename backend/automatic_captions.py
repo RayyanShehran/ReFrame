@@ -2418,6 +2418,9 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
         if len(excluded) < 30:
             excluded[text] = {"start": first / 30, "end": total / 30, "text": text}
     color.guard(stop, deadline)
+    # Boundary refinement runs last; give it the remaining overall budget, not the
+    # later-reading cap, so whole-reference runs still refine to 1/30 second.
+    frame_deadline = deadline
     boundaries, absence = {}, []
     changes = track(
         read,
@@ -2720,7 +2723,7 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
             "excluded_intervals": list(excluded.values()),
             "observations": observations,
             "observed_absence": absence,
-            "reading_budget_exhausted": time.monotonic() >= inference_deadline - 20,
+            "reading_budget_exhausted": time.monotonic() >= frame_deadline - 20,
             "discovery_budget_exhausted": discovery_exhausted,
             "discovery_seconds": discovery_seconds,
             "recognition_frames": len(recognition),
