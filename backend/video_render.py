@@ -955,6 +955,11 @@ def pipeline(source, directory, stop, deadline):
             if final_filter:
                 graph += f";[vout]{final_filter}[vfinal]"
             args += ["-map", "[vfinal]" if final_filter else "[vout]"]
+        elif custom_audio:
+            # FFmpeg 8.0 hangs at -t when a separate -vf runs beside apad→amix in -filter_complex.
+            graph = f"[0:{video['index']}]{filters}" + ("," + final_filter if final_filter else "")
+            graph += "[vout]"
+            args += ["-map", "[vout]"]
         else:
             args += [
                 "-map",
