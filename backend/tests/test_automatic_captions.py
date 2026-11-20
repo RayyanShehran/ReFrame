@@ -36,6 +36,22 @@ def test_adaptive_tracking_refines_changes_and_gaps_without_inventing_text():
     assert len(reads) < 20
 
 
+def test_limited_budget_refines_observed_changes_before_probing_unchanged_intervals():
+    discovery = list(range(0, 151, 15))
+    extra = []
+
+    def read(frame):
+        if frame not in discovery:
+            if len(extra) >= 7:
+                raise automatic.engine.ProbeTimeout("Caption reading budget reached")
+            extra.append(frame)
+        return [detection("First" if frame < 97 else "Second")]
+
+    result = automatic.track(read, discovery, set())
+    # Refined to the actual change frame, not snapped to the 15-frame (0.5 s) discovery grid.
+    assert [(f, d.text) for f, d in result] == [(0, "First"), (97, "Second")]
+
+
 @pytest.mark.parametrize("raw", [b"", b"nonsense", b"level\ttext\n5\tHello"])
 def test_malformed_ocr_is_not_a_no_caption_result(raw):
     with pytest.raises(ReferenceError, match="could not be read safely"):
