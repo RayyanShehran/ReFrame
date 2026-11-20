@@ -64,4 +64,6 @@ Config: `frontend/.env.local` (copy from `.env.example`) holds `NEXT_PUBLIC_API_
 
 **Models and schemas.** Request/response/persisted models are Pydantic (most derive from `color_analysis.Schema`, often imported as `color`; persisted payloads carry `schema_version` literals). The matching `docs/*.schema.json` files document those models; keep them in sync when changing a persisted model.
 
+**Pages and header navigation.** The app is currently one route (`app/page.tsx` renders `AutomaticMaker`; project state lives in the query string). Whenever you add a new page (`frontend/app/<route>/page.tsx`), add a link to it in the site header, the `header.topbar` element. That header is duplicated in `automatic-maker.tsx` and `workspace.tsx`, so update every copy and use Next's `Link`.
+
 **Optional extras.** Visual matching (`visual_matching.py`, onnxruntime) and transcription (`transcription.py`, faster-whisper) are optional; code must degrade gracefully when they or FFprobe are absent (`workflow_capabilities.py` reports per-project workflow availability). Model setup is explicit — never add automatic downloads.
