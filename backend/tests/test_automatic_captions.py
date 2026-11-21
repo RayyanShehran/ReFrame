@@ -1833,3 +1833,26 @@ def test_reference_size_maps_to_picture_height_and_shrinks_only_on_overflow(monk
     assert overflows.appearance.style.size_percent == pytest.approx(
         2560 * 0.36 * 1280 / (512 * 720)
     )
+
+
+def test_harmonize_prefers_a_fitted_font_over_the_unfitted_default():
+    hand, plain = fonts.builtin("patrickhand-regular"), fonts.Binding()
+    cues = [
+        captions.Cue(
+            start=i,
+            end=i + 1,
+            text=f"Cue {i}",
+            appearance=captions.Appearance(
+                style=captions.Style(
+                    font=binding.choice,
+                    font_origin="assisted",
+                    color="#F0C716",
+                    size_percent=6.0,
+                    outline_percent=0.0,
+                ),
+                font_binding=binding,
+            ),
+        )
+        for i, binding in enumerate([plain, plain, hand, plain, hand])
+    ]
+    assert {c.appearance.style.font for c in automatic.harmonize(cues)} == {hand.choice}
