@@ -10,11 +10,14 @@ from pydantic import Field
 
 import color_analysis as color
 import framing
-import video_render as render
+import projects
+import reference_jobs as jobs
+from references import ReferenceError
 
 logger = logging.getLogger(__name__)
 
 METHOD = "phase-similarity-v1"
+RENDERER_VERSION = "sdr-eq-mp4-v11"
 LONG_EDGE = 192
 WINDOW, STEP = 32, 16
 DECODE_SECONDS, ESTIMATE_SECONDS, TOTAL_SECONDS = 30, 30, 60
@@ -82,6 +85,8 @@ def available():
 
 def decode(path, directory, deadline):
     """Gray frames at 30 fps, long edge 192, from one contained FFmpeg decode."""
+    import video_render as render  # The renderer imports this module's settings.
+
     np = numpy()
     video, _, _ = render.probe(path, directory, deadline)
     width, height = framing.display_dimensions(video)
@@ -417,27 +422,30 @@ def base_zoom(samples, width, height):
     return min(MAX_BASE_ZOOM, required_zoom(samples, width, height))
 
 
-def piecewise(points):
-    """Balanced if-tree over output frame `on` for linear pieces (logarithmic nesting depth)."""
+def piecewise(points, frame="on"):
+    """Balanced if-tree over the output frame for linear pieces (logarithmic nesting depth)."""
 
     def piece(i):
         (f0, v0), (f1, v1) = points[i], points[i + 1]
         slope = (v1 - v0) / (f1 - f0)
-        return f"({v0:.6f}+{slope:.8f}*(on-{f0}))"
+        return f"({v0:.6f}+{slope:.8f}*({frame}-{f0}))"
 
     def tree(first, last):
         if first == last:
             return piece(first)
         middle = (first + last) // 2
-        return f"if(lt(on,{points[middle + 1][0]}),{tree(first, middle)},{tree(middle + 1, last)})"
+        split = points[middle + 1][0]
+        return f"if(lt({frame},{split}),{tree(first, middle)},{tree(middle + 1, last)})"
 
     if len(points) == 1:
         return f"{points[0][1]:.6f}"
     return tree(0, len(points) - 2)
 
 
-def motion_filter(samples, width, height):
-    """zoompan filter applying per-frame (scale, x, y) content motion; never leaves the frame."""
+def motion_filter(samples, width, height, offset=0):
+    """zoompan filter applying per-frame (scale, x, y) content motion; never leaves the frame.
+
+    `offset` starts a partial (preview) segment at that slot frame with the slot's base zoom."""
     notice = None
     share = 1.0
     if required_zoom(samples, width, height) > MAX_BASE_ZOOM:
@@ -470,11 +478,179 @@ def motion_filter(samples, width, height):
         if len(kept) <= MAX_FILTER_POINTS:
             break
         tolerance *= 1.5
-    z = piecewise([(rows[i][0], rows[i][1]) for i in kept])
-    x = piecewise([(rows[i][0], rows[i][2]) for i in kept])
-    y = piecewise([(rows[i][0], rows[i][3]) for i in kept])
+    frame = f"(on+{offset})" if offset else "on"
+    z = piecewise([(rows[i][0], rows[i][1]) for i in kept], frame)
+    x = piecewise([(rows[i][0], rows[i][2]) for i in kept], frame)
+    y = piecewise([(rows[i][0], rows[i][3]) for i in kept], frame)
     graph = (
         f"zoompan=z='{z}':x='clip({x},0,iw-iw/zoom)':y='clip({y},0,ih-ih/zoom)'"
         f":d=1:s={width}x{height}:fps=30"
     )
     return graph, notice
+
+
+class Settings(color.Schema):
+    """Saved, revisioned motion copied from a measurement; what rendering consumes."""
+
+    schema_version: Literal[1] = 1
+    revision: int = Field(default=0, ge=0, strict=True)
+    enabled: bool = True
+    method: Literal["phase-similarity-v1"] | None = None
+    reference_operation_id: str | None = None
+    reference_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    shots: list[ShotMotion] = Field(default_factory=list, max_length=60)
+    timings: Timings | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
+
+
+class Result(color.Schema):
+    status: Literal["default", "ready", "stale"]
+    settings: Settings
+
+
+class SaveRequest(color.Schema):
+    expected_revision: int = Field(ge=0, strict=True)
+    enabled: bool = Field(strict=True)
+
+
+def record(project_id, connection):
+    projects.identifier(project_id)
+    if projects.row_project(connection, project_id)["status"] != "active":
+        raise ReferenceError(409, "project_deleting", "Retry project deletion first.")
+    return connection.execute(
+        "SELECT * FROM camera_motion_settings WHERE project_id=?", (project_id,)
+    ).fetchone()
+
+
+def read(project_id):
+    with projects.database() as connection:
+        row = record(project_id, connection)
+    if not row:
+        return Result(status="default", settings=Settings())
+    settings = Settings.model_validate_json(row["settings"])
+    reference = jobs.get_operation(project_id)
+    current = reference.status == "ready" and (
+        str(reference.operation_id),
+        reference.media.sha256,
+    ) == (settings.reference_operation_id, settings.reference_sha256)
+    return Result(status="ready" if current or not settings.shots else "stale", settings=settings)
+
+
+def store(project_id, expected_revision, **changes):
+    with projects.database() as connection:
+        row = record(project_id, connection)
+        previous = Settings.model_validate_json(row["settings"]) if row else Settings()
+        if previous.revision != expected_revision:
+            raise ReferenceError(
+                409, "revision_conflict", "Camera motion changed. Reload before saving."
+            )
+        timestamp = projects.now()
+        settings = previous.model_copy(
+            update={
+                **changes,
+                "revision": expected_revision + 1,
+                "created_at": previous.created_at or timestamp,
+                "updated_at": timestamp,
+            }
+        )
+        Settings.model_validate(settings.model_dump())
+        connection.execute(
+            "INSERT INTO camera_motion_settings(project_id,revision,settings) VALUES (?,?,?) "
+            "ON CONFLICT(project_id) DO UPDATE SET "
+            "revision=excluded.revision,settings=excluded.settings",
+            (project_id, settings.revision, settings.model_dump_json()),
+        )
+        connection.execute("UPDATE projects SET updated_at=? WHERE id=?", (timestamp, project_id))
+    return read(project_id)
+
+
+def save(project_id, request):
+    """The user's on/off choice; copied shots are kept."""
+    return store(project_id, request.expected_revision, enabled=request.enabled)
+
+
+def save_analysis(project_id, measurement, expected_revision):
+    """Copy a measurement into the saved setting, keeping the user's on/off choice."""
+    reference = jobs.get_operation(project_id)
+    if reference.status != "ready":
+        raise ReferenceError(409, "reference_not_ready", "Retrieve the reference first.")
+    return store(
+        project_id,
+        expected_revision,
+        method=measurement.method,
+        reference_operation_id=str(reference.operation_id),
+        reference_sha256=reference.media.sha256,
+        shots=measurement.shots,
+        timings=measurement.timings,
+    )
+
+
+def render_binding(project_id, expected_revision, sequence):
+    """Saved motion for a sequence render (None when never saved or not a sequence)."""
+    current = read(project_id)
+    if expected_revision is None:
+        if current.settings.revision:
+            raise ReferenceError(
+                409, "revision_conflict", "Include the saved camera motion revision."
+            )
+    elif expected_revision != current.settings.revision:
+        raise ReferenceError(
+            409, "revision_conflict", "Camera motion changed. Reload before rendering."
+        )
+    if sequence is None or not current.settings.revision:
+        return None
+    if current.status == "stale" and current.settings.enabled:
+        raise ReferenceError(
+            409,
+            "camera_motion_stale",
+            "The reference changed since camera motion was measured. Generate again, "
+            "or turn camera motion off.",
+        )
+    return current.settings
+
+
+def applies(settings):
+    return bool(settings and settings.enabled and any(s.moves for s in settings.shots))
+
+
+def slot_samples(settings, slot):
+    """Per-frame (scale, x, y) for a slot, rebased to identity at its first reference frame."""
+    if not applies(settings) or slot.reference_start_frame is None:
+        return None
+    start = slot.reference_start_frame
+    shot = next(
+        (s for s in settings.shots if s.start_frame <= start < s.end_frame and s.moves), None
+    )
+    if shot is None:
+        return None
+    s0, x0, y0, _ = sample(shot, start)
+    result = []
+    for k in range(slot.duration_frames):
+        s, x, y, _ = sample(shot, min(start + k, shot.end_frame - 1))
+        relative = s / s0
+        result.append((relative, x - relative * x0, y - relative * y0))
+    return result
+
+
+def analyze_project(project_id, directory, stop, deadline):
+    """Measure every saved pacing shot of the retained reference (worker thread)."""
+    import pacing_analysis
+    import reference_engine as engine
+
+    engine._control.stop = stop
+    source = color.source(project_id, stop, deadline)
+    pacing = pacing_analysis.get_operation(project_id)
+    if pacing.status != "ready":
+        raise ReferenceError(409, "pacing_not_ready", "Analyze reference pacing first.")
+    shots = [
+        (round(shot.start_seconds * 30), min(3600, round(shot.end_seconds * 30)))
+        for shot in pacing.blueprint.shots
+    ]
+    shots = [(start, end) for start, end in shots if end > start][:60]
+    if directory.exists():
+        shutil.rmtree(directory)
+    try:
+        return measure(source["path"], shots, directory, stop, deadline)
+    finally:
+        shutil.rmtree(directory, ignore_errors=True)

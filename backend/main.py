@@ -13,6 +13,7 @@ from pydantic import BaseModel
 
 import assembly
 import audio_settings
+import camera_motion
 import caption_appearance
 import caption_motion
 import caption_ocr
@@ -523,7 +524,20 @@ async def start_render(project_id: str, request: video_render.RenderRequest):
         expected_framing_revision=request.expected_framing_revision,
         expected_sequence_revision=request.expected_sequence_revision,
         expected_grading_revision=request.expected_grading_revision,
+        expected_motion_revision=request.expected_motion_revision,
     )
+
+
+@app.get("/api/projects/{project_id}/camera-motion", response_model=camera_motion.Result)
+async def read_camera_motion(project_id: str):
+    async with projects.operation_lock:
+        return await projects.storage_call(camera_motion.read, project_id)
+
+
+@app.post("/api/projects/{project_id}/camera-motion", response_model=camera_motion.Result)
+async def save_camera_motion(project_id: str, request: camera_motion.SaveRequest):
+    async with projects.operation_lock:
+        return await projects.storage_call(camera_motion.save, project_id, request)
 
 
 @app.get("/api/projects/{project_id}/outputs/{output_id}/video")

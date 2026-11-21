@@ -1,6 +1,7 @@
 """Revision-bound, color-only local renders using the existing owned media worker."""
 
 import json
+import logging
 import math
 import re
 import shutil
@@ -13,6 +14,7 @@ from pydantic import Field
 from starlette.responses import FileResponse
 
 import audio_settings as audio_choices
+import camera_motion as motion_copy
 import captions as caption_tracks
 import clip_library
 import color_analysis as color
@@ -27,6 +29,7 @@ import reference_engine as engine
 import sequence as sequences
 from references import ReferenceError
 
+logger = logging.getLogger(__name__)
 VERSION = "sdr-eq-mp4-v2"
 CUTS_VERSION = "sdr-eq-mp4-v3"
 AUDIO_VERSION = "sdr-eq-mp4-v4"
@@ -72,6 +75,7 @@ class Spec(color.Schema):
     captions: caption_tracks.Track = Field(default_factory=caption_tracks.Track)
     framing: framing_choices.Settings = Field(default_factory=framing_choices.Settings)
     grading: grading_choices.Snapshot | None = None
+    camera_motion: motion_copy.Settings | None = None
 
 
 class Output(color.Schema):
@@ -110,6 +114,7 @@ class RenderRequest(color.Schema):
     expected_framing_revision: int | None = Field(default=None, ge=0, strict=True)
     expected_sequence_revision: int | None = Field(default=None, ge=1, strict=True)
     expected_grading_revision: int | None = Field(default=None, ge=0, strict=True)
+    expected_motion_revision: int | None = Field(default=None, ge=0, strict=True)
 
 
 def destination(project_id, output_id):
@@ -130,6 +135,7 @@ def specification(
     expected_framing_revision=None,
     expected_sequence_revision=None,
     expected_grading_revision=None,
+    expected_motion_revision=None,
     *,
     caption_override=None,
 ):
@@ -231,11 +237,15 @@ def specification(
         if settings.revision
         else None
     )
+    motion = motion_copy.render_binding(project_id, expected_motion_revision, sequence)
     return Spec(
+        camera_motion=motion,
         grading=grade,
         framing=saved_framing,
         sequence=sequence,
-        renderer_version="sdr-eq-mp4-v10"
+        renderer_version=motion_copy.RENDERER_VERSION
+        if motion_copy.applies(motion)
+        else "sdr-eq-mp4-v10"
         if grade
         else "sdr-eq-mp4-v9"
         if sequence
@@ -327,6 +337,7 @@ def get_operation(project_id, require_active=False):
                     framing_choices.read(project_id).settings.revision,
                     sequences.read(project_id).sequence.revision if bound.sequence else None,
                     grade_settings.revision,
+                    motion_copy.read(project_id).settings.revision,
                 )
                 != bound
             )
@@ -354,6 +365,7 @@ def reusable(
     expected_framing_revision=None,
     expected_sequence_revision=None,
     expected_grading_revision=None,
+    expected_motion_revision=None,
 ):
     spec = specification(
         project_id,
@@ -364,6 +376,7 @@ def reusable(
         expected_framing_revision,
         expected_sequence_revision,
         expected_grading_revision,
+        expected_motion_revision,
     )
     current = get_operation(project_id, True)
     return current if current.status in {"running", "ready"} and current.spec == spec else None
@@ -419,6 +432,7 @@ def begin_operation(
     expected_framing_revision=None,
     expected_sequence_revision=None,
     expected_grading_revision=None,
+    expected_motion_revision=None,
 ):
     current = reusable(
         project_id,
@@ -429,6 +443,7 @@ def begin_operation(
         expected_framing_revision,
         expected_sequence_revision,
         expected_grading_revision,
+        expected_motion_revision,
     )
     if current:
         return current, None
@@ -442,6 +457,7 @@ def begin_operation(
         expected_framing_revision,
         expected_sequence_revision,
         expected_grading_revision,
+        expected_motion_revision,
     )
     source = footage.source(project_id)
     operation_id = str(uuid.uuid4())
@@ -743,14 +759,26 @@ def assemble_sequence(
         active, scale, _, final, _ = framing_choices.transform(
             video, spec.framing, binding_slot, canvas=canvas
         )
+        after = [grading_filter(spec, directory, slot.clip_id, slot)] + ([final] if final else [])
+        samples = motion_copy.slot_samples(spec.camera_motion, binding_slot)
+        if samples:
+            # Fit moves the image inside its bars; Fill moves the final canvas crop.
+            padded = not final.startswith("crop=")
+            moved, notice = motion_copy.motion_filter(
+                samples,
+                *(scale if padded else canvas),
+                offset=slot.source_start_frame - binding_slot.source_start_frame,
+            )
+            after.insert(1 if padded else len(after), moved)
+            if notice:
+                logger.info("Slot %s: %s", slot.id, notice)
         graph = (
             f"[0:{video['index']}]setpts=PTS-STARTPTS,fps=30:round=near,"
             f"trim=start_frame={slot.source_start_frame}:end_frame={slot.source_end_frame},"
             f"setpts=N/(30*TB),"
             + (active + "," if active else "")
             + f"{resize_filter(*scale, metadata)},"
-            f"{grading_filter(spec, directory, slot.clip_id, slot)}"
-            + (f",{final}" if final else "")
+            + ",".join(after)
             + "[v]"
         )
         args = [

@@ -400,6 +400,7 @@ async def start(
     grading_request=None,
     expected_grading_revision=None,
     generation_request=None,
+    expected_motion_revision=None,
 ):
     global active
     projects.identifier(project_id)
@@ -443,6 +444,7 @@ async def start(
                     expected_framing_revision,
                     expected_sequence_revision,
                     expected_grading_revision,
+                    expected_motion_revision,
                 )
         elif analysis == "grading":
             async with projects.operation_lock:
@@ -478,6 +480,7 @@ async def start(
                         expected_framing_revision,
                         expected_sequence_revision,
                         expected_grading_revision,
+                        expected_motion_revision,
                     )
                     if analysis == "render"
                     else (project_id, generation_request)
