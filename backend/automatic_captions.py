@@ -622,7 +622,8 @@ def retry_crops(image, uncertain):
             bands.append((start, last + 1))
         boxes = []
         for top, bottom in bands:
-            if not 0.015 * height <= bottom - top <= 0.15 * height or top > 0.94 * height:
+            # Bottom subtitles can start at ~0.95; only slivers at the very edge are skipped.
+            if not 0.015 * height <= bottom - top <= 0.15 * height or top > 0.96 * height:
                 continue
             box = mask.crop((0, top, width, bottom)).getbbox()
             if not box or not 0.06 * width <= box[2] - box[0] <= 0.95 * width:
@@ -647,13 +648,15 @@ def retry_crops(image, uncertain):
                         * (0.5 if partitioned else 1),
                         mask,
                         boxes,
+                        (box[0], top, box[2], bottom),
+                        density >= 0.15 and runs >= 5,
                     )
                 )
     if candidates:
         coverage = Counter()
-        for score, candidate_mask, _ in candidates:
+        for score, candidate_mask, *_ in candidates:
             coverage[id(candidate_mask)] += score
-        _, mask, boxes = max(candidates, key=lambda row: coverage[id(row[1])])
+        _, mask, boxes, _, _ = max(candidates, key=lambda row: coverage[id(row[1])])
     else:
         mask, boxes = None, []
     crops = []
@@ -709,6 +712,24 @@ def retry_crops(image, uncertain):
     if crops:
         box = crops[0][1]
         crops.append((ImageOps.autocontrast(image.crop(box).convert("L")), box, "eng+ara"))
+        # Wide sparse scenery (lit walls, posters) can outvote a small solid caption elsewhere;
+        # offer the best solid-glyph band outside the chosen block as a third crop.
+        solid = [
+            row for row in candidates if row[4] and (row[3][3] <= box[1] or row[3][1] >= box[3])
+        ]
+        if solid:
+            _, alternative_mask, _, alternative, _ = max(solid, key=lambda row: row[0])
+            margin = max(8, round(height * 0.01))
+            alternative = (
+                max(0, alternative[0] - margin),
+                max(0, alternative[1] - margin),
+                min(width, alternative[2] + margin),
+                min(height, alternative[3] + margin),
+            )
+            crops.append(
+                (ImageOps.invert(alternative_mask.crop(alternative)), alternative, "eng+ara")
+            )
+        return crops
     elif uncertain:
         r = max(uncertain, key=lambda r: r.width * r.height)
         box = (
@@ -2306,6 +2327,9 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
             if len(lines) > 3:
                 unresolved[f] = "More than three visible lines require review"
                 lines = []
+            if len(crops) > 2:
+                # A separate solid-text band (e.g. a bottom caption under bright scenery).
+                lines += handwriting.line_crops(image, crops[2][0], crops[2][1])[:3]
             signatures[f], candidate_layouts[f] = [], []
             for rect, variants in lines:
                 rectangle = match.Rectangle(x=rect[0], y=rect[1], width=rect[2], height=rect[3])
