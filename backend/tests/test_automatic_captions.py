@@ -1928,3 +1928,12 @@ def test_caption_whose_top_is_below_94_percent_of_the_frame_is_still_proposed():
         (480, 696), "now so a mess", font=font, fill=(235, 200, 50), anchor="ms"
     )
     assert automatic.retry_crops(image, [])
+
+
+def test_stability_vote_treats_apostrophe_only_differences_as_the_same_wording():
+    # Printed reference: "i'm done embarrassing myself" was read twice, once as "im", and the
+    # split vote dropped the cue as isolated wording.
+    assert automatic.vote_key("i’m done embarrassing myself") == automatic.vote_key(
+        "im done embarrassing myself"
+    )
+    assert automatic.vote_key("i'm done") != automatic.vote_key("i'm gone")
