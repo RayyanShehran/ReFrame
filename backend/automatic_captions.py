@@ -821,11 +821,52 @@ def harmonize(cues):
     return result
 
 
+def picture_areas(project_id, settings, canvas, directory, stop, deadline):
+    """Each sequence slot's visible picture as normalized (left, top, width, height) of canvas."""
+    import clip_library
+    import sequence
+
+    videos, areas = {}, []
+    for slot in sequence.read(project_id).sequence.slots:
+        if slot.clip_id is None:
+            continue  # Unassigned slots render no picture to place captions in.
+        if slot.clip_id not in videos:
+            path, _ = clip_library.source(project_id, slot.clip_id, stop=stop, deadline=deadline)
+            videos[slot.clip_id] = render.probe(
+                path, directory, deadline, temp_budget=16 * 1024 * 1024
+            )[0]
+        _, scale, _, final, _ = framing.transform(
+            videos[slot.clip_id], settings, slot, canvas=canvas
+        )
+        # Fit pads a centered picture; Fill crops to cover the whole canvas.
+        w, h = (min(1.0, s / c) if final.startswith("pad") else 1.0 for s, c in zip(scale, canvas))
+        area = ((1 - w) / 2, (1 - h) / 2, w, h)
+        areas.append((slot.output_start_frame / 30, slot.output_end_frame / 30, area))
+    return areas
+
+
+def into_picture(cue, style, areas):
+    """The active picture showing `cue`; with a style, maps its reference placement into it."""
+    # shortcut: the slot at the cue midpoint wins; split cues that span a cut if needed.
+    middle = (cue.start + cue.end) / 2
+    left, top, w, h = next(
+        (a for start, end, a in areas if start <= middle < end), (0.0, 0.0, 1.0, 1.0)
+    )
+    if style is not None and style.horizontal is not None:
+        style.horizontal = left + style.horizontal * w
+    if style is not None and style.vertical is not None:
+        style.vertical = top + style.vertical * h
+    return left, top, w, h
+
+
 def fit_review_width(project_id, cues, directory, stop, deadline):
-    """Saved-track preparation: one style per lettering group, widths fitted to the canvas."""
+    """Saved-track preparation: one style per lettering group, reference placement mapped into
+    the active picture of the slot showing each cue, and widths fitted inside that picture."""
     source = render.footage.source(project_id, stop, deadline)
     video, _, _ = render.probe(source["path"], directory, deadline, temp_budget=16 * 1024 * 1024)
-    _, canvas, _ = framing.geometry(video, framing.read(project_id).settings)
+    settings = framing.read(project_id).settings
+    _, canvas, _ = framing.geometry(video, settings)
+    areas = picture_areas(project_id, settings, canvas, directory, stop, deadline)
     widths = {}
     result = []
     for i, cue in enumerate(harmonize(cues)):
@@ -873,16 +914,20 @@ def fit_review_width(project_id, cues, directory, stop, deadline):
                     with_mask=False,
                 )
                 widths[key] = box[2]
-        anchor = style.horizontal if style.horizontal is not None else 0.5
-        available = {"left": 1 - anchor, "right": anchor, "center": 2 * min(anchor, 1 - anchor)}[
+        size = style.size_percent or {"small": 3.5, "medium": 5.0, "large": 7.0}[style.size]
+        left, w = 0.0, 1.0
+        if style.font_origin == "assisted" and cue.appearance:
+            left, _, w, h = into_picture(cue, style, areas)
+            size *= h  # Reference size is relative to its frame height, now the picture's.
+        anchor = (style.horizontal if style.horizontal is not None else 0.5) - left
+        available = {"left": w - anchor, "right": anchor, "center": 2 * min(anchor, w - anchor)}[
             style.alignment
         ]
         if available <= 0:
             raise ReferenceError(
                 422, "caption_appearance_limit", "Move the caption anchor inside the output canvas."
             )
-        size = style.size_percent or {"small": 3.5, "medium": 5.0, "large": 7.0}[style.size]
-        style.size_percent = fit_width(size, widths[key], min(0.9, available), canvas)
+        style.size_percent = fit_width(max(0.5, size), widths[key], min(0.9 * w, available), canvas)
         result.append(
             cue.model_copy(
                 update={"appearance": appearance_value.model_copy(update={"style": style})}
