@@ -6,6 +6,7 @@ import io
 import json
 import math
 import shutil
+import statistics
 import time
 from collections import Counter, deque
 from contextlib import contextmanager
@@ -755,13 +756,79 @@ def frame_seek(video, index):
     return [], f"setpts=PTS-STARTPTS,select='gte(t,{index}/30)',trim=end_frame=1,"
 
 
+def harmonize(cues):
+    """One robust style per lettering group: noisy per-cue fits must not vary font or size."""
+
+    def rgb(value):
+        value = {"white": "#FFFFFF", "yellow": "#FFFF00"}.get(value, value)
+        return tuple(int(value[i : i + 2], 16) for i in (1, 3, 5))
+
+    def same_lettering(group, b):
+        # shortcut: color + height only, no stroke features; add stroke width if groups merge.
+        a = cues[group[0]].appearance.style
+        # The running median, not the first member, so an early outlier cannot split a group.
+        size = statistics.median(cues[i].appearance.style.size_percent for i in group)
+        return math.dist(rgb(a.color), rgb(b.color)) < 100 and (
+            max(size, b.size_percent) <= 2.2 * min(size, b.size_percent)
+        )
+
+    groups = []
+    for i, cue in enumerate(cues):
+        style = cue.appearance and cue.appearance.style
+        if not style or style.font_origin != "assisted" or style.size_percent is None:
+            continue  # Manual or styleless cues keep exactly what the user saved.
+        group = next((g for g in groups if same_lettering(g, style)), None)
+        if group is None:
+            groups.append([i])
+        else:
+            group.append(i)
+    result = list(cues)
+    for group in groups:
+        styles = [cues[i].appearance.style for i in group]
+        fonts_used = Counter(s.font for s in styles)
+        # Per-channel median: OCR ink samples differ by a few levels within one lettering.
+        ink = "#" + "".join(
+            f"{round(statistics.median(rgb(s.color)[c] for s in styles)):02X}" for c in range(3)
+        )
+        size = statistics.median(s.size_percent for s in styles)
+        font = fonts_used.most_common(1)[0][0]
+        model = min(
+            (cues[i].appearance for i in group if cues[i].appearance.style.font == font),
+            key=lambda a: abs(a.style.size_percent - size),
+        )
+        outline = [s.outline_percent for s in styles if s.outline_percent is not None]
+        for i in group:
+            own = cues[i].appearance.style
+            style = model.style.model_copy(
+                update={
+                    "size_percent": size,
+                    "color": ink,
+                    "outline_percent": statistics.median(outline) if outline else None,
+                    # Placement stays per cue; only the lettering is shared.
+                    **{
+                        k: getattr(own, k)
+                        for k in ("horizontal", "vertical", "alignment", "placement")
+                    },
+                }
+            )
+            result[i] = cues[i].model_copy(
+                update={
+                    "appearance": cues[i].appearance.model_copy(
+                        update={"style": style, "font_binding": model.font_binding}
+                    )
+                }
+            )
+    return result
+
+
 def fit_review_width(project_id, cues, directory, stop, deadline):
+    """Saved-track preparation: one style per lettering group, widths fitted to the canvas."""
     source = render.footage.source(project_id, stop, deadline)
     video, _, _ = render.probe(source["path"], directory, deadline, temp_budget=16 * 1024 * 1024)
     _, canvas, _ = framing.geometry(video, framing.read(project_id).settings)
     widths = {}
     result = []
-    for i, cue in enumerate(cues):
+    for i, cue in enumerate(harmonize(cues)):
         appearance_value = cue.appearance or captions.Appearance(
             style=captions.Style(), font_binding=fonts.Binding()
         )
