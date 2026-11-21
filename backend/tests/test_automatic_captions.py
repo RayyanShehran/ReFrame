@@ -1717,3 +1717,43 @@ def test_harmonize_shares_one_style_per_lettering_group_and_keeps_manual_styles(
     # An early small partial reading must not split the lettering into two size groups.
     early = [cue(i, size, "#F0C716", hand, 0.5) for i, size in enumerate((1.4, 2.6, 3.1, 3.4))]
     assert len({c.appearance.style.size_percent for c in automatic.harmonize(early)}) == 1
+
+
+def test_reference_placement_maps_into_each_slots_pillarboxed_or_full_picture(monkeypatch):
+    import types
+
+    import framing
+    import sequence
+
+    portrait, wide = object(), object()
+    slots = [
+        types.SimpleNamespace(id="a", clip_id=portrait, output_start_frame=0, output_end_frame=60),
+        types.SimpleNamespace(id="b", clip_id=None, output_start_frame=60, output_end_frame=90),
+        types.SimpleNamespace(id="c", clip_id=wide, output_start_frame=90, output_end_frame=150),
+    ]
+    monkeypatch.setattr(
+        sequence,
+        "read",
+        lambda _: types.SimpleNamespace(sequence=types.SimpleNamespace(slots=slots)),
+    )
+    monkeypatch.setattr("clip_library.source", lambda _, clip_id, **k: (clip_id, None))
+    sizes = {portrait: (720, 1280), wide: (1920, 1080)}
+    monkeypatch.setattr(
+        automatic.render,
+        "probe",
+        lambda path, *a, **k: ({"width": sizes[path][0], "height": sizes[path][1]}, None, 1),
+    )
+    settings = framing.Settings(format="reference", canvas=(1280, 720), fit="fit")
+    areas = automatic.picture_areas("p", settings, (1280, 720), None, None, None)
+    # 9:16 footage fits as a centered 404-pixel pillar; 16:9 footage fills the canvas.
+    assert [(start, end) for start, end, _ in areas] == [(0, 2), (3, 5)]
+    assert areas[0][2] == pytest.approx((438 / 1280, 0, 404 / 1280, 1))
+    assert areas[1][2] == (0, 0, 1, 1)
+
+    style = captions.Style(horizontal=0.25, vertical=0.9)
+    cue = captions.Cue(start=0.5, end=1.5, text="Pillarboxed")
+    assert automatic.into_picture(cue, style, areas) == areas[0][2]
+    assert (style.horizontal, style.vertical) == pytest.approx((438 / 1280 + 101 / 1280, 0.9))
+    wide_style = captions.Style(horizontal=0.25, vertical=0.9)
+    automatic.into_picture(captions.Cue(start=3.5, end=4, text="Full"), wide_style, areas)
+    assert (wide_style.horizontal, wide_style.vertical) == (0.25, 0.9)
