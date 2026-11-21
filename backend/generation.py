@@ -814,11 +814,14 @@ async def worker(project_id, operation_id, data, stop):
         return current
 
     async def copy_motion():
-        """Optional: a missing extra or bounded failure renders without new camera motion."""
+        """Optional: a missing extra or bounded failure renders without new camera motion.
+
+        Every outcome completes the step, so a retry does not repeat an unavailable measure."""
         if not camera_motion.available():
             operation.notices.append(
                 "Camera motion was not copied: set up the optional visual extra (NumPy)."
             )
+            operation.completed.append("motion")
             return
         directory = staging(operation_id) / "camera-motion"
         directory.parent.mkdir(parents=True, exist_ok=True)
@@ -836,11 +839,13 @@ async def worker(project_id, operation_id, data, stop):
             if stop.is_set() or time.monotonic() >= deadline:
                 raise
             operation.notices.append("Camera motion reached its time bound and was not copied.")
+            operation.completed.append("motion")
             return
         except (engine.RetrievalFailure, TimeoutError, ValueError) as error:
             if isinstance(error, engine.RetrievalFailure) and not error.cleanup_safe:
                 raise
             operation.notices.append("Camera motion could not be measured and was not copied.")
+            operation.completed.append("motion")
             return
         await locked(
             camera_motion.save_analysis,
@@ -1216,6 +1221,7 @@ def prepare_captions(project_id, mode, stop, deadline, operation):
                 framing.read(project_id).settings.revision,
                 selected_sequence.revision,
                 grading.read_settings(project_id).revision,
+                camera_motion.read(project_id).settings.revision,
                 caption_override=disabled,
             )
             spec = spec.model_copy(update={"captions": disabled})
