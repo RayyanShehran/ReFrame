@@ -1724,7 +1724,8 @@ def test_harmonize_shares_one_style_per_lettering_group_and_keeps_manual_styles(
     manual = cue(5, 1.0, "#F0C716", plain, 0.3, origin="manual")
     result = automatic.harmonize([yellow[0], yellow[1], title, *yellow[2:], manual])
     shared = [result[i] for i in (0, 1, 3, 4)]
-    assert [c.appearance.style.size_percent for c in shared] == [pytest.approx(3.1)] * 4
+    # Median of the dominant font's calibrated sizes (2.9, 3.3, 3.7); the default-font 1.8 is not.
+    assert [c.appearance.style.size_percent for c in shared] == [pytest.approx(3.3)] * 4
     assert {c.appearance.style.color for c in shared} == {"#F0C716"}
     assert {c.appearance.style.font for c in shared} == {hand.choice}
     assert [c.appearance.font_binding for c in shared] == [hand] * 4
@@ -1773,3 +1774,122 @@ def test_reference_placement_maps_into_each_slots_pillarboxed_or_full_picture(mo
     wide_style = captions.Style(horizontal=0.25, vertical=0.9)
     automatic.into_picture(captions.Cue(start=3.5, end=4, text="Full"), wide_style, areas)
     assert (wide_style.horizontal, wide_style.vertical) == (0.25, 0.9)
+
+
+def test_reference_size_maps_to_picture_height_and_shrinks_only_on_overflow(monkeypatch, tmp_path):
+    import types
+
+    import framing
+
+    areas = [
+        (0, 1, (0.0, 0.125, 1.0, 0.75)),  # Letterboxed: picture is 75% of canvas height.
+        (1, 2, (0.3, 0.0, 0.4, 1.0)),  # Pillarboxed: full height, 40% of canvas width.
+        (2, 3, (0.3, 0.0, 0.4, 1.0)),
+    ]
+    monkeypatch.setattr(automatic.render.footage, "source", lambda *a: {"path": "footage"})
+    monkeypatch.setattr(automatic.render, "probe", lambda *a, **k: ({}, None, 1))
+    monkeypatch.setattr(
+        framing, "read", lambda _: types.SimpleNamespace(settings=framing.Settings())
+    )
+    monkeypatch.setattr(framing, "geometry", lambda *a: (None, (1280, 720), ""))
+    monkeypatch.setattr(automatic, "picture_areas", lambda *a: areas)
+    monkeypatch.setattr(automatic.fonts, "prepare", lambda *a: None)
+    # At 10% of a 256-pixel canvas each line measures 512 pixels: at most 8.89% per canvas width.
+    monkeypatch.setattr(
+        automatic.appearance, "render_sample", lambda *a, **k: ((0, 0, 512, 30), None)
+    )
+
+    def cue(start, size, ink):
+        return captions.Cue(
+            start=start,
+            end=start + 1,
+            text="Same width line",
+            appearance=captions.Appearance(
+                style=captions.Style(
+                    font_origin="assisted",
+                    color=ink,
+                    size_percent=size,
+                    horizontal=0.5,
+                    vertical=0.9,
+                    outline_percent=0.0,
+                ),
+                font_binding=fonts.Binding(),
+            ),
+        )
+
+    letterboxed, fits, overflows = automatic.fit_review_width(
+        "p",
+        [cue(0, 8.0, "#FFFFFF"), cue(1, 3.0, "#FFFF00"), cue(2, 8.0, "#0000FF")],
+        tmp_path,
+        None,
+        time.monotonic() + 20,
+    )
+    # Reference size is relative to its frame height, which becomes the picture height.
+    assert letterboxed.appearance.style.size_percent == pytest.approx(6.0)
+    assert letterboxed.appearance.style.vertical == pytest.approx(0.125 + 0.9 * 0.75)
+    # A pillar keeps the full-height size while the line fits inside the picture...
+    assert fits.appearance.style.size_percent == pytest.approx(3.0)
+    assert fits.appearance.style.horizontal == pytest.approx(0.5)
+    # ...and shrinks only when the line would overflow 90% of the picture width.
+    assert overflows.appearance.style.size_percent == pytest.approx(
+        2560 * 0.36 * 1280 / (512 * 720)
+    )
+
+
+def test_harmonize_prefers_a_fitted_font_over_the_unfitted_default():
+    hand, plain = fonts.builtin("patrickhand-regular"), fonts.Binding()
+    cues = [
+        captions.Cue(
+            start=i,
+            end=i + 1,
+            text=f"Cue {i}",
+            appearance=captions.Appearance(
+                style=captions.Style(
+                    font=binding.choice,
+                    font_origin="assisted",
+                    color="#F0C716",
+                    # Each size is calibrated to its own font's glyph height.
+                    size_percent=6.0 if binding is plain else 7.8,
+                    outline_percent=0.0,
+                ),
+                font_binding=binding,
+            ),
+        )
+        for i, binding in enumerate([plain, plain, hand, plain, hand])
+    ]
+    shared = automatic.harmonize(cues)
+    assert {c.appearance.style.font for c in shared} == {hand.choice}
+    assert {c.appearance.style.size_percent for c in shared} == {7.8}
+
+
+def test_patrick_hand_size_renders_the_reference_ink_height(local):
+    _, directory, _ = local
+    binding = fonts.builtin("patrickhand-regular")
+    text = "I just want you to promise me that"
+    glyph_height = 37 / 720  # A measured reference line height (23.2 s, e2e evidence).
+
+    def ink_height(size, width, height, name):
+        stage = directory / name
+        stage.mkdir()
+        cue = [captions.Cue(start=0.0, end=1.0, text=text)]
+        prepared = fonts.prepare("fixture", binding, cue, stage, time.monotonic() + 20)
+        box, _ = automatic.appearance.render_sample(
+            captions.Style(
+                font=binding.choice, size_percent=size, outline_percent=0.0, placement="center"
+            ),
+            binding,
+            text,
+            width,
+            height,
+            stage,
+            prepared,
+            time.monotonic() + 20,
+            with_mask=False,
+        )
+        return box[3]
+
+    size = automatic.ink_size(glyph_height, ink_height(10.0, 4096, 256, "sample"))
+    rendered = ink_height(size, 1280, 720, "rendered") / 720
+    assert rendered == pytest.approx(glyph_height, rel=0.05)
+    # The former font-independent 150x estimate renders Patrick Hand over 10% too tall.
+    assert ink_height(150 * glyph_height, 1280, 720, "fixed") / 720 > 1.1 * glyph_height

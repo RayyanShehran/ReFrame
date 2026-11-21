@@ -759,21 +759,25 @@ def frame_seek(video, index):
     return [], f"setpts=PTS-STARTPTS,select='gte(t,{index}/30)',trim=end_frame=1,"
 
 
+def rgb(value):
+    value = {"white": "#FFFFFF", "yellow": "#FFFF00"}.get(value, value)
+    return tuple(int(value[i : i + 2], 16) for i in (1, 3, 5))
+
+
+def same_ink(a, b):
+    """Two caption styles plausibly share one lettering ink (OCR samples vary a few levels)."""
+    return math.dist(rgb(a.color), rgb(b.color)) < 100
+
+
 def harmonize(cues):
     """One robust style per lettering group: noisy per-cue fits must not vary font or size."""
-
-    def rgb(value):
-        value = {"white": "#FFFFFF", "yellow": "#FFFF00"}.get(value, value)
-        return tuple(int(value[i : i + 2], 16) for i in (1, 3, 5))
 
     def same_lettering(group, b):
         # shortcut: color + height only, no stroke features; add stroke width if groups merge.
         a = cues[group[0]].appearance.style
         # The running median, not the first member, so an early outlier cannot split a group.
         size = statistics.median(cues[i].appearance.style.size_percent for i in group)
-        return math.dist(rgb(a.color), rgb(b.color)) < 100 and (
-            max(size, b.size_percent) <= 2.2 * min(size, b.size_percent)
-        )
+        return same_ink(a, b) and (max(size, b.size_percent) <= 2.2 * min(size, b.size_percent))
 
     groups = []
     for i, cue in enumerate(cues):
@@ -788,13 +792,17 @@ def harmonize(cues):
     result = list(cues)
     for group in groups:
         styles = [cues[i].appearance.style for i in group]
-        fonts_used = Counter(s.font for s in styles)
+        # "default" means no font was fitted for that cue; any fitted font in the group wins.
+        fonts_used = Counter(s.font for s in styles if s.font != "default") or Counter(
+            s.font for s in styles
+        )
         # Per-channel median: OCR ink samples differ by a few levels within one lettering.
         ink = "#" + "".join(
             f"{round(statistics.median(rgb(s.color)[c] for s in styles)):02X}" for c in range(3)
         )
-        size = statistics.median(s.size_percent for s in styles)
         font = fonts_used.most_common(1)[0][0]
+        # Each size was calibrated to its own font's glyph height, so only same-font sizes apply.
+        size = statistics.median(s.size_percent for s in styles if s.font == font)
         model = min(
             (cues[i].appearance for i in group if cues[i].appearance.style.font == font),
             key=lambda a: abs(a.style.size_percent - size),
@@ -1025,6 +1033,15 @@ def native_geometry(video):
     width, height = framing.display_dimensions(video)
     factor = min(1.0, 1920 / max(width, height))
     return tuple(max(2, math.floor(v * factor / 2) * 2) for v in (width, height))
+
+
+def ink_size(glyph_height, sample_ink_height):
+    """Caption size whose rendered ink matches the reference line's glyph height.
+
+    The sample is the cue's own line rendered at size 10 on a 256-pixel canvas, so the ratio
+    holds for its actual font and letters (libass ink per point differs by font: about 0.78 for
+    Patrick Hand and 0.82 for DejaVu Sans, not the 0.67 a fixed 150x factor assumed)."""
+    return min(15.0, max(2.0, 10 * glyph_height * 256 / sample_ink_height))
 
 
 def fit_width(size, measured_width, fraction, canvas):
@@ -2574,6 +2591,7 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
     baselines = {}
     partial_fits = 0
     width_cache = {}
+    uncalibrated = set()  # Styles sized by the font-independent estimate, not a fitted render.
     for i, (start, detected) in enumerate(changes):
         color.guard(stop, deadline)
         end = changes[i + 1][0] if i + 1 < len(changes) else total
@@ -2667,6 +2685,7 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
                     font_binding=font,
                 )
                 baselines[key] = 0.025
+                uncalibrated.add(key)
                 if (
                     frame_window is None
                     and not preserve_saved_analysis
@@ -2691,6 +2710,7 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
                         )
                         sample = detected.sample_rectangle or rectangle
                         baselines[key] = styles[key].style.vertical - sample.y - sample.height
+                        uncalibrated.discard(key)
                         notes.extend(messages)
                     except engine.ProbeTimeout:
                         notes.append(
@@ -2707,6 +2727,8 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
                 nearest = min(styles, key=lambda k: abs(k[0] - key[0]) + abs(k[1] - key[1]))
                 styles[key] = styles[nearest]
                 baselines[key] = baselines[nearest]
+                if nearest in uncalibrated:
+                    uncalibrated.add(key)
             else:
                 fitted, messages = infer(
                     project_id,
@@ -2770,9 +2792,14 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
                     deadline,
                     with_mask=False,
                 )
-                width_cache[width_key] = measured[2]
+                width_cache[width_key] = measured[2], measured[3]
+        if key in uncalibrated:
+            fitted.style.size_percent = ink_size(
+                detected.glyph_height or rectangle.height / (detected.text.count("\n") + 1),
+                width_cache[width_key][1],
+            )
         fitted.style.size_percent = fit_width(
-            fitted.style.size_percent, width_cache[width_key], rectangle.width, output_canvas
+            fitted.style.size_percent, width_cache[width_key][0], rectangle.width, output_canvas
         )
         # Font proportions stay intact; a different output aspect can reduce glyph height.
         cues.append(

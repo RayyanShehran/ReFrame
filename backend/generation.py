@@ -225,6 +225,67 @@ def review_captions(project_id, request):
     return operation
 
 
+def rereads(old, fresh):
+    """Same caption read again: character-level fuzzy match, so one misread word in a short
+    cue still counts (word-level matching drops 'take' vs 'lake' to 0.67 of three words)."""
+    return (
+        SequenceMatcher(
+            None,
+            " ".join(automatic_captions.word_key(old)),
+            " ".join(automatic_captions.word_key(fresh)),
+        ).ratio()
+        >= 0.8
+    )
+
+
+def kept(listing, cues):
+    """The cues in `cues` that `listing` names by time and wording (appearance may differ)."""
+    by_key = {(c.start, c.end, c.text): c for c in cues}
+    return [by_key[k] for c in listing if (k := (c.start, c.end, c.text)) in by_key]
+
+
+def restyle(kept_cues, fresh_cues):
+    """Users verify wording and timing, not lettering: kept cues take the current appearance
+    estimate (overlapping fresh cue, else the nearest fresh cue of similar ink). Manual styles
+    stay as saved."""
+    fresh_cues = [f for f in fresh_cues if f.appearance]
+    result = []
+    for cue in kept_cues:
+        style = cue.appearance and cue.appearance.style
+        if not fresh_cues or style and style.font_origin != "assisted":
+            result.append(cue)
+            continue
+        overlap = max(fresh_cues, key=lambda f: min(f.end, cue.end) - max(f.start, cue.start))
+        # Only a re-read of the same caption: coarse neighbors can overlap a missed cue.
+        if min(overlap.end, cue.end) > max(overlap.start, cue.start) and rereads(
+            cue.text, overlap.text
+        ):
+            result.append(cue.model_copy(update={"appearance": overlap.appearance}))
+            continue
+        similar = [
+            f
+            for f in fresh_cues
+            if style is None or automatic_captions.same_ink(f.appearance.style, style)
+        ]
+        if not similar:
+            result.append(cue)
+            continue
+        nearest = min(similar, key=lambda f: abs(f.start - cue.start))
+        lettering = nearest.appearance.style.model_copy(
+            update={
+                k: getattr(style, k)
+                for k in ("horizontal", "vertical", "alignment", "placement")
+                if style is not None
+            }
+        )
+        result.append(
+            cue.model_copy(
+                update={"appearance": nearest.appearance.model_copy(update={"style": lettering})}
+            )
+        )
+    return result
+
+
 def retain_reviewed(
     cues,
     review,
@@ -264,12 +325,7 @@ def retain_reviewed(
             if old.start < fresh.end
             and fresh.start < old.end
             and key(fresh) in new_facts
-            and SequenceMatcher(
-                None,
-                automatic_captions.word_key(old.text),
-                automatic_captions.word_key(fresh.text),
-            ).ratio()
-            >= 0.8
+            and rereads(old.text, fresh.text)
         ]
         fact = new_facts.get(key(fresh))
         if len(candidates) == 1:
@@ -291,6 +347,7 @@ def retain_reviewed(
                 )
                 values = {"text": text}
                 windows = {}
+                saved_stronger = []
                 for edge in ("start", "end"):
                     previous, current = (
                         getattr(before, edge + "_window", None),
@@ -313,8 +370,12 @@ def retain_reviewed(
                             or previous[1] - previous[0] < current[1] - current[0] - 0.000001
                         )
                     values[edge] = getattr(old if stronger else fresh, edge)
+                    saved_stronger.append(stronger)
                     windows[edge + "_window"] = previous if stronger else current
                     windows[edge + "_supported"] = old_supported if stronger else new_supported
+                if all(saved_stronger) and before and ranks[before.wording] >= ranks[fact.wording]:
+                    # A coarser re-read cannot replace wording its finer saved reading supports.
+                    values["text"] = text = old.text
                 if values["start"] < values["end"] and not any(
                     other is not fresh
                     and values["start"] < other.end
@@ -371,14 +432,7 @@ def retain_reviewed(
                     )
                 ):
                     return True
-                if (
-                    SequenceMatcher(
-                        None,
-                        automatic_captions.word_key(old.text),
-                        automatic_captions.word_key(fresh.text),
-                    ).ratio()
-                    < 0.8
-                ):
+                if not rereads(old.text, fresh.text):
                     continue
                 before = old_facts.get(key(old))
                 if before and before.wording == "unresolved":
@@ -504,6 +558,8 @@ def retain_reviewed(
             413, "caption_cue_limit", "More than 200 retained cues need correction."
         )
     observations[:] = [selected_facts[key(c)] for c in result if key(c) in selected_facts]
+    result = restyle(result, observed_cues)
+    verified = kept(verified, result)
     return sorted(result, key=lambda c: c.start), verified
 
 
@@ -1037,15 +1093,12 @@ def prepare_captions(project_id, mode, stop, deadline, operation):
                         unreadable_samples=incomplete,
                         observations=observations,
                         verified_cues=verified,
-                        corrected_cues=[
-                            c
-                            for c in (
-                                review.corrected_cues
-                                if review and not operation.options.replace_verified_captions
-                                else []
-                            )
-                            if c in cues
-                        ],
+                        corrected_cues=kept(
+                            review.corrected_cues
+                            if review and not operation.options.replace_verified_captions
+                            else [],
+                            cues,
+                        ),
                     )
                     raise ReferenceError(
                         422,
@@ -1064,15 +1117,12 @@ def prepare_captions(project_id, mode, stop, deadline, operation):
                         unreadable_samples=0,
                         observations=observations,
                         verified_cues=verified,
-                        corrected_cues=[
-                            c
-                            for c in (
-                                review.corrected_cues
-                                if review and not operation.options.replace_verified_captions
-                                else []
-                            )
-                            if c in cues
-                        ],
+                        corrected_cues=kept(
+                            review.corrected_cues
+                            if review and not operation.options.replace_verified_captions
+                            else [],
+                            cues,
+                        ),
                     )
                     if mode == "reference"
                     and (

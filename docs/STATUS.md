@@ -2,6 +2,19 @@
 
 Current default is automatic reference-video generation; Customize retains the advanced editor. Earlier sections record historical milestone boundaries. [Current workflow, verification and limits](AUTOMATIC_GENERATION.md).
 
+## Caption size matches the reference; misread re-reads keep saved cues — 2026-11-21
+
+Exports rendered captions at about a third of the reference lettering height. The estimator was right (a fresh read sized the opening at 8.59%); kept verified/corrected cues carried lettering estimated by older code (2.93%). Users verify wording and timing, not lettering, so kept cues now take the overlapping fresh cue's appearance (or the nearest same-ink lettering, keeping their own placement); manual styles stay. Lettering groups prefer a fitted font over the unfitted default and take their size only from that font's calibrated sizes. Re-reads match by character-level fuzzy text, so a coarser retry with one misread word no longer replaces a finer saved cue; restyling also requires that fuzzy match, so a coarse neighboring read cannot lend a missed cue its lettering or position.
+
+Isolated e2e (backup copy; real `data/` unchanged, 34/34 SHA-256 match), Retry caption reading with Replace then Use detected captions:
+
+| Export | Correct | Wrong | Missing | Extra | Boundaries ≤ 0.2 s | Export/reference text height |
+|---|---:|---:|---:|---:|---:|---|
+| Lettering groups (PR #5) | 251.61 | 0 | 0.47 | 2.55 | 17/22 | 0.34–0.38 |
+| This branch | 251.61 | 0 | 0.47 | 2.55 | 17/22 | 0.90–1.00 |
+
+Height is median line ink height on paired frames at 3.5/6.5/16.7/23.2/28.0/35.0 s: 0.96, 0.90, 0.94, 1.00, 0.95, 1.00 (shared Patrick Hand 6.88%). The quick size estimate had assumed ink is 0.67 of the font size for every font (150x glyph height); libass ink per point is about 0.78 for Patrick Hand and 0.82 for DejaVu Sans, so it now calibrates from each cue's own width-sample render (same ffmpeg call). Caption read 274.5 s; retry 377 s; Use detected captions 40 s (render 26.9 s).
+
 ## Caption style per lettering group; picture-aware placement — 2026-11-21
 
 Saved automatic caption tracks now share one style per lettering group: assisted cues are grouped by ink color and size (running median, so an early outlier cannot split a group) and get the group's median size/ink, dominant font and median outline; placement stays per cue and manual styles are untouched. The caption review keeps raw readings, so retries still compare against what was read. Reference placement and size map into the active picture of the sequence slot showing each cue (Fit pillar/letterbox; Fill keeps the full canvas), and widths fit inside that picture. A new test pins that fewer, coarser retry cues keep better saved cues.

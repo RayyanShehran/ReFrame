@@ -1489,3 +1489,133 @@ def test_fewer_and_weaker_fresh_cues_do_not_overwrite_better_saved_cues():
         observations=[fact(weaker, 0.5, False)],
     )
     assert result == [first, second]
+
+
+def test_coarser_retry_with_one_misread_word_keeps_the_better_saved_cue():
+    import uuid
+
+    import captions
+
+    source = {
+        "identity": generation.color.Source(
+            canonical_url="https://www.tiktok.com/@test/video/6718335390845095173",
+            video_id="6718335390845095173",
+            media_sha256="a" * 64,
+        )
+    }
+
+    def fact(cue, window, supported):
+        return generation.CaptionObservation(
+            start=cue.start,
+            end=cue.end,
+            text=cue.text,
+            start_window=(cue.start - window, cue.start),
+            end_window=(cue.end - window, cue.end),
+            start_supported=supported,
+            end_supported=supported,
+            wording="ocr",
+        )
+
+    saved = captions.Cue(start=0.5, end=1.5, text="Drugs you take.")
+    other = captions.Cue(start=2.0, end=3.0, text="Second saved line")
+    review = generation.CaptionReview(
+        cues=[saved, other],
+        notices=[],
+        unreadable_samples=1,
+        observations=[fact(saved, 1 / 30, True), fact(other, 1 / 30, True)],
+        evidence=captions.VisibleBinding(
+            source=source["identity"],
+            reference_operation_id=str(uuid.uuid4()),
+            method=generation.automatic_captions.METHOD,
+            reads=2,
+            engine_version="test",
+            assets_commit="a" * 40,
+        ),
+    )
+    # One of three words misread (word match 0.67) with coarse, unsupported 0.5 s boundaries.
+    misread = captions.Cue(start=0.5, end=2.0, text="Drugs you lake.")
+    result, _ = generation.retain_reviewed(
+        [misread], review, source, incomplete=True, observations=[fact(misread, 0.5, False)]
+    )
+    assert result == [saved, other]
+
+
+def test_kept_reviewed_cues_take_the_current_appearance_estimate_unless_manual():
+    import uuid
+
+    import captions
+
+    def look(size, vertical, origin="assisted"):
+        return captions.Appearance(
+            style=captions.Style(
+                font_origin=origin,
+                color="#F0C716",
+                size_percent=size,
+                horizontal=0.5,
+                vertical=vertical,
+            )
+        )
+
+    source = {
+        "identity": generation.color.Source(
+            canonical_url="https://www.tiktok.com/@test/video/6718335390845095173",
+            video_id="6718335390845095173",
+            media_sha256="a" * 64,
+        )
+    }
+    stale = captions.Cue(start=0.5, end=1.5, text="Verified words", appearance=look(3.1, 0.5))
+    unread = captions.Cue(start=4.0, end=5.0, text="Reply words", appearance=look(3.1, 0.8))
+    manual = captions.Cue(
+        start=6.0, end=7.0, text="Styled words", appearance=look(4, 0.3, "manual")
+    )
+    review = generation.CaptionReview(
+        cues=[stale, unread, manual],
+        verified_cues=[stale, unread, manual],
+        notices=[],
+        unreadable_samples=1,
+        evidence=captions.VisibleBinding(
+            source=source["identity"],
+            reference_operation_id=str(uuid.uuid4()),
+            method=generation.automatic_captions.METHOD,
+            reads=1,
+            engine_version="test",
+            assets_commit="a" * 40,
+        ),
+    )
+    fresh = captions.Cue(start=0.5, end=1.5, text="Verified wards", appearance=look(8.6, 0.45))
+    result, verified = generation.retain_reviewed([fresh], review, source, incomplete=True)
+    assert [(c.start, c.end, c.text) for c in result] == [
+        (c.start, c.end, c.text) for c in (stale, unread, manual)
+    ]
+    assert result[0].appearance == fresh.appearance
+    # Not read again: the current lettering estimate, but its own saved placement.
+    assert result[1].appearance.style.size_percent == 8.6
+    assert result[1].appearance.style.vertical == 0.8
+    assert result[2] == manual
+    assert verified == result
+
+
+def test_kept_cue_does_not_take_a_different_overlapping_captions_lettering():
+    import captions
+
+    def look(size, ink, vertical):
+        return captions.Appearance(
+            style=captions.Style(
+                font_origin="assisted",
+                color=ink,
+                size_percent=size,
+                horizontal=0.5,
+                vertical=vertical,
+            )
+        )
+
+    reply = captions.Cue(
+        start=2.0, end=3.0, text="Reply words", appearance=look(3.1, "#F0C716", 0.8)
+    )
+    # Coarse fresh boundaries: the white title read starts before the missed reply ends.
+    title = captions.Cue(start=2.9, end=4.0, text="aftersun", appearance=look(15.0, "#F6E9DD", 0.5))
+    opening = captions.Cue(start=0.0, end=1.0, text="Opening", appearance=look(7.8, "#F1C812", 0.4))
+    restyled = generation.restyle([reply], [opening, title])[0]
+    assert restyled.appearance.style.size_percent == 7.8
+    assert restyled.appearance.style.color == "#F1C812"
+    assert restyled.appearance.style.vertical == 0.8
