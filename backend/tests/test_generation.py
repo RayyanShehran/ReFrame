@@ -141,6 +141,45 @@ def test_snapshot_guards_user_edits_and_changed_source_without_erasing_work(loca
         )
 
 
+def test_replace_confirmed_retry_keeps_caption_review_unless_reference_changed(local):
+    import captions
+
+    client, directory, _ = local
+    pid = seed(client, directory)
+    source = generation.color.source(pid)
+    corrected = captions.Cue(start=0.5, end=1, text="User corrected words")
+    review = generation.CaptionReview(
+        cues=[corrected],
+        notices=[],
+        unreadable_samples=1,
+        evidence=captions.VisibleBinding(
+            source=source["identity"],
+            reference_operation_id=source["reference_operation_id"],
+            method=generation.automatic_captions.METHOD,
+            reads=1,
+            engine_version="test",
+            assets_commit="a" * 40,
+        ),
+        verified_cues=[corrected],
+        corrected_cues=[corrected],
+    )
+    options = dict(captions="reference", audio="mute", replace_customized=True)
+    operation, data = generation.begin_operation(pid, generation.Request(**options))
+    operation.status, operation.caption_review = "failed", review
+    generation.persist(pid, operation, data["snapshot"])
+    # An unrelated saved edit changes the snapshot; the reference does not change.
+    client.post(f"/api/projects/{pid}/audio", json={"expected_revision": 0, "mode": "mute"})
+    retry, data = generation.begin_operation(
+        pid, generation.Request(expected_revision=1, **options)
+    )
+    assert retry.caption_review == review
+    retry.status = "failed"
+    changed = data["snapshot"] | {"reference_url": "https://www.tiktok.com/@x/video/1"}
+    generation.persist(pid, retry, changed)
+    fresh, _ = generation.begin_operation(pid, generation.Request(expected_revision=2, **options))
+    assert fresh.caption_review is None
+
+
 def test_unsafe_custom_caption_staging_is_retained(tmp_path):
     directory = tmp_path / "unsafe"
     with pytest.raises(engine.ProcessCleanupError):

@@ -386,7 +386,10 @@ def track(read, frames, ignored, *, boundaries=None, absence=None, verified_abse
     try:
         intervals = list(zip(observations, observations[1:]))
         refinements = {}
-        for i in discovery_order(list(range(len(intervals)))):
+        order = discovery_order(list(range(len(intervals))))
+        # Observed changes first: probing unchanged intervals must not starve boundary refinement.
+        changed = {i for i in order if not same(intervals[i][0][1], intervals[i][1][1])}
+        for i in [i for i in order if i in changed] + [i for i in order if i not in changed]:
             (left, a), (right, b) = intervals[i]
             refinements[i] = refine(left, a, right, b)
         for i in range(len(intervals)):
@@ -2415,6 +2418,9 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
         if len(excluded) < 30:
             excluded[text] = {"start": first / 30, "end": total / 30, "text": text}
     color.guard(stop, deadline)
+    # Boundary refinement runs last; give it the remaining overall budget, not the
+    # later-reading cap, so whole-reference runs still refine to 1/30 second.
+    frame_deadline = deadline
     boundaries, absence = {}, []
     changes = track(
         read,
@@ -2717,7 +2723,7 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
             "excluded_intervals": list(excluded.values()),
             "observations": observations,
             "observed_absence": absence,
-            "reading_budget_exhausted": time.monotonic() >= inference_deadline - 20,
+            "reading_budget_exhausted": time.monotonic() >= frame_deadline - 20,
             "discovery_budget_exhausted": discovery_exhausted,
             "discovery_seconds": discovery_seconds,
             "recognition_frames": len(recognition),
