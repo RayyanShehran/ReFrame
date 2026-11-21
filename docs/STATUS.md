@@ -2,6 +2,20 @@
 
 Current default is automatic reference-video generation; Customize retains the advanced editor. Earlier sections record historical milestone boundaries. [Current workflow, verification and limits](AUTOMATIC_GENERATION.md).
 
+## Consistent caption sizes within a lettering group — 2026-11-22
+
+Lines of one handwriting got very different partial-read size estimates (7.73% for the opening, 6.03% for "I've done it all..."), so a group's median depended on which lines were read. Patrick Hand's straight apostrophe sits above its ascenders, so every line containing one rendered 16% taller at size 10 and estimated 16% smaller; the reference lettering keeps apostrophes inside the letter band. Rendered letter height is now measured on the line without apostrophes and quotation marks (`letter_sample`); width and baseline still use the full line. DejaVu Sans and Barlow Condensed apostrophes stay within the letters, so printed sizes are unchanged. The width-sample bound rises from 24 to 48 for the second sample per line.
+
+Isolated e2e (backup copy; real `data/` unchanged), same flows as above:
+
+| Reference | Before | After |
+|---|---|---|
+| Handwritten retry flow, height at 6 moments | 0.80–0.86 | 0.93–1.05 |
+| Handwritten retry score | 251.61 / 0 / 0.47 / 2.55, 17/22 | unchanged |
+| Printed fresh read, height at 4 shown moments | 0.95–1.05 | identical (same sizes as main) |
+
+The printed fresh read scored 47.10–48.10 correct, 22–23/34 today; main on the same machine and day scored 47.90, 20/34 with identical sizes, so that drop is fewer OCR reads in the budget (249–293 vs 407), not this change. The 14.7 s printed caption is still not detected.
+
 ## Fresh caption coverage on printed references — 2026-11-21
 
 Profiling a printed reference (small yellow bottom captions over bright pink scenes) showed the early captions were read but the wrong region was OCR'd: `retry_crops` keeps one colour mask per frame, and sparse wall speckle or poster lettering outscored the small solid caption; with a coloured region found, full-frame OCR was skipped. Bands starting below 0.94 of the height were also dropped (one caption started at 0.947). The best block is unchanged; the best solid-glyph band outside it (density >= 0.15, >= 5 strokes) is offered as a third crop and its lines join discovery, and bands may start down to 0.96. Stability votes treat apostrophe-only variants ("i'm"/"im") as one wording. The partial-read fallback now picks DejaVu Sans or Barlow Condensed by rendered line proportions (once per read) and anchors so rendered ink bottom lands on the observed ink bottom.
