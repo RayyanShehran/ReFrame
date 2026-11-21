@@ -2639,6 +2639,7 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
     width_cache = {}
     uncalibrated = set()  # Styles sized by the font-independent estimate, not a fitted render.
     printed = set()  # Unfitted printed styles: the closest bundled face is chosen by proportions.
+    printed_choice = []  # One face per read: style groups split by exact ink, not by face.
 
     def measure(binding, style, text, index):
         """The line rendered at size 10 on a 256-pixel canvas (bounded, cached per face/text)."""
@@ -2845,10 +2846,15 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
         longest = max(detected.text.split("\n"), key=len)
         glyph = detected.glyph_height or rectangle.height / (detected.text.count("\n") + 1)
         if key in printed:
-            printed.discard(key)  # Chosen once per style group from its first cue.
-            boxes = {b.choice: measure(b, styles[key].style, longest, i) for b in PRINTED_FACES}
-            aspect = rectangle.width * canvas[0] / (glyph * canvas[1])
-            face = next(b for b in PRINTED_FACES if b.choice == printed_face(boxes, aspect))
+            printed.discard(key)
+            if not printed_choice:
+                # Rendering every candidate per group would exhaust the width-sample bound.
+                boxes = {b.choice: measure(b, styles[key].style, longest, i) for b in PRINTED_FACES}
+                aspect = rectangle.width * canvas[0] / (glyph * canvas[1])
+                printed_choice.append(
+                    next(b for b in PRINTED_FACES if b.choice == printed_face(boxes, aspect))
+                )
+            face = printed_choice[0]
             styles[key] = styles[key].model_copy(
                 update={
                     "font_binding": face,
