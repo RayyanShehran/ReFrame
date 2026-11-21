@@ -11,9 +11,9 @@ Isolated e2e (backup copy; real `data/` unchanged, 34/34 SHA-256 match), Retry c
 | Export | Correct | Wrong | Missing | Extra | Boundaries ≤ 0.2 s | Export/reference text height |
 |---|---:|---:|---:|---:|---:|---|
 | Lettering groups (PR #5) | 251.61 | 0 | 0.47 | 2.55 | 17/22 | 0.34–0.38 |
-| This branch | 251.61 | 0 | 0.47 | 2.55 | 17/22 | 0.90–1.19 |
+| This branch | 251.61 | 0 | 0.47 | 2.55 | 17/22 | 0.90–1.00 |
 
-Height is median line ink height on paired frames at 3.5/6.5/16.7/23.2/28.0/35.0 s: 0.95, 0.90, 1.09, 1.19, 1.14, 1.16 (shared Patrick Hand 8.19%; the opening shrinks to 6.95% to fit its 528-pixel pillar). Caption read 275.5 s; retry 377 s; Use detected captions 44 s (render 27.3 s). Open: three moments are 14–19% large, so the ±10% target is met at three of six; Patrick Hand size estimates overshoot the reference glyph height by about 15%.
+Height is median line ink height on paired frames at 3.5/6.5/16.7/23.2/28.0/35.0 s: 0.96, 0.90, 0.94, 1.00, 0.95, 1.00 (shared Patrick Hand 6.88%). The quick size estimate had assumed ink is 0.67 of the font size for every font (150x glyph height); libass ink per point is about 0.78 for Patrick Hand and 0.82 for DejaVu Sans, so it now calibrates from each cue's own width-sample render (same ffmpeg call). Caption read 274.5 s; retry 377 s; Use detected captions 40 s (render 26.9 s).
 
 ## Caption style per lettering group; picture-aware placement — 2026-11-21
 
