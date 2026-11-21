@@ -792,7 +792,10 @@ def harmonize(cues):
     result = list(cues)
     for group in groups:
         styles = [cues[i].appearance.style for i in group]
-        fonts_used = Counter(s.font for s in styles)
+        # "default" means no font was fitted for that cue; any fitted font in the group wins.
+        fonts_used = Counter(s.font for s in styles if s.font != "default") or Counter(
+            s.font for s in styles
+        )
         # Per-channel median: OCR ink samples differ by a few levels within one lettering.
         ink = "#" + "".join(
             f"{round(statistics.median(rgb(s.color)[c] for s in styles)):02X}" for c in range(3)
