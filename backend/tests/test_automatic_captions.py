@@ -1893,3 +1893,38 @@ def test_patrick_hand_size_renders_the_reference_ink_height(local):
     assert rendered == pytest.approx(glyph_height, rel=0.05)
     # The former font-independent 150x estimate renders Patrick Hand over 10% too tall.
     assert ink_height(150 * glyph_height, 1280, 720, "fixed") / 720 > 1.1 * glyph_height
+
+
+def test_small_printed_caption_is_proposed_when_brighter_scenery_wins_the_mask():
+    from PIL import Image, ImageDraw, ImageFont
+
+    width, height = 960, 720
+    image = Image.new("RGB", (width, height), (176, 70, 150))  # Bright pink scene.
+    draw = ImageDraw.Draw(image)
+    # Wide, sparse neon speckle mid-frame outscores small solid text in the single-mask vote.
+    for x in range(330, 700, 7):
+        for y in range(200, 236, 9):
+            draw.rectangle([x, y, x + 1, y + 6], fill=(120, 240, 250))
+    draw.rectangle([0, 640, width, height], fill=(20, 15, 40))
+    font = ImageFont.truetype(str(fonts.BUNDLED), 22)
+    draw.text((width / 2, 690), "what is?", font=font, fill=(235, 200, 50), anchor="ms")
+    crops = automatic.retry_crops(image, [])
+    caption = [box for _, box, _ in crops if box[1] >= 0.85 * height]
+    assert caption, [box for _, box, _ in crops]
+    lines = automatic.handwriting.line_crops(
+        image, *next((mask, box) for mask, box, _ in crops if box[1] >= 0.85 * height)
+    )
+    assert [round(r[1], 2) for r, _ in lines] == [0.94]
+
+
+def test_caption_whose_top_is_below_94_percent_of_the_frame_is_still_proposed():
+    from PIL import Image, ImageDraw, ImageFont
+
+    image = Image.new("RGB", (960, 720), (20, 15, 40))
+    font = ImageFont.truetype(str(fonts.BUNDLED), 24)
+    # Lowercase without ascenders: the ink starts at about 0.95 of the frame height, as the
+    # printed reference's "it's over." does (top 0.947).
+    ImageDraw.Draw(image).text(
+        (480, 696), "now so a mess", font=font, fill=(235, 200, 50), anchor="ms"
+    )
+    assert automatic.retry_crops(image, [])
