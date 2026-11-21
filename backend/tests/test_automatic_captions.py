@@ -1937,3 +1937,54 @@ def test_stability_vote_treats_apostrophe_only_differences_as_the_same_wording()
         "im done embarrassing myself"
     )
     assert automatic.vote_key("i'm done") != automatic.vote_key("i'm gone")
+
+
+def render_box(directory, binding, text, size, width, height, vertical=0.5):
+    directory.mkdir()
+    prepared = fonts.prepare(
+        "fixture",
+        binding,
+        [captions.Cue(start=0.0, end=1.0, text=text)],
+        directory,
+        time.monotonic() + 20,
+    )
+    box, _ = automatic.appearance.render_sample(
+        captions.Style(
+            font=binding.choice,
+            size_percent=size,
+            outline_percent=0.0,
+            vertical=vertical,
+            horizontal=0.5,
+        ),
+        binding,
+        text,
+        width,
+        height,
+        directory,
+        prepared,
+        time.monotonic() + 20,
+        with_mask=False,
+    )
+    return box
+
+
+def test_partial_read_fallback_picks_a_condensed_face_for_narrow_printed_text(local):
+    _, directory, _ = local
+    text = "i can't pay back the theatre"
+    boxes = {
+        binding.choice: render_box(directory / binding.choice, binding, text, 10.0, 4096, 256)
+        for binding in automatic.PRINTED_FACES
+    }
+    # Printed reference: this line is 288 px wide with 26 px glyph height (aspect 11.1).
+    assert automatic.printed_face(boxes, 288 / 26) == "barlowcondensed-regular"
+    wide = boxes["default"][2] / boxes["default"][3]
+    assert automatic.printed_face(boxes, wide) == "default"
+
+
+def test_fallback_anchor_puts_rendered_ink_bottom_on_the_observed_line(local):
+    _, directory, _ = local
+    binding, text, size = fonts.builtin("barlowcondensed-regular"), "nobody showed up.", 4.5
+    sample = render_box(directory / "sample", binding, text, 10.0, 4096, 256)
+    vertical = automatic.baseline_vertical(0.968, size, sample)
+    rendered = render_box(directory / "rendered", binding, text, size, 1280, 720, vertical)
+    assert (rendered[1] + rendered[3]) / 720 == pytest.approx(0.968, abs=1.5 / 720)
