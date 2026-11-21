@@ -1538,3 +1538,58 @@ def test_coarser_retry_with_one_misread_word_keeps_the_better_saved_cue():
         [misread], review, source, incomplete=True, observations=[fact(misread, 0.5, False)]
     )
     assert result == [saved, other]
+
+
+def test_kept_reviewed_cues_take_the_current_appearance_estimate_unless_manual():
+    import uuid
+
+    import captions
+
+    def look(size, vertical, origin="assisted"):
+        return captions.Appearance(
+            style=captions.Style(
+                font_origin=origin,
+                color="#F0C716",
+                size_percent=size,
+                horizontal=0.5,
+                vertical=vertical,
+            )
+        )
+
+    source = {
+        "identity": generation.color.Source(
+            canonical_url="https://www.tiktok.com/@test/video/6718335390845095173",
+            video_id="6718335390845095173",
+            media_sha256="a" * 64,
+        )
+    }
+    stale = captions.Cue(start=0.5, end=1.5, text="Verified words", appearance=look(3.1, 0.5))
+    unread = captions.Cue(start=4.0, end=5.0, text="Reply words", appearance=look(3.1, 0.8))
+    manual = captions.Cue(
+        start=6.0, end=7.0, text="Styled words", appearance=look(4, 0.3, "manual")
+    )
+    review = generation.CaptionReview(
+        cues=[stale, unread, manual],
+        verified_cues=[stale, unread, manual],
+        notices=[],
+        unreadable_samples=1,
+        evidence=captions.VisibleBinding(
+            source=source["identity"],
+            reference_operation_id=str(uuid.uuid4()),
+            method=generation.automatic_captions.METHOD,
+            reads=1,
+            engine_version="test",
+            assets_commit="a" * 40,
+        ),
+    )
+    fresh = captions.Cue(start=0.5, end=1.5, text="Verified wards", appearance=look(8.6, 0.45))
+    result, verified = generation.retain_reviewed([fresh], review, source, incomplete=True)
+    assert [(c.start, c.end, c.text) for c in result] == [
+        (c.start, c.end, c.text) for c in (stale, unread, manual)
+    ]
+    assert result[0].appearance == fresh.appearance
+    # Not read again: the current lettering estimate, but its own saved placement.
+    assert result[1].appearance.style.size_percent == 8.6
+    assert result[1].appearance.style.vertical == 0.8
+    assert result[2] == manual
+    assert verified == result
