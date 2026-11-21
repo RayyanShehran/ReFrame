@@ -197,3 +197,4 @@ def test_short_slot_from_non_30_fps_footage_does_not_fail_border_sampling(tmp_pa
     decision = framing.sample_decision(path, clip, 60, 66, tmp_path, time.monotonic() + 20)
     assert (decision.start_frame, decision.end_frame) == (60, 66)
     assert decision.insets == (0, 0, 0, 0)
+    assert decision.sampled  # Real border evidence, not the too-short fallback.
