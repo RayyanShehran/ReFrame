@@ -324,46 +324,65 @@ def sample_decision(path, clip, start, end, directory, deadline):
             insets=(0, 0, 0, 0),
             note="Range too short: borders retained.",
         )
-    select = "+".join(f"eq(n,{i})" for i in indices)
-    raw = tool(
-        [
-            shutil.which("ffmpeg") or "ffmpeg",
-            "-v",
-            "error",
-            "-nostdin",
-            "-xerror",
-            "-threads",
-            "2",
-            "-protocol_whitelist",
-            "file",
-            "-ss",
-            str(float(video.get("start_time", 0)) + start / 30),
-            "-seek_timestamp",
-            "1",
-            "-i",
-            str(path),
-            "-t",
-            str((end - start) / 30),
-            "-vf",
-            f"fps=30,select='{select}',scale={w}:{h}:out_range=full,setsar=1,format=gray",
-            "-frames:v",
-            "5",
-            "-fps_mode",
-            "vfr",
-            "-f",
-            "rawvideo",
-            "-",
-        ],
-        directory,
-        "framing-samples",
-        deadline,
-        20,
-        5 * w * h + 1,
-        temp_budget=16 * 1024 * 1024,
-    )
+
+    def decode(selection, count):
+        return tool(
+            [
+                shutil.which("ffmpeg") or "ffmpeg",
+                "-v",
+                "error",
+                "-nostdin",
+                "-xerror",
+                "-threads",
+                "2",
+                "-protocol_whitelist",
+                "file",
+                "-ss",
+                str(float(video.get("start_time", 0)) + start / 30),
+                "-seek_timestamp",
+                "1",
+                "-i",
+                str(path),
+                "-t",
+                str((end - start) / 30),
+                "-vf",
+                f"fps=30,{selection}scale={w}:{h}:out_range=full,setsar=1,format=gray",
+                "-frames:v",
+                str(count),
+                "-fps_mode",
+                "vfr",
+                "-f",
+                "rawvideo",
+                "-",
+            ],
+            directory,
+            "framing-samples",
+            deadline,
+            20,
+            count * w * h + 1,
+            temp_budget=16 * 1024 * 1024,
+        )
+
+    def spread(length):
+        return sorted({min(length - 1, int((n + 0.5) * length / 5)) for n in range(5)})
+
+    raw, length = b"", end - start
+    # Non-30 fps footage can resample to a frame or two fewer than the slot length; request
+    # frames that exist instead of failing. The first request is unchanged for every slot.
+    while len(raw) != 5 * w * h and length >= end - start - 3 and len(spread(length)) == 5:
+        raw = decode("select='" + "+".join(f"eq(n,{n})" for n in spread(length)) + "',", 5)
+        length -= 1
     if len(raw) != 5 * w * h:
-        raise ValueError("Missing framing samples")
-    insets, note = detect_borders([raw[i * w * h : (i + 1) * w * h] for i in range(5)], w, h)
+        return Decision(
+            clip_id=clip.id,
+            source_hash=clip.sha256,
+            start_frame=start,
+            end_frame=end,
+            insets=(0, 0, 0, 0),
+            note="Range too short: borders retained.",
+        )
+    frames = [raw[n * w * h : (n + 1) * w * h] for n in range(5)]
+    insets, note = detect_borders(frames, w, h)
     return Decision(
         sampled=True,
         clip_id=clip.id,
