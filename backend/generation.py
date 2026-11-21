@@ -256,7 +256,10 @@ def restyle(kept_cues, fresh_cues):
             result.append(cue)
             continue
         overlap = max(fresh_cues, key=lambda f: min(f.end, cue.end) - max(f.start, cue.start))
-        if min(overlap.end, cue.end) > max(overlap.start, cue.start):
+        # Only a re-read of the same caption: coarse neighbors can overlap a missed cue.
+        if min(overlap.end, cue.end) > max(overlap.start, cue.start) and rereads(
+            cue.text, overlap.text
+        ):
             result.append(cue.model_copy(update={"appearance": overlap.appearance}))
             continue
         similar = [
