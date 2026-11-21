@@ -1990,3 +1990,28 @@ def test_fallback_anchor_puts_rendered_ink_bottom_on_the_observed_line(local):
     vertical = automatic.baseline_vertical(0.968, size, sample)
     rendered = render_box(directory / "rendered", binding, text, size, 1280, 720, vertical)
     assert (rendered[1] + rendered[3]) / 720 == pytest.approx(0.968, abs=1.5 / 720)
+
+
+def test_lines_of_one_lettering_get_consistent_sizes_with_or_without_apostrophes(local):
+    _, directory, _ = local
+    binding = fonts.builtin("patrickhand-regular")
+    # Handwritten reference: these lines share one letter height on screen, but the font's
+    # straight apostrophe rises above its ascenders, so "I've ..." estimated 16% smaller.
+    lines = [
+        "Boys you meet,",
+        "you Can talk to me about anything ..",
+        "I've done it all and you can too .",
+        "No, I’m serious, Soph.",
+    ]
+    sizes = [
+        automatic.ink_size(
+            0.054,
+            render_box(
+                directory / str(n), binding, automatic.letter_sample(line), 10.0, 4096, 256
+            )[3],
+        )
+        for n, line in enumerate(lines)
+    ]
+    assert max(sizes) <= 1.06 * min(sizes), sizes
+    assert automatic.letter_sample("i can't pay") == "i cant pay"
+    assert automatic.letter_sample("''") == "''"  # Nothing left to measure: keep the line.
