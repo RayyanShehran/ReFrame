@@ -96,12 +96,50 @@ def test_rejects_unsafe_or_unsupported_urls(url):
         "https://www.tiktok.com/t/abc",
     ],
 )
-def test_short_links_get_specific_guidance(url):
+def test_short_links_get_specific_guidance(monkeypatch, url):
+    # A short link that does not resolve to a video still gets the browser guidance.
+    mock_upstream(monkeypatch, lambda _request: httpx.Response(404))
     response = inspect(url)
     assert response.status_code == 422
     assert response.json() == {
         "error": {"code": "short_link_unsupported", "message": references.SHORT_LINK_MESSAGE}
     }
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://vm.tiktok.com/ZMabc123/",
+        "https://vt.tiktok.com/ZMabc123/",
+        "https://www.tiktok.com/t/ZPN2xu52G/",
+    ],
+)
+def test_short_links_resolve_to_the_full_video_url(monkeypatch, url):
+    def handler(request):
+        if request.url.path == "/oembed":
+            assert request.url.params["url"] == VIDEO
+            return httpx.Response(200, json=META)
+        assert str(request.url) == url
+        return httpx.Response(301, headers={"Location": VIDEO + "?_r=1&_t=tracking"})
+
+    mock_upstream(monkeypatch, handler)
+    response = inspect(url)
+    assert response.status_code == 200
+    assert response.json()["canonical_url"] == VIDEO
+
+
+def test_short_link_redirects_only_within_tiktok(monkeypatch):
+    seen = []
+
+    def handler(request):
+        seen.append(str(request.url))
+        return httpx.Response(302, headers={"Location": "https://example.com" + VIDEO[22:]})
+
+    mock_upstream(monkeypatch, handler)
+    response = inspect("https://vm.tiktok.com/ZMabc123/")
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "short_link_unsupported"
+    assert seen == ["https://vm.tiktok.com/ZMabc123/"]
 
 
 def test_missing_optional_metadata_is_null(monkeypatch):
