@@ -800,8 +800,9 @@ def harmonize(cues):
         ink = "#" + "".join(
             f"{round(statistics.median(rgb(s.color)[c] for s in styles)):02X}" for c in range(3)
         )
-        size = statistics.median(s.size_percent for s in styles)
         font = fonts_used.most_common(1)[0][0]
+        # Each size was calibrated to its own font's glyph height, so only same-font sizes apply.
+        size = statistics.median(s.size_percent for s in styles if s.font == font)
         model = min(
             (cues[i].appearance for i in group if cues[i].appearance.style.font == font),
             key=lambda a: abs(a.style.size_percent - size),
