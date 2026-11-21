@@ -1397,3 +1397,56 @@ def test_reconciled_saved_boundaries_can_accept_stronger_words_without_certifyin
     assert [(c.start, c.end, c.text) for c in result] == [(old.start, old.end, fresh.text)]
     assert facts[0].wording == "paired_model"
     assert facts[0].start_window is None and facts[0].start_supported is None
+
+
+def test_fewer_and_weaker_fresh_cues_do_not_overwrite_better_saved_cues():
+    import uuid
+
+    import captions
+
+    source = {
+        "identity": generation.color.Source(
+            canonical_url="https://www.tiktok.com/@test/video/6718335390845095173",
+            video_id="6718335390845095173",
+            media_sha256="a" * 64,
+        )
+    }
+
+    def fact(cue, window, supported, wording="ocr"):
+        return generation.CaptionObservation(
+            start=cue.start,
+            end=cue.end,
+            text=cue.text,
+            start_window=(cue.start - window, cue.start),
+            end_window=(cue.end - window, cue.end),
+            start_supported=supported,
+            end_supported=supported,
+            wording=wording,
+        )
+
+    first = captions.Cue(start=0.5, end=1.5, text="First saved line")
+    second = captions.Cue(start=2.0, end=3.0, text="Second saved line")
+    review = generation.CaptionReview(
+        cues=[first, second],
+        notices=[],
+        unreadable_samples=1,
+        observations=[fact(first, 1 / 30, True), fact(second, 1 / 30, True)],
+        evidence=captions.VisibleBinding(
+            source=source["identity"],
+            reference_operation_id=str(uuid.uuid4()),
+            method=generation.automatic_captions.METHOD,
+            reads=2,
+            engine_version="test",
+            assets_commit="a" * 40,
+        ),
+    )
+    # The retry reads only one of the two captions, with coarse unsupported 0.5 s boundaries.
+    weaker = captions.Cue(start=0.5, end=2.0, text="First saved line")
+    result, _ = generation.retain_reviewed(
+        [weaker],
+        review,
+        source,
+        incomplete=True,
+        observations=[fact(weaker, 0.5, False)],
+    )
+    assert result == [first, second]
