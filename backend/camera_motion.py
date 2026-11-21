@@ -142,9 +142,11 @@ def correlate(np, a, b):
     peak = flat[n, index]
 
     def refine(left, right):
-        denominator = left - 2 * peak + right
-        safe = np.where(np.abs(denominator) > 1e-9, denominator, 1.0)
-        return np.where(np.abs(denominator) > 1e-9, 0.5 * (left - right) / safe, 0.0)
+        # Foroosh et al. (2002): for a phase-correlation peak, the larger neighbour's share
+        # C1 / (C1 + C0) is the sub-pixel offset; a parabola locks toward whole pixels.
+        side = np.maximum(left, right)
+        share = np.clip(side / np.maximum(side + peak, 1e-9), 0.0, 0.5)
+        return np.where(right >= left, share, -share)
 
     dy = rows + refine(surface[n, (rows - 1) % h, cols], surface[n, (rows + 1) % h, cols])
     dx = cols + refine(surface[n, rows, (cols - 1) % w], surface[n, rows, (cols + 1) % w])
@@ -414,13 +416,13 @@ def sample(shot, frame, shake=True):
 
 
 def required_zoom(samples, width, height):
+    """Base zoom z0 so that output = z0 * scale * p + (x, y) never leaves the source frame.
+
+    The crop centre moves (x, y) / (z0 * scale) source heights and must stay inside the frame:
+    z0 * scale >= 1 + 2|x| * height / width and >= 1 + 2|y|."""
     zoom = 1.0
     for scale, x, y, *_ in samples:  # Rotation is measured but not applied.
-        cx, cy = abs(x / scale) * height, abs(y / scale) * height
-        if 2 * cx >= width or 2 * cy >= height:
-            return math.inf
-        zoom = max(zoom, 1 / scale, width / ((width - 2 * cx) * scale))
-        zoom = max(zoom, height / ((height - 2 * cy) * scale))
+        zoom = max(zoom, (1 + 2 * abs(x) * height / width) / scale, (1 + 2 * abs(y)) / scale)
     return zoom * 1.0005  # Covers crop rounding at the frame edge.
 
 
@@ -475,8 +477,9 @@ def motion_filter(samples, width, height, offset=0):
     for frame, (scale, x, y) in enumerate(moved):
         zoom = z0 * scale
         crop_w, crop_h = width / zoom, height / zoom
-        left = width / 2 - x / scale * height - crop_w / 2
-        top = height / 2 - y / scale * height - crop_h / 2
+        # The move is applied after the base zoom, so it keeps its size on screen.
+        left = width / 2 - x / zoom * height - crop_w / 2
+        top = height / 2 - y / zoom * height - crop_h / 2
         rows.append((frame, zoom, left, top))
     # Breakpoints within a quarter pixel (and 0.00025 zoom), below visible rounding.
     tolerance = 0.25
