@@ -1065,6 +1065,17 @@ def ink_size(glyph_height, sample_ink_height):
     return min(15.0, max(2.0, 10 * glyph_height * 256 / sample_ink_height))
 
 
+RAISED_MARKS = str.maketrans("", "", "'\"`‘’“”")
+
+
+def letter_sample(text):
+    """The line without apostrophes/quotation marks, for measuring rendered letter height.
+
+    Some faces draw these above their ascenders (Patrick Hand's straight apostrophe adds 16%
+    to the line's ink height), while reference lettering keeps them inside the letter band."""
+    return text.translate(RAISED_MARKS).strip() or text
+
+
 PRINTED_FACES = (fonts.Binding(), fonts.builtin("barlowcondensed-regular"))
 
 
@@ -2644,7 +2655,8 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
     def measure(binding, style, text, index):
         """The line rendered at size 10 on a 256-pixel canvas (bounded, cached per face/text)."""
         if (binding.sha256, text) not in width_cache:
-            if len(width_cache) >= 24:
+            # Up to two samples per line (full line, letters only) plus the printed faces.
+            if len(width_cache) >= 48:
                 raise ReferenceError(
                     413,
                     "caption_appearance_limit",
@@ -2868,7 +2880,13 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
         fitted.style.vertical = min(1.0, max(0.0, rectangle.y + rectangle.height + baselines[key]))
         box = measure(fitted.font_binding, fitted.style, longest, i)
         if key in uncalibrated:
-            fitted.style.size_percent = ink_size(glyph, box[3])
+            letters = letter_sample(longest)
+            height = (
+                box[3]
+                if letters == longest
+                else measure(fitted.font_binding, fitted.style, letters, i)[3]
+            )
+            fitted.style.size_percent = ink_size(glyph, height)
         fitted.style.size_percent = fit_width(
             fitted.style.size_percent, box[2], rectangle.width, output_canvas
         )
