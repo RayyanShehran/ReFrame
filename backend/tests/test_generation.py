@@ -1489,3 +1489,52 @@ def test_fewer_and_weaker_fresh_cues_do_not_overwrite_better_saved_cues():
         observations=[fact(weaker, 0.5, False)],
     )
     assert result == [first, second]
+
+
+def test_coarser_retry_with_one_misread_word_keeps_the_better_saved_cue():
+    import uuid
+
+    import captions
+
+    source = {
+        "identity": generation.color.Source(
+            canonical_url="https://www.tiktok.com/@test/video/6718335390845095173",
+            video_id="6718335390845095173",
+            media_sha256="a" * 64,
+        )
+    }
+
+    def fact(cue, window, supported):
+        return generation.CaptionObservation(
+            start=cue.start,
+            end=cue.end,
+            text=cue.text,
+            start_window=(cue.start - window, cue.start),
+            end_window=(cue.end - window, cue.end),
+            start_supported=supported,
+            end_supported=supported,
+            wording="ocr",
+        )
+
+    saved = captions.Cue(start=0.5, end=1.5, text="Drugs you take.")
+    other = captions.Cue(start=2.0, end=3.0, text="Second saved line")
+    review = generation.CaptionReview(
+        cues=[saved, other],
+        notices=[],
+        unreadable_samples=1,
+        observations=[fact(saved, 1 / 30, True), fact(other, 1 / 30, True)],
+        evidence=captions.VisibleBinding(
+            source=source["identity"],
+            reference_operation_id=str(uuid.uuid4()),
+            method=generation.automatic_captions.METHOD,
+            reads=2,
+            engine_version="test",
+            assets_commit="a" * 40,
+        ),
+    )
+    # One of three words misread (word match 0.67) with coarse, unsupported 0.5 s boundaries.
+    misread = captions.Cue(start=0.5, end=2.0, text="Drugs you lake.")
+    result, _ = generation.retain_reviewed(
+        [misread], review, source, incomplete=True, observations=[fact(misread, 0.5, False)]
+    )
+    assert result == [saved, other]
