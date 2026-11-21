@@ -1085,6 +1085,15 @@ def prepare_captions(project_id, mode, stop, deadline, operation):
                     )
                     else None
                 )
+                if mode == "reference" and any(c.appearance for c in cues):
+                    # The review keeps raw readings for retries; only the saved track is styled.
+                    cues = automatic_captions.fit_review_width(
+                        project_id,
+                        cues,
+                        directory,
+                        stop,
+                        min(deadline, time.monotonic() + automatic_captions.TOTAL_SECONDS),
+                    )
         selected_sequence = sequence.read(project_id).sequence
         values = dict(
             expected_revision=previous.revision,

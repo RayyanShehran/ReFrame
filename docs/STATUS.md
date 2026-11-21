@@ -2,6 +2,19 @@
 
 Current default is automatic reference-video generation; Customize retains the advanced editor. Earlier sections record historical milestone boundaries. [Current workflow, verification and limits](AUTOMATIC_GENERATION.md).
 
+## Caption style per lettering group; picture-aware placement — 2026-11-21
+
+Saved automatic caption tracks now share one style per lettering group: assisted cues are grouped by ink color and size (running median, so an early outlier cannot split a group) and get the group's median size/ink, dominant font and median outline; placement stays per cue and manual styles are untouched. The caption review keeps raw readings, so retries still compare against what was read. Reference placement and size map into the active picture of the sequence slot showing each cue (Fit pillar/letterbox; Fill keeps the full canvas), and widths fit inside that picture. A new test pins that fewer, coarser retry cues keep better saved cues.
+
+Isolated e2e (backup copy, this branch merged locally with the caption-retry fix; real `data/` unchanged, 34/34 SHA-256 match), Retry caption reading with Replace then Use detected captions:
+
+| Export | Correct | Wrong | Missing | Extra | Boundaries ≤ 0.2 s | Yellow-cue styles |
+|---|---:|---:|---:|---:|---:|---|
+| Caption-retry fix | 251.61 | 0 | 0.47 | 2.55 | 17/22 | 2 fonts, sizes 1.81–3.70% |
+| This branch | 251.61 | 0 | 0.47 | 2.55 | 17/22 | Patrick Hand, 2.93% |
+
+Caption read 274.1 s (was 272.3 s); export render 23.4 s (was 24.0 s). Placement is unchanged on this project: its pillarboxes are full height and every reference caption is horizontally centered. Open: overall caption size remains about 40% of the reference lettering height; a one-word misreading in a three-word cue falls below the 0.8 word-match ratio, so a coarser retry can replace that saved cue.
+
 ## Caption retry keeps the review; boundary refinement budget — 2026-11-21
 
 - **Replace-confirmed retries keep the caption review** unless the reference changed. Previously any saved-edit change discarded it, including verified/corrected cues and the protected manual correction. Verified and corrected cues still survive unless *Replace my verified or corrected cues* is chosen.

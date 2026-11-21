@@ -1690,3 +1690,86 @@ def test_conflicting_ocr_cannot_reappear_as_reliable_at_refinement_frames():
     independent.text = disputed.text
     independent.rectangle = automatic.match.Rectangle(x=0.2, y=0.1, width=0.5, height=0.1)
     assert not automatic.conflicting_reading(33, independent, conflicts)
+
+
+def test_harmonize_shares_one_style_per_lettering_group_and_keeps_manual_styles():
+    hand, plain = fonts.builtin("patrickhand-regular"), fonts.Binding()
+
+    def cue(start, size, ink, binding, horizontal, origin="assisted"):
+        return captions.Cue(
+            start=start,
+            end=start + 1,
+            text=f"Cue {start}",
+            appearance=captions.Appearance(
+                style=captions.Style(
+                    font=binding.choice,
+                    font_origin=origin,
+                    color=ink,
+                    size_percent=size,
+                    outline_percent=0.0,
+                    horizontal=horizontal,
+                    vertical=0.5,
+                ),
+                font_binding=binding,
+            ),
+        )
+
+    yellow = [
+        cue(0, 1.8, "#F4C710", plain, 0.4),
+        cue(1, 2.9, "#F0C716", hand, 0.5),
+        cue(3, 3.3, "#F0C915", hand, 0.6),
+        cue(4, 3.7, "#E8C561", hand, 0.45),
+    ]
+    title = cue(2, 5.1, "#F5E8DB", plain, 0.5)
+    manual = cue(5, 1.0, "#F0C716", plain, 0.3, origin="manual")
+    result = automatic.harmonize([yellow[0], yellow[1], title, *yellow[2:], manual])
+    shared = [result[i] for i in (0, 1, 3, 4)]
+    assert [c.appearance.style.size_percent for c in shared] == [pytest.approx(3.1)] * 4
+    assert {c.appearance.style.color for c in shared} == {"#F0C716"}
+    assert {c.appearance.style.font for c in shared} == {hand.choice}
+    assert [c.appearance.font_binding for c in shared] == [hand] * 4
+    assert [c.appearance.style.horizontal for c in shared] == [0.4, 0.5, 0.6, 0.45]
+    assert result[2] == title and result[5] == manual
+    # An early small partial reading must not split the lettering into two size groups.
+    early = [cue(i, size, "#F0C716", hand, 0.5) for i, size in enumerate((1.4, 2.6, 3.1, 3.4))]
+    assert len({c.appearance.style.size_percent for c in automatic.harmonize(early)}) == 1
+
+
+def test_reference_placement_maps_into_each_slots_pillarboxed_or_full_picture(monkeypatch):
+    import types
+
+    import framing
+    import sequence
+
+    portrait, wide = object(), object()
+    slots = [
+        types.SimpleNamespace(id="a", clip_id=portrait, output_start_frame=0, output_end_frame=60),
+        types.SimpleNamespace(id="b", clip_id=None, output_start_frame=60, output_end_frame=90),
+        types.SimpleNamespace(id="c", clip_id=wide, output_start_frame=90, output_end_frame=150),
+    ]
+    monkeypatch.setattr(
+        sequence,
+        "read",
+        lambda _: types.SimpleNamespace(sequence=types.SimpleNamespace(slots=slots)),
+    )
+    monkeypatch.setattr("clip_library.source", lambda _, clip_id, **k: (clip_id, None))
+    sizes = {portrait: (720, 1280), wide: (1920, 1080)}
+    monkeypatch.setattr(
+        automatic.render,
+        "probe",
+        lambda path, *a, **k: ({"width": sizes[path][0], "height": sizes[path][1]}, None, 1),
+    )
+    settings = framing.Settings(format="reference", canvas=(1280, 720), fit="fit")
+    areas = automatic.picture_areas("p", settings, (1280, 720), None, None, None)
+    # 9:16 footage fits as a centered 404-pixel pillar; 16:9 footage fills the canvas.
+    assert [(start, end) for start, end, _ in areas] == [(0, 2), (3, 5)]
+    assert areas[0][2] == pytest.approx((438 / 1280, 0, 404 / 1280, 1))
+    assert areas[1][2] == (0, 0, 1, 1)
+
+    style = captions.Style(horizontal=0.25, vertical=0.9)
+    cue = captions.Cue(start=0.5, end=1.5, text="Pillarboxed")
+    assert automatic.into_picture(cue, style, areas) == areas[0][2]
+    assert (style.horizontal, style.vertical) == pytest.approx((438 / 1280 + 101 / 1280, 0.9))
+    wide_style = captions.Style(horizontal=0.25, vertical=0.9)
+    automatic.into_picture(captions.Cue(start=3.5, end=4, text="Full"), wide_style, areas)
+    assert (wide_style.horizontal, wide_style.vertical) == (0.25, 0.9)
