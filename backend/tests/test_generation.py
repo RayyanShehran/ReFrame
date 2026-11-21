@@ -1593,3 +1593,29 @@ def test_kept_reviewed_cues_take_the_current_appearance_estimate_unless_manual()
     assert result[1].appearance.style.vertical == 0.8
     assert result[2] == manual
     assert verified == result
+
+
+def test_kept_cue_does_not_take_a_different_overlapping_captions_lettering():
+    import captions
+
+    def look(size, ink, vertical):
+        return captions.Appearance(
+            style=captions.Style(
+                font_origin="assisted",
+                color=ink,
+                size_percent=size,
+                horizontal=0.5,
+                vertical=vertical,
+            )
+        )
+
+    reply = captions.Cue(
+        start=2.0, end=3.0, text="Reply words", appearance=look(3.1, "#F0C716", 0.8)
+    )
+    # Coarse fresh boundaries: the white title read starts before the missed reply ends.
+    title = captions.Cue(start=2.9, end=4.0, text="aftersun", appearance=look(15.0, "#F6E9DD", 0.5))
+    opening = captions.Cue(start=0.0, end=1.0, text="Opening", appearance=look(7.8, "#F1C812", 0.4))
+    restyled = generation.restyle([reply], [opening, title])[0]
+    assert restyled.appearance.style.size_percent == 7.8
+    assert restyled.appearance.style.color == "#F1C812"
+    assert restyled.appearance.style.vertical == 0.8
