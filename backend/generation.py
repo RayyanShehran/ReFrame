@@ -238,6 +238,51 @@ def rereads(old, fresh):
     )
 
 
+def kept(listing, cues):
+    """The cues in `cues` that `listing` names by time and wording (appearance may differ)."""
+    by_key = {(c.start, c.end, c.text): c for c in cues}
+    return [by_key[k] for c in listing if (k := (c.start, c.end, c.text)) in by_key]
+
+
+def restyle(kept_cues, fresh_cues):
+    """Users verify wording and timing, not lettering: kept cues take the current appearance
+    estimate (overlapping fresh cue, else the nearest fresh cue of similar ink). Manual styles
+    stay as saved."""
+    fresh_cues = [f for f in fresh_cues if f.appearance]
+    result = []
+    for cue in kept_cues:
+        style = cue.appearance and cue.appearance.style
+        if not fresh_cues or style and style.font_origin != "assisted":
+            result.append(cue)
+            continue
+        overlap = max(fresh_cues, key=lambda f: min(f.end, cue.end) - max(f.start, cue.start))
+        if min(overlap.end, cue.end) > max(overlap.start, cue.start):
+            result.append(cue.model_copy(update={"appearance": overlap.appearance}))
+            continue
+        similar = [
+            f
+            for f in fresh_cues
+            if style is None or automatic_captions.same_ink(f.appearance.style, style)
+        ]
+        if not similar:
+            result.append(cue)
+            continue
+        nearest = min(similar, key=lambda f: abs(f.start - cue.start))
+        lettering = nearest.appearance.style.model_copy(
+            update={
+                k: getattr(style, k)
+                for k in ("horizontal", "vertical", "alignment", "placement")
+                if style is not None
+            }
+        )
+        result.append(
+            cue.model_copy(
+                update={"appearance": nearest.appearance.model_copy(update={"style": lettering})}
+            )
+        )
+    return result
+
+
 def retain_reviewed(
     cues,
     review,
@@ -510,6 +555,8 @@ def retain_reviewed(
             413, "caption_cue_limit", "More than 200 retained cues need correction."
         )
     observations[:] = [selected_facts[key(c)] for c in result if key(c) in selected_facts]
+    result = restyle(result, observed_cues)
+    verified = kept(verified, result)
     return sorted(result, key=lambda c: c.start), verified
 
 
@@ -1043,15 +1090,12 @@ def prepare_captions(project_id, mode, stop, deadline, operation):
                         unreadable_samples=incomplete,
                         observations=observations,
                         verified_cues=verified,
-                        corrected_cues=[
-                            c
-                            for c in (
-                                review.corrected_cues
-                                if review and not operation.options.replace_verified_captions
-                                else []
-                            )
-                            if c in cues
-                        ],
+                        corrected_cues=kept(
+                            review.corrected_cues
+                            if review and not operation.options.replace_verified_captions
+                            else [],
+                            cues,
+                        ),
                     )
                     raise ReferenceError(
                         422,
@@ -1070,15 +1114,12 @@ def prepare_captions(project_id, mode, stop, deadline, operation):
                         unreadable_samples=0,
                         observations=observations,
                         verified_cues=verified,
-                        corrected_cues=[
-                            c
-                            for c in (
-                                review.corrected_cues
-                                if review and not operation.options.replace_verified_captions
-                                else []
-                            )
-                            if c in cues
-                        ],
+                        corrected_cues=kept(
+                            review.corrected_cues
+                            if review and not operation.options.replace_verified_captions
+                            else [],
+                            cues,
+                        ),
                     )
                     if mode == "reference"
                     and (

@@ -759,21 +759,25 @@ def frame_seek(video, index):
     return [], f"setpts=PTS-STARTPTS,select='gte(t,{index}/30)',trim=end_frame=1,"
 
 
+def rgb(value):
+    value = {"white": "#FFFFFF", "yellow": "#FFFF00"}.get(value, value)
+    return tuple(int(value[i : i + 2], 16) for i in (1, 3, 5))
+
+
+def same_ink(a, b):
+    """Two caption styles plausibly share one lettering ink (OCR samples vary a few levels)."""
+    return math.dist(rgb(a.color), rgb(b.color)) < 100
+
+
 def harmonize(cues):
     """One robust style per lettering group: noisy per-cue fits must not vary font or size."""
-
-    def rgb(value):
-        value = {"white": "#FFFFFF", "yellow": "#FFFF00"}.get(value, value)
-        return tuple(int(value[i : i + 2], 16) for i in (1, 3, 5))
 
     def same_lettering(group, b):
         # shortcut: color + height only, no stroke features; add stroke width if groups merge.
         a = cues[group[0]].appearance.style
         # The running median, not the first member, so an early outlier cannot split a group.
         size = statistics.median(cues[i].appearance.style.size_percent for i in group)
-        return math.dist(rgb(a.color), rgb(b.color)) < 100 and (
-            max(size, b.size_percent) <= 2.2 * min(size, b.size_percent)
-        )
+        return same_ink(a, b) and (max(size, b.size_percent) <= 2.2 * min(size, b.size_percent))
 
     groups = []
     for i, cue in enumerate(cues):
