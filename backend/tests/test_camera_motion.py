@@ -141,8 +141,9 @@ def test_base_zoom_covers_the_largest_move_and_is_bounded():
     pan = [(1.0, 0.1 * i / 59, 0.0) for i in range(FRAMES)]
     graph, notice = motion.motion_filter(pan, WIDTH, HEIGHT)
     base = motion.base_zoom(pan, WIDTH, HEIGHT)
-    # The crop window (width/zoom) must still contain the shifted centre at every frame.
-    assert WIDTH / 2 - WIDTH / (2 * base) >= 0.1 * HEIGHT - 1e-9
+    # The crop window (width/zoom) must still contain the shifted centre at every frame; the
+    # pan is applied after the base zoom, so its centre moves x * height / zoom source pixels.
+    assert WIDTH / 2 - WIDTH / (2 * base) >= 0.1 * HEIGHT / base - 1e-9
     assert notice is None and "zoompan" in graph
     huge = [(1.0, 0.6 * i / 59, 0.0) for i in range(FRAMES)]
     assert motion.base_zoom(huge, WIDTH, HEIGHT) <= motion.MAX_BASE_ZOOM
@@ -159,3 +160,30 @@ def test_dark_scene_with_a_moving_light_is_not_read_as_camera_motion(tmp_path):
         frames.append(np.clip(8 + light, 0, 255).astype(np.uint8))
     (shot,) = measure(encode(tmp_path / "dark.mp4", frames), tmp_path / "stage")
     assert shot.moves == []
+
+
+def test_a_pure_pan_keeps_its_magnitude_despite_the_base_zoom(tmp_path):
+    pan = [(1.0, 0.08 * i / 59, 0.0) for i in range(FRAMES)]
+    graph, _ = motion.motion_filter(pan, WIDTH, HEIGHT)
+    assert motion.base_zoom(pan, WIDTH, HEIGHT) > 1.05  # The margin is a real zoom here.
+    source = encode(tmp_path / "flat.mp4", [warp(texture(), 1.0, 0.0, 0.0)] * FRAMES)
+    output = tmp_path / "panned.mp4"
+    subprocess.run(
+        ["ffmpeg", "-v", "error", "-y", "-i", str(source), "-vf", graph]
+        + ["-c:v", "libx264", "-crf", "16", "-pix_fmt", "yuv420p", str(output)],
+        check=True,
+    )
+    (shot,) = measure(output, tmp_path / "stage")
+    scale, x, y, _ = motion.sample(shot, FRAMES - 1, shake=False)
+    assert x == pytest.approx(0.08, abs=0.005)
+    assert abs(scale - 1) < 0.01 and abs(y) < 0.005
+
+
+def test_slow_pan_is_measured_without_sub_pixel_bias(tmp_path):
+    # Under 0.5 px per frame at analysis size: a parabolic peak fit locks toward whole pixels.
+    image = texture()
+    frames = [warp(image, 1.0, 0.03 * i / 59, -0.02 * i / 59) for i in range(FRAMES)]
+    (shot,) = measure(encode(tmp_path / "slow.mp4", frames), tmp_path / "stage")
+    _, x, y, _ = motion.sample(shot, FRAMES - 1, shake=False)
+    assert x == pytest.approx(0.03, abs=0.003)
+    assert y == pytest.approx(-0.02, abs=0.003)
