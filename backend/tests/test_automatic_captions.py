@@ -1724,7 +1724,8 @@ def test_harmonize_shares_one_style_per_lettering_group_and_keeps_manual_styles(
     manual = cue(5, 1.0, "#F0C716", plain, 0.3, origin="manual")
     result = automatic.harmonize([yellow[0], yellow[1], title, *yellow[2:], manual])
     shared = [result[i] for i in (0, 1, 3, 4)]
-    assert [c.appearance.style.size_percent for c in shared] == [pytest.approx(3.1)] * 4
+    # Median of the dominant font's calibrated sizes (2.9, 3.3, 3.7); the default-font 1.8 is not.
+    assert [c.appearance.style.size_percent for c in shared] == [pytest.approx(3.3)] * 4
     assert {c.appearance.style.color for c in shared} == {"#F0C716"}
     assert {c.appearance.style.font for c in shared} == {hand.choice}
     assert [c.appearance.font_binding for c in shared] == [hand] * 4
@@ -1847,7 +1848,8 @@ def test_harmonize_prefers_a_fitted_font_over_the_unfitted_default():
                     font=binding.choice,
                     font_origin="assisted",
                     color="#F0C716",
-                    size_percent=6.0,
+                    # Each size is calibrated to its own font's glyph height.
+                    size_percent=6.0 if binding is plain else 7.8,
                     outline_percent=0.0,
                 ),
                 font_binding=binding,
@@ -1855,4 +1857,6 @@ def test_harmonize_prefers_a_fitted_font_over_the_unfitted_default():
         )
         for i, binding in enumerate([plain, plain, hand, plain, hand])
     ]
-    assert {c.appearance.style.font for c in automatic.harmonize(cues)} == {hand.choice}
+    shared = automatic.harmonize(cues)
+    assert {c.appearance.style.font for c in shared} == {hand.choice}
+    assert {c.appearance.style.size_percent for c in shared} == {7.8}
