@@ -213,3 +213,18 @@ def test_rejects_nonfinite_request(local):
         headers={"Content-Type": "application/json"},
     )
     assert response.status_code == 422
+
+
+def test_preview_failure_keeps_its_message_but_logs_the_real_cause(tmp_path, monkeypatch, caplog):
+    from references import ReferenceError
+
+    monkeypatch.setattr(projects, "DATA_DIR", tmp_path)
+    with caplog.at_level("ERROR", logger="frame_preview"):
+        with pytest.raises(ReferenceError) as error:
+            with preview.operation():
+                raise ValueError("Missing framing samples")
+    assert (error.value.code, error.value.message) == (
+        "preview_failed",
+        "A valid frame or font could not be decoded. Check the source and retry.",
+    )
+    assert "Missing framing samples" in caplog.text

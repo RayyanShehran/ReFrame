@@ -2,6 +2,7 @@
 
 import base64
 import json
+import logging
 import math
 import shutil
 import struct
@@ -25,6 +26,8 @@ import reference_engine as engine
 import sequence
 import video_render as render
 from references import ReferenceError
+
+logger = logging.getLogger(__name__)
 
 TOTAL_SECONDS = 30
 TEMP_BUDGET = 16 * 1024 * 1024
@@ -217,6 +220,8 @@ def operation(*, seconds=TOTAL_SECONDS):
     except engine.RetrievalFailure as exc:
         raise ReferenceError(409, exc.code, exc.message) from None
     except (ValueError, KeyError, StopIteration, FileNotFoundError):
+        # The UI keeps a generic message; the real cause must stay diagnosable.
+        logger.exception("Preview/frame processing failed")
         raise ReferenceError(
             409,
             "preview_failed",

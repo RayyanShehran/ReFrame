@@ -4,7 +4,7 @@ import asyncio
 import json
 import re
 from typing import Literal
-from urllib.parse import urlsplit
+from urllib.parse import urljoin, urlsplit
 
 import httpx
 from pydantic import BaseModel
@@ -13,6 +13,7 @@ SHORT_LINK_MESSAGE = "Open this link in your browser and paste the full TikTok v
 INVALID_LINK_MESSAGE = "Enter a full TikTok video URL."
 UPSTREAM_MESSAGE = "Reference details could not be loaded. Please try again."
 VIDEO_PATH = re.compile(r"/@([A-Za-z0-9._]{1,24})/video/([0-9]+)")
+TIKTOK_HOSTS = {"tiktok.com", "www.tiktok.com", "m.tiktok.com", "vm.tiktok.com", "vt.tiktok.com"}
 MAX_BODY = 256 * 1024
 
 
@@ -71,9 +72,41 @@ def _optional_text(data: dict, key: str) -> str | None:
     return value or None
 
 
+async def resolve_short_link(raw_url: str, timeout) -> tuple[str, str]:
+    """Follow a TikTok short link's redirects (TikTok hosts only, at most 3) to its video URL."""
+    url = raw_url.strip()
+    try:
+        async with asyncio.timeout(10):
+            async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:
+                for _ in range(3):
+                    response = await client.get(url, headers={"User-Agent": "Mozilla/5.0"})
+                    location = response.headers.get("location")
+                    if response.status_code not in {301, 302, 303, 307, 308} or not location:
+                        break
+                    url = urljoin(url, location)
+                    if (
+                        urlsplit(url).scheme != "https"
+                        or urlsplit(url).hostname not in TIKTOK_HOSTS
+                    ):
+                        break
+                    try:
+                        return canonicalize_url(url)
+                    except ReferenceError as error:
+                        if error.code != "short_link_unsupported":
+                            break
+    except (TimeoutError, httpx.HTTPError, ValueError):
+        pass
+    raise ReferenceError(422, "short_link_unsupported", SHORT_LINK_MESSAGE)
+
+
 async def inspect_reference(raw_url: str) -> ReferenceDetails:
-    canonical_url, video_id = canonicalize_url(raw_url)
     timeout = httpx.Timeout(5.0, connect=3.0, read=5.0, write=3.0, pool=3.0)
+    try:
+        canonical_url, video_id = canonicalize_url(raw_url)
+    except ReferenceError as error:
+        if error.code != "short_link_unsupported":
+            raise
+        canonical_url, video_id = await resolve_short_link(raw_url, timeout)
     try:
         async with asyncio.timeout(10):
             async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:

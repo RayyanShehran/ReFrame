@@ -162,3 +162,39 @@ def test_bar_removal_off_disables_but_retains_manual_trim_settings():
         "crop=640:360:0:120" in framing.transform({"width": 640, "height": 600}, settings, slot)[0]
     )
     assert controls.insets == (0, 0.2, 0, 0.2)
+
+
+def test_short_slot_from_non_30_fps_footage_does_not_fail_border_sampling(tmp_path):
+    import shutil
+    import subprocess
+    import time
+
+    if not shutil.which("ffmpeg"):
+        pytest.skip("FFmpeg is required for real border sampling")
+    path = tmp_path / "phone.mp4"
+    # 3708/125 = 29.664 fps, as recorded by a phone; a 6-frame window late in the clip
+    # yields only 5 frames after fps=30 resampling (e2e evidence, printed-caption run).
+    subprocess.run(
+        [
+            shutil.which("ffmpeg"),
+            "-v",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc2=s=320x180:r=3708/125:d=4",
+            "-c:v",
+            "libx264",
+            "-pix_fmt",
+            "yuv420p",
+            str(path),
+        ],
+        check=True,
+        capture_output=True,
+        timeout=15,
+    )
+    clip = SimpleNamespace(id=uuid4(), sha256="a" * 64)
+    decision = framing.sample_decision(path, clip, 60, 66, tmp_path, time.monotonic() + 20)
+    assert (decision.start_frame, decision.end_frame) == (60, 66)
+    assert decision.insets == (0, 0, 0, 0)
+    assert decision.sampled  # Real border evidence, not the too-short fallback.
