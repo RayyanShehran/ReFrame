@@ -1860,3 +1860,36 @@ def test_harmonize_prefers_a_fitted_font_over_the_unfitted_default():
     shared = automatic.harmonize(cues)
     assert {c.appearance.style.font for c in shared} == {hand.choice}
     assert {c.appearance.style.size_percent for c in shared} == {7.8}
+
+
+def test_patrick_hand_size_renders_the_reference_ink_height(local):
+    _, directory, _ = local
+    binding = fonts.builtin("patrickhand-regular")
+    text = "I just want you to promise me that"
+    glyph_height = 37 / 720  # A measured reference line height (23.2 s, e2e evidence).
+
+    def ink_height(size, width, height, name):
+        stage = directory / name
+        stage.mkdir()
+        cue = [captions.Cue(start=0.0, end=1.0, text=text)]
+        prepared = fonts.prepare("fixture", binding, cue, stage, time.monotonic() + 20)
+        box, _ = automatic.appearance.render_sample(
+            captions.Style(
+                font=binding.choice, size_percent=size, outline_percent=0.0, placement="center"
+            ),
+            binding,
+            text,
+            width,
+            height,
+            stage,
+            prepared,
+            time.monotonic() + 20,
+            with_mask=False,
+        )
+        return box[3]
+
+    size = automatic.ink_size(glyph_height, ink_height(10.0, 4096, 256, "sample"))
+    rendered = ink_height(size, 1280, 720, "rendered") / 720
+    assert rendered == pytest.approx(glyph_height, rel=0.05)
+    # The former font-independent 150x estimate renders Patrick Hand over 10% too tall.
+    assert ink_height(150 * glyph_height, 1280, 720, "fixed") / 720 > 1.1 * glyph_height
