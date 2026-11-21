@@ -1674,3 +1674,46 @@ def test_conflicting_ocr_cannot_reappear_as_reliable_at_refinement_frames():
     independent.text = disputed.text
     independent.rectangle = automatic.match.Rectangle(x=0.2, y=0.1, width=0.5, height=0.1)
     assert not automatic.conflicting_reading(33, independent, conflicts)
+
+
+def test_harmonize_shares_one_style_per_lettering_group_and_keeps_manual_styles():
+    hand, plain = fonts.builtin("patrickhand-regular"), fonts.Binding()
+
+    def cue(start, size, ink, binding, horizontal, origin="assisted"):
+        return captions.Cue(
+            start=start,
+            end=start + 1,
+            text=f"Cue {start}",
+            appearance=captions.Appearance(
+                style=captions.Style(
+                    font=binding.choice,
+                    font_origin=origin,
+                    color=ink,
+                    size_percent=size,
+                    outline_percent=0.0,
+                    horizontal=horizontal,
+                    vertical=0.5,
+                ),
+                font_binding=binding,
+            ),
+        )
+
+    yellow = [
+        cue(0, 1.8, "#F4C710", plain, 0.4),
+        cue(1, 2.9, "#F0C716", hand, 0.5),
+        cue(3, 3.3, "#F0C915", hand, 0.6),
+        cue(4, 3.7, "#E8C561", hand, 0.45),
+    ]
+    title = cue(2, 5.1, "#F5E8DB", plain, 0.5)
+    manual = cue(5, 1.0, "#F0C716", plain, 0.3, origin="manual")
+    result = automatic.harmonize([yellow[0], yellow[1], title, *yellow[2:], manual])
+    shared = [result[i] for i in (0, 1, 3, 4)]
+    assert [c.appearance.style.size_percent for c in shared] == [pytest.approx(3.1)] * 4
+    assert {c.appearance.style.color for c in shared} == {"#F0C716"}
+    assert {c.appearance.style.font for c in shared} == {hand.choice}
+    assert [c.appearance.font_binding for c in shared] == [hand] * 4
+    assert [c.appearance.style.horizontal for c in shared] == [0.4, 0.5, 0.6, 0.45]
+    assert result[2] == title and result[5] == manual
+    # An early small partial reading must not split the lettering into two size groups.
+    early = [cue(i, size, "#F0C716", hand, 0.5) for i, size in enumerate((1.4, 2.6, 3.1, 3.4))]
+    assert len({c.appearance.style.size_percent for c in automatic.harmonize(early)}) == 1
