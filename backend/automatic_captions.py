@@ -622,7 +622,8 @@ def retry_crops(image, uncertain):
             bands.append((start, last + 1))
         boxes = []
         for top, bottom in bands:
-            if not 0.015 * height <= bottom - top <= 0.15 * height or top > 0.94 * height:
+            # Bottom subtitles can start at ~0.95; only slivers at the very edge are skipped.
+            if not 0.015 * height <= bottom - top <= 0.15 * height or top > 0.96 * height:
                 continue
             box = mask.crop((0, top, width, bottom)).getbbox()
             if not box or not 0.06 * width <= box[2] - box[0] <= 0.95 * width:
@@ -647,13 +648,15 @@ def retry_crops(image, uncertain):
                         * (0.5 if partitioned else 1),
                         mask,
                         boxes,
+                        (box[0], top, box[2], bottom),
+                        density >= 0.15 and runs >= 5,
                     )
                 )
     if candidates:
         coverage = Counter()
-        for score, candidate_mask, _ in candidates:
+        for score, candidate_mask, *_ in candidates:
             coverage[id(candidate_mask)] += score
-        _, mask, boxes = max(candidates, key=lambda row: coverage[id(row[1])])
+        _, mask, boxes, _, _ = max(candidates, key=lambda row: coverage[id(row[1])])
     else:
         mask, boxes = None, []
     crops = []
@@ -709,6 +712,24 @@ def retry_crops(image, uncertain):
     if crops:
         box = crops[0][1]
         crops.append((ImageOps.autocontrast(image.crop(box).convert("L")), box, "eng+ara"))
+        # Wide sparse scenery (lit walls, posters) can outvote a small solid caption elsewhere;
+        # offer the best solid-glyph band outside the chosen block as a third crop.
+        solid = [
+            row for row in candidates if row[4] and (row[3][3] <= box[1] or row[3][1] >= box[3])
+        ]
+        if solid:
+            _, alternative_mask, _, alternative, _ = max(solid, key=lambda row: row[0])
+            margin = max(8, round(height * 0.01))
+            alternative = (
+                max(0, alternative[0] - margin),
+                max(0, alternative[1] - margin),
+                min(width, alternative[2] + margin),
+                min(height, alternative[3] + margin),
+            )
+            crops.append(
+                (ImageOps.invert(alternative_mask.crop(alternative)), alternative, "eng+ara")
+            )
+        return crops
     elif uncertain:
         r = max(uncertain, key=lambda r: r.width * r.height)
         box = (
@@ -1042,6 +1063,23 @@ def ink_size(glyph_height, sample_ink_height):
     holds for its actual font and letters (libass ink per point differs by font: about 0.78 for
     Patrick Hand and 0.82 for DejaVu Sans, not the 0.67 a fixed 150x factor assumed)."""
     return min(15.0, max(2.0, 10 * glyph_height * 256 / sample_ink_height))
+
+
+PRINTED_FACES = (fonts.Binding(), fonts.builtin("barlowcondensed-regular"))
+
+
+def printed_face(boxes, aspect):
+    """Bundled face whose rendered line proportions (width / ink height) match the observed."""
+    return min(
+        boxes, key=lambda choice: abs(math.log(boxes[choice][2] / boxes[choice][3] / aspect))
+    )
+
+
+def baseline_vertical(ink_bottom, size, box):
+    """Bottom-centre anchor that puts rendered ink bottom on `ink_bottom` (fractions of height).
+
+    `box` is the same line rendered at size 10 on a 256-pixel canvas anchored at its middle."""
+    return min(1.0, max(0.0, ink_bottom + (128 - box[1] - box[3]) / 256 * size / 10))
 
 
 def fit_width(size, measured_width, fraction, canvas):
@@ -1541,6 +1579,11 @@ def word_key(text):
     import re
 
     return tuple(re.findall(r"[^\W_]+(?:['’][^\W_]+)*", text.casefold().replace("’", "'")))
+
+
+def vote_key(text):
+    """Wording identity for stability votes; OCR often drops apostrophes ("i'm" -> "im")."""
+    return tuple(word.replace("'", "") for word in word_key(text))
 
 
 def wording_conflicts(first, second):
@@ -2306,6 +2349,9 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
             if len(lines) > 3:
                 unresolved[f] = "More than three visible lines require review"
                 lines = []
+            if len(crops) > 2:
+                # A separate solid-text band (e.g. a bottom caption under bright scenery).
+                lines += handwriting.line_crops(image, crops[2][0], crops[2][1])[:3]
             signatures[f], candidate_layouts[f] = [], []
             for rect, variants in lines:
                 rectangle = match.Rectangle(x=rect[0], y=rect[1], width=rect[2], height=rect[3])
@@ -2566,7 +2612,7 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
             excluded[text] = {"start": first / 30, "end": total / 30, "text": text}
     changes = [(f, None if d and d.text in ignored else d) for f, d in changes]
     stable = Counter(
-        word_key(d.text)
+        vote_key(d.text)
         for _, values in sorted(cache.items())
         if (d := dominant(values, ignored)) is not None
     )
@@ -2592,6 +2638,50 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
     partial_fits = 0
     width_cache = {}
     uncalibrated = set()  # Styles sized by the font-independent estimate, not a fitted render.
+    printed = set()  # Unfitted printed styles: the closest bundled face is chosen by proportions.
+    printed_choice = []  # One face per read: style groups split by exact ink, not by face.
+
+    def measure(binding, style, text, index):
+        """The line rendered at size 10 on a 256-pixel canvas (bounded, cached per face/text)."""
+        if (binding.sha256, text) not in width_cache:
+            if len(width_cache) >= 24:
+                raise ReferenceError(
+                    413,
+                    "caption_appearance_limit",
+                    "Caption width calibration reached its bound. Review the partial captions.",
+                )
+            with temporary(directory / f"width-{index}-{len(width_cache)}") as stage:
+                prepared = fonts.prepare(
+                    project_id,
+                    binding,
+                    [captions.Cue(start=0.0, end=1.0, text=text)],
+                    stage,
+                    deadline,
+                )
+                measured, _ = appearance.render_sample(
+                    style.model_copy(
+                        update={
+                            "font": binding.choice,
+                            "size_percent": 10.0,
+                            "horizontal": 0.5,
+                            "vertical": 0.5,
+                            "color": "white",
+                            "outline_percent": 0.0,
+                            "shadow_percent": 0.0,
+                        }
+                    ),
+                    binding,
+                    text,
+                    4096,
+                    256,
+                    stage,
+                    prepared,
+                    deadline,
+                    with_mask=False,
+                )
+            width_cache[binding.sha256, text] = measured
+        return width_cache[binding.sha256, text]
+
     for i, (start, detected) in enumerate(changes):
         color.guard(stop, deadline)
         end = changes[i + 1][0] if i + 1 < len(changes) else total
@@ -2622,7 +2712,7 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
             else:
                 unresolved[start] = "Wording is unresolved; no missing words were supplied"
                 continue
-        if end - start < 3 or stable[word_key(detected.text)] < 2:
+        if end - start < 3 or stable[vote_key(detected.text)] < 2:
             unresolved[start] = "Brief or isolated wording needs review"
             continue
         if len(cues) >= 200:
@@ -2686,6 +2776,8 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
                 )
                 baselines[key] = 0.025
                 uncalibrated.add(key)
+                if detected.recognizer != "trocr" and not font.choice.startswith("amiri"):
+                    printed.add(key)
                 if (
                     frame_window is None
                     and not preserve_saved_analysis
@@ -2711,6 +2803,7 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
                         sample = detected.sample_rectangle or rectangle
                         baselines[key] = styles[key].style.vertical - sample.y - sample.height
                         uncalibrated.discard(key)
+                        printed.discard(key)  # A fitted face beats the proportions fallback.
                         notes.extend(messages)
                     except engine.ProbeTimeout:
                         notes.append(
@@ -2750,57 +2843,40 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
                 sample = detected.sample_rectangle or rectangle
                 baselines[key] = fitted.style.vertical - sample.y - sample.height
                 notes.extend(messages)
+        longest = max(detected.text.split("\n"), key=len)
+        glyph = detected.glyph_height or rectangle.height / (detected.text.count("\n") + 1)
+        if key in printed:
+            printed.discard(key)
+            if not printed_choice:
+                # Rendering every candidate per group would exhaust the width-sample bound.
+                boxes = {b.choice: measure(b, styles[key].style, longest, i) for b in PRINTED_FACES}
+                aspect = rectangle.width * canvas[0] / (glyph * canvas[1])
+                printed_choice.append(
+                    next(b for b in PRINTED_FACES if b.choice == printed_face(boxes, aspect))
+                )
+            face = printed_choice[0]
+            styles[key] = styles[key].model_copy(
+                update={
+                    "font_binding": face,
+                    "style": styles[key].style.model_copy(update={"font": face.choice}),
+                }
+            )
         fitted = styles[key].model_copy(deep=True)
         # Every cue gets its own placement, even when reusing a fitted static face.
         fitted.style.color = detected.ink
         fitted.style.horizontal = rectangle.x + rectangle.width / 2
         fitted.style.vertical = min(1.0, max(0.0, rectangle.y + rectangle.height + baselines[key]))
-        longest = max(detected.text.split("\n"), key=len)
-        width_key = (fitted.font_binding.sha256, longest)
-        if width_key not in width_cache:
-            if len(width_cache) >= 24:
-                raise ReferenceError(
-                    413,
-                    "caption_appearance_limit",
-                    "Caption width calibration reached its bound. Review the partial captions.",
-                )
-            with temporary(directory / f"width-{i}") as stage:
-                prepared = fonts.prepare(
-                    project_id,
-                    fitted.font_binding,
-                    [captions.Cue(start=0.0, end=1.0, text=longest)],
-                    stage,
-                    deadline,
-                )
-                measured, _ = appearance.render_sample(
-                    fitted.style.model_copy(
-                        update={
-                            "size_percent": 10.0,
-                            "horizontal": 0.5,
-                            "vertical": 0.5,
-                            "color": "white",
-                            "outline_percent": 0.0,
-                            "shadow_percent": 0.0,
-                        }
-                    ),
-                    fitted.font_binding,
-                    longest,
-                    4096,
-                    256,
-                    stage,
-                    prepared,
-                    deadline,
-                    with_mask=False,
-                )
-                width_cache[width_key] = measured[2], measured[3]
+        box = measure(fitted.font_binding, fitted.style, longest, i)
         if key in uncalibrated:
-            fitted.style.size_percent = ink_size(
-                detected.glyph_height or rectangle.height / (detected.text.count("\n") + 1),
-                width_cache[width_key][1],
-            )
+            fitted.style.size_percent = ink_size(glyph, box[3])
         fitted.style.size_percent = fit_width(
-            fitted.style.size_percent, width_cache[width_key][0], rectangle.width, output_canvas
+            fitted.style.size_percent, box[2], rectangle.width, output_canvas
         )
+        if key in uncalibrated:
+            # Measured baseline: rendered ink bottom lands on the observed ink bottom.
+            fitted.style.vertical = baseline_vertical(
+                rectangle.y + rectangle.height, fitted.style.size_percent, box
+            )
         # Font proportions stay intact; a different output aspect can reduce glyph height.
         cues.append(
             captions.Cue(start=start / 30, end=end / 30, text=detected.text, appearance=fitted)

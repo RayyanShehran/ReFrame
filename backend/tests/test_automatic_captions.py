@@ -1893,3 +1893,100 @@ def test_patrick_hand_size_renders_the_reference_ink_height(local):
     assert rendered == pytest.approx(glyph_height, rel=0.05)
     # The former font-independent 150x estimate renders Patrick Hand over 10% too tall.
     assert ink_height(150 * glyph_height, 1280, 720, "fixed") / 720 > 1.1 * glyph_height
+
+
+def test_small_printed_caption_is_proposed_when_brighter_scenery_wins_the_mask():
+    pytest.importorskip("PIL")  # Optional visual extra; CI may not install it.
+    from PIL import Image, ImageDraw, ImageFont
+
+    width, height = 960, 720
+    image = Image.new("RGB", (width, height), (176, 70, 150))  # Bright pink scene.
+    draw = ImageDraw.Draw(image)
+    # Wide, sparse neon speckle mid-frame outscores small solid text in the single-mask vote.
+    for x in range(330, 700, 7):
+        for y in range(200, 236, 9):
+            draw.rectangle([x, y, x + 1, y + 6], fill=(120, 240, 250))
+    draw.rectangle([0, 640, width, height], fill=(20, 15, 40))
+    font = ImageFont.truetype(str(fonts.BUNDLED), 22)
+    draw.text((width / 2, 690), "what is?", font=font, fill=(235, 200, 50), anchor="ms")
+    crops = automatic.retry_crops(image, [])
+    caption = [box for _, box, _ in crops if box[1] >= 0.85 * height]
+    assert caption, [box for _, box, _ in crops]
+    lines = automatic.handwriting.line_crops(
+        image, *next((mask, box) for mask, box, _ in crops if box[1] >= 0.85 * height)
+    )
+    assert [round(r[1], 2) for r, _ in lines] == [0.94]
+
+
+def test_caption_whose_top_is_below_94_percent_of_the_frame_is_still_proposed():
+    pytest.importorskip("PIL")  # Optional visual extra; CI may not install it.
+    from PIL import Image, ImageDraw, ImageFont
+
+    image = Image.new("RGB", (960, 720), (20, 15, 40))
+    font = ImageFont.truetype(str(fonts.BUNDLED), 24)
+    # Lowercase without ascenders: the ink starts at about 0.95 of the frame height, as the
+    # printed reference's "it's over." does (top 0.947).
+    ImageDraw.Draw(image).text(
+        (480, 696), "now so a mess", font=font, fill=(235, 200, 50), anchor="ms"
+    )
+    assert automatic.retry_crops(image, [])
+
+
+def test_stability_vote_treats_apostrophe_only_differences_as_the_same_wording():
+    # Printed reference: "i'm done embarrassing myself" was read twice, once as "im", and the
+    # split vote dropped the cue as isolated wording.
+    assert automatic.vote_key("i’m done embarrassing myself") == automatic.vote_key(
+        "im done embarrassing myself"
+    )
+    assert automatic.vote_key("i'm done") != automatic.vote_key("i'm gone")
+
+
+def render_box(directory, binding, text, size, width, height, vertical=0.5):
+    directory.mkdir()
+    prepared = fonts.prepare(
+        "fixture",
+        binding,
+        [captions.Cue(start=0.0, end=1.0, text=text)],
+        directory,
+        time.monotonic() + 20,
+    )
+    box, _ = automatic.appearance.render_sample(
+        captions.Style(
+            font=binding.choice,
+            size_percent=size,
+            outline_percent=0.0,
+            vertical=vertical,
+            horizontal=0.5,
+        ),
+        binding,
+        text,
+        width,
+        height,
+        directory,
+        prepared,
+        time.monotonic() + 20,
+        with_mask=False,
+    )
+    return box
+
+
+def test_partial_read_fallback_picks_a_condensed_face_for_narrow_printed_text(local):
+    _, directory, _ = local
+    text = "i can't pay back the theatre"
+    boxes = {
+        binding.choice: render_box(directory / binding.choice, binding, text, 10.0, 4096, 256)
+        for binding in automatic.PRINTED_FACES
+    }
+    # Printed reference: this line is 288 px wide with 26 px glyph height (aspect 11.1).
+    assert automatic.printed_face(boxes, 288 / 26) == "barlowcondensed-regular"
+    wide = boxes["default"][2] / boxes["default"][3]
+    assert automatic.printed_face(boxes, wide) == "default"
+
+
+def test_fallback_anchor_puts_rendered_ink_bottom_on_the_observed_line(local):
+    _, directory, _ = local
+    binding, text, size = fonts.builtin("barlowcondensed-regular"), "nobody showed up.", 4.5
+    sample = render_box(directory / "sample", binding, text, 10.0, 4096, 256)
+    vertical = automatic.baseline_vertical(0.968, size, sample)
+    rendered = render_box(directory / "rendered", binding, text, size, 1280, 720, vertical)
+    assert (rendered[1] + rendered[3]) / 720 == pytest.approx(0.968, abs=1.5 / 720)

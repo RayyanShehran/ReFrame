@@ -2,6 +2,21 @@
 
 Current default is automatic reference-video generation; Customize retains the advanced editor. Earlier sections record historical milestone boundaries. [Current workflow, verification and limits](AUTOMATIC_GENERATION.md).
 
+## Fresh caption coverage on printed references — 2026-11-21
+
+Profiling a printed reference (small yellow bottom captions over bright pink scenes) showed the early captions were read but the wrong region was OCR'd: `retry_crops` keeps one colour mask per frame, and sparse wall speckle or poster lettering outscored the small solid caption; with a coloured region found, full-frame OCR was skipped. Bands starting below 0.94 of the height were also dropped (one caption started at 0.947). The best block is unchanged; the best solid-glyph band outside it (density >= 0.15, >= 5 strokes) is offered as a third crop and its lines join discovery, and bands may start down to 0.96. Stability votes treat apostrophe-only variants ("i'm"/"im") as one wording. The partial-read fallback now picks DejaVu Sans or Barlow Condensed by rendered line proportions (once per read) and anchors so rendered ink bottom lands on the observed ink bottom.
+
+Isolated e2e (backup copy; real `data/` unchanged), fresh read, no retry:
+
+| Reference | Before | After |
+|---|---|---|
+| Printed (truth.json, 64.33 word-s) | 24.94 / 0.40 / 39.00 / 0.93, 10/34, 6/17 captions | 52.89 / 1.77 / 9.67 / 0.00, 28/34, 14/17 captions (82.2%) |
+| Printed text height / vertical | 0.69–0.77; ~13 px low | 0.95–1.05; −1 to −12 px (descender lines sit high) |
+| Handwritten fresh detect (warm cache) | 150.18–154.09, 6–10/22 | 163.10, 10/22 |
+| Handwritten retry flow | 251.61 / 0 / 0.47 / 2.55, 17/22 | unchanged |
+
+Caption read 279 s printed, 273 s handwritten (budget still used up; refinement takes ~57%). Still missed: "i'm done embarrassing myself" and the two 0.2–0.3 s "no," captions. Handwritten height this run is 0.80–0.86 (PR #6 run: 0.90–1.00): identical per-line estimates on main and this branch (7.73% opening, 6.03% later lines), but the extra lines read shift the same-font median from 6.88 to 6.03.
+
 ## Caption size matches the reference; misread re-reads keep saved cues — 2026-11-21
 
 Exports rendered captions at about a third of the reference lettering height. The estimator was right (a fresh read sized the opening at 8.59%); kept verified/corrected cues carried lettering estimated by older code (2.93%). Users verify wording and timing, not lettering, so kept cues now take the overlapping fresh cue's appearance (or the nearest same-ink lettering, keeping their own placement); manual styles stay. Lettering groups prefer a fitted font over the unfitted default and take their size only from that font's calibrated sizes. Re-reads match by character-level fuzzy text, so a coarser retry with one misread word no longer replaces a finer saved cue; restyling also requires that fuzzy match, so a coarse neighboring read cannot lend a missed cue its lettering or position.
