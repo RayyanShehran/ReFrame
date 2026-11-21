@@ -2802,6 +2802,7 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
                         sample = detected.sample_rectangle or rectangle
                         baselines[key] = styles[key].style.vertical - sample.y - sample.height
                         uncalibrated.discard(key)
+                        printed.discard(key)  # A fitted face beats the proportions fallback.
                         notes.extend(messages)
                     except engine.ProbeTimeout:
                         notes.append(
