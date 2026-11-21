@@ -1896,6 +1896,7 @@ def test_patrick_hand_size_renders_the_reference_ink_height(local):
 
 
 def test_small_printed_caption_is_proposed_when_brighter_scenery_wins_the_mask():
+    pytest.importorskip("PIL")  # Optional visual extra; CI may not install it.
     from PIL import Image, ImageDraw, ImageFont
 
     width, height = 960, 720
@@ -1918,6 +1919,7 @@ def test_small_printed_caption_is_proposed_when_brighter_scenery_wins_the_mask()
 
 
 def test_caption_whose_top_is_below_94_percent_of_the_frame_is_still_proposed():
+    pytest.importorskip("PIL")  # Optional visual extra; CI may not install it.
     from PIL import Image, ImageDraw, ImageFont
 
     image = Image.new("RGB", (960, 720), (20, 15, 40))
