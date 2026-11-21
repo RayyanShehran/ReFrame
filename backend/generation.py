@@ -225,6 +225,19 @@ def review_captions(project_id, request):
     return operation
 
 
+def rereads(old, fresh):
+    """Same caption read again: character-level fuzzy match, so one misread word in a short
+    cue still counts (word-level matching drops 'take' vs 'lake' to 0.67 of three words)."""
+    return (
+        SequenceMatcher(
+            None,
+            " ".join(automatic_captions.word_key(old)),
+            " ".join(automatic_captions.word_key(fresh)),
+        ).ratio()
+        >= 0.8
+    )
+
+
 def retain_reviewed(
     cues,
     review,
@@ -264,12 +277,7 @@ def retain_reviewed(
             if old.start < fresh.end
             and fresh.start < old.end
             and key(fresh) in new_facts
-            and SequenceMatcher(
-                None,
-                automatic_captions.word_key(old.text),
-                automatic_captions.word_key(fresh.text),
-            ).ratio()
-            >= 0.8
+            and rereads(old.text, fresh.text)
         ]
         fact = new_facts.get(key(fresh))
         if len(candidates) == 1:
@@ -291,6 +299,7 @@ def retain_reviewed(
                 )
                 values = {"text": text}
                 windows = {}
+                saved_stronger = []
                 for edge in ("start", "end"):
                     previous, current = (
                         getattr(before, edge + "_window", None),
@@ -313,8 +322,12 @@ def retain_reviewed(
                             or previous[1] - previous[0] < current[1] - current[0] - 0.000001
                         )
                     values[edge] = getattr(old if stronger else fresh, edge)
+                    saved_stronger.append(stronger)
                     windows[edge + "_window"] = previous if stronger else current
                     windows[edge + "_supported"] = old_supported if stronger else new_supported
+                if all(saved_stronger) and before and ranks[before.wording] >= ranks[fact.wording]:
+                    # A coarser re-read cannot replace wording its finer saved reading supports.
+                    values["text"] = text = old.text
                 if values["start"] < values["end"] and not any(
                     other is not fresh
                     and values["start"] < other.end
@@ -371,14 +384,7 @@ def retain_reviewed(
                     )
                 ):
                     return True
-                if (
-                    SequenceMatcher(
-                        None,
-                        automatic_captions.word_key(old.text),
-                        automatic_captions.word_key(fresh.text),
-                    ).ratio()
-                    < 0.8
-                ):
+                if not rereads(old.text, fresh.text):
                     continue
                 before = old_facts.get(key(old))
                 if before and before.wording == "unresolved":
