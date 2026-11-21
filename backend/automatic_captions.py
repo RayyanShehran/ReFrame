@@ -1564,6 +1564,11 @@ def word_key(text):
     return tuple(re.findall(r"[^\W_]+(?:['’][^\W_]+)*", text.casefold().replace("’", "'")))
 
 
+def vote_key(text):
+    """Wording identity for stability votes; OCR often drops apostrophes ("i'm" -> "im")."""
+    return tuple(word.replace("'", "") for word in word_key(text))
+
+
 def wording_conflicts(first, second):
     a, b = word_key(first), word_key(second)
     if "".join(a) == "".join(b):
@@ -2590,7 +2595,7 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
             excluded[text] = {"start": first / 30, "end": total / 30, "text": text}
     changes = [(f, None if d and d.text in ignored else d) for f, d in changes]
     stable = Counter(
-        word_key(d.text)
+        vote_key(d.text)
         for _, values in sorted(cache.items())
         if (d := dominant(values, ignored)) is not None
     )
@@ -2646,7 +2651,7 @@ def detect(project_id, source, directory, stop, deadline, *, frame_window=None):
             else:
                 unresolved[start] = "Wording is unresolved; no missing words were supplied"
                 continue
-        if end - start < 3 or stable[word_key(detected.text)] < 2:
+        if end - start < 3 or stable[vote_key(detected.text)] < 2:
             unresolved[start] = "Brief or isolated wording needs review"
             continue
         if len(cues) >= 200:
