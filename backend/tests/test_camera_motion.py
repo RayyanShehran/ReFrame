@@ -147,3 +147,15 @@ def test_base_zoom_covers_the_largest_move_and_is_bounded():
     huge = [(1.0, 0.6 * i / 59, 0.0) for i in range(FRAMES)]
     assert motion.base_zoom(huge, WIDTH, HEIGHT) <= motion.MAX_BASE_ZOOM
     assert motion.motion_filter(huge, WIDTH, HEIGHT)[1]  # Scaled down, with a notice.
+
+
+def test_dark_scene_with_a_moving_light_is_not_read_as_camera_motion(tmp_path):
+    rows, cols = np.mgrid[0:HEIGHT, 0:WIDTH].astype(float)
+    frames = []
+    for i in range(FRAMES):
+        # A soft club light sweeps across an otherwise black, textureless frame.
+        cx, cy = 120 + 6 * i, 180
+        light = 200 * np.exp(-((cols - cx) ** 2 + (rows - cy) ** 2) / (2 * 30**2))
+        frames.append(np.clip(8 + light, 0, 255).astype(np.uint8))
+    (shot,) = measure(encode(tmp_path / "dark.mp4", frames), tmp_path / "stage")
+    assert shot.moves == []
