@@ -133,3 +133,29 @@ it("labels reference-aspect automatic framing accurately", async () => {
   expect(await screen.findByText("Saved fit: Automatic (per-slot Fill or Fit)")).toBeInTheDocument();
   expect(screen.getByText("Saved format: Reference aspect · 1280 x 720")).toBeInTheDocument();
 });
+
+it("saves the camera motion choice and binds its revision to the render", async () => {
+  const bodies: Record<string, unknown>[] = [];
+  let motion = { status: "ready", settings: { revision: 2, enabled: true, shots: [{ moves: ["zoom_in"] }, { moves: [] }] } };
+  const fetcher = vi.fn(async (url: string, options: RequestInit = {}) => {
+    if (url.endsWith("/camera-motion")) {
+      if (options.method === "POST") {
+        expect(JSON.parse(options.body as string)).toEqual({ expected_revision: 2, enabled: false });
+        motion = { status: "ready", settings: { ...motion.settings, revision: 3, enabled: false } };
+      }
+      return ok(motion);
+    }
+    if (options.method === "POST") bodies.push(JSON.parse(options.body as string));
+    return ok(idle);
+  });
+  vi.stubGlobal("fetch", fetcher);
+  render(<RenderVideo projectId="one" revision={2} recipeReady dirty={false} busy={false} />);
+  const toggle = await screen.findByRole("checkbox", { name: /Copy camera motion from the reference/ });
+  expect(toggle).toBeChecked();
+  expect(screen.getByText(/1 of 2 reference shots move/)).toBeInTheDocument();
+  fireEvent.click(toggle);
+  await waitFor(() => expect(toggle).not.toBeChecked());
+  fireEvent.click(screen.getByRole("button", { name: "Render video" }));
+  await waitFor(() => expect(bodies).toHaveLength(1));
+  expect(bodies[0]).toMatchObject({ expected_revision: 2, expected_motion_revision: 3 });
+});
