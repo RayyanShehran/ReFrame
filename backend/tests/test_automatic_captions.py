@@ -1773,3 +1773,63 @@ def test_reference_placement_maps_into_each_slots_pillarboxed_or_full_picture(mo
     wide_style = captions.Style(horizontal=0.25, vertical=0.9)
     automatic.into_picture(captions.Cue(start=3.5, end=4, text="Full"), wide_style, areas)
     assert (wide_style.horizontal, wide_style.vertical) == (0.25, 0.9)
+
+
+def test_reference_size_maps_to_picture_height_and_shrinks_only_on_overflow(monkeypatch, tmp_path):
+    import types
+
+    import framing
+
+    areas = [
+        (0, 1, (0.0, 0.125, 1.0, 0.75)),  # Letterboxed: picture is 75% of canvas height.
+        (1, 2, (0.3, 0.0, 0.4, 1.0)),  # Pillarboxed: full height, 40% of canvas width.
+        (2, 3, (0.3, 0.0, 0.4, 1.0)),
+    ]
+    monkeypatch.setattr(automatic.render.footage, "source", lambda *a: {"path": "footage"})
+    monkeypatch.setattr(automatic.render, "probe", lambda *a, **k: ({}, None, 1))
+    monkeypatch.setattr(
+        framing, "read", lambda _: types.SimpleNamespace(settings=framing.Settings())
+    )
+    monkeypatch.setattr(framing, "geometry", lambda *a: (None, (1280, 720), ""))
+    monkeypatch.setattr(automatic, "picture_areas", lambda *a: areas)
+    monkeypatch.setattr(automatic.fonts, "prepare", lambda *a: None)
+    # At 10% of a 256-pixel canvas each line measures 512 pixels: at most 8.89% per canvas width.
+    monkeypatch.setattr(
+        automatic.appearance, "render_sample", lambda *a, **k: ((0, 0, 512, 30), None)
+    )
+
+    def cue(start, size, ink):
+        return captions.Cue(
+            start=start,
+            end=start + 1,
+            text="Same width line",
+            appearance=captions.Appearance(
+                style=captions.Style(
+                    font_origin="assisted",
+                    color=ink,
+                    size_percent=size,
+                    horizontal=0.5,
+                    vertical=0.9,
+                    outline_percent=0.0,
+                ),
+                font_binding=fonts.Binding(),
+            ),
+        )
+
+    letterboxed, fits, overflows = automatic.fit_review_width(
+        "p",
+        [cue(0, 8.0, "#FFFFFF"), cue(1, 3.0, "#FFFF00"), cue(2, 8.0, "#0000FF")],
+        tmp_path,
+        None,
+        time.monotonic() + 20,
+    )
+    # Reference size is relative to its frame height, which becomes the picture height.
+    assert letterboxed.appearance.style.size_percent == pytest.approx(6.0)
+    assert letterboxed.appearance.style.vertical == pytest.approx(0.125 + 0.9 * 0.75)
+    # A pillar keeps the full-height size while the line fits inside the picture...
+    assert fits.appearance.style.size_percent == pytest.approx(3.0)
+    assert fits.appearance.style.horizontal == pytest.approx(0.5)
+    # ...and shrinks only when the line would overflow 90% of the picture width.
+    assert overflows.appearance.style.size_percent == pytest.approx(
+        2560 * 0.36 * 1280 / (512 * 720)
+    )
