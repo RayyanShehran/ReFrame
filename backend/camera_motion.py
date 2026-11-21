@@ -140,7 +140,8 @@ def correlate(np, a, b):
 
     def refine(left, right):
         denominator = left - 2 * peak + right
-        return np.where(np.abs(denominator) > 1e-9, 0.5 * (left - right) / denominator, 0.0)
+        safe = np.where(np.abs(denominator) > 1e-9, denominator, 1.0)
+        return np.where(np.abs(denominator) > 1e-9, 0.5 * (left - right) / safe, 0.0)
 
     dy = rows + refine(surface[n, (rows - 1) % h, cols], surface[n, (rows + 1) % h, cols])
     dx = cols + refine(surface[n, rows, (cols - 1) % w], surface[n, rows, (cols + 1) % w])
