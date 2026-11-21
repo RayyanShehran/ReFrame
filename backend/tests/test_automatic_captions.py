@@ -2003,15 +2003,11 @@ def test_lines_of_one_lettering_get_consistent_sizes_with_or_without_apostrophes
         "I've done it all and you can too .",
         "No, I’m serious, Soph.",
     ]
-    sizes = [
-        automatic.ink_size(
-            0.054,
-            render_box(
-                directory / str(n), binding, automatic.letter_sample(line), 10.0, 4096, 256
-            )[3],
-        )
+    samples = [
+        render_box(directory / str(n), binding, automatic.letter_sample(line), 10.0, 4096, 256)
         for n, line in enumerate(lines)
     ]
+    sizes = [automatic.ink_size(0.054, box[3]) for box in samples]
     assert max(sizes) <= 1.06 * min(sizes), sizes
     assert automatic.letter_sample("i can't pay") == "i cant pay"
     assert automatic.letter_sample("''") == "''"  # Nothing left to measure: keep the line.
