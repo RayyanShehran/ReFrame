@@ -15,6 +15,20 @@ Isolated e2e (backup copy, this branch merged locally with the caption-retry fix
 
 Caption read 274.1 s (was 272.3 s); export render 23.4 s (was 24.0 s). Placement is unchanged on this project: its pillarboxes are full height and every reference caption is horizontally centered. Open: overall caption size remains about 40% of the reference lettering height; a one-word misreading in a three-word cue falls below the 0.8 word-match ratio, so a coarser retry can replace that saved cue.
 
+## Caption retry keeps the review; boundary refinement budget — 2026-11-21
+
+- **Replace-confirmed retries keep the caption review** unless the reference changed. Previously any saved-edit change discarded it, including verified/corrected cues and the protected manual correction. Verified and corrected cues still survive unless *Replace my verified or corrected cues* is chosen.
+- **Boundary refinement** now handles observed changes before probing unchanged intervals and may use the remaining overall 300 s budget. Profiling the real reference showed refinement starting at ~168 s with ~14 s left and one new read, so cues snapped to the 0.5 s discovery grid.
+- **Isolated e2e** on a copy of the real project (reference `7670291844579740950`; same retry → *Use detected captions* flow), scored with the half-open word-second evaluator from [CAPTION_BASELINE_PROVENANCE.md](CAPTION_BASELINE_PROVENANCE.md):
+
+| Export | Correct | Wrong | Missing | Extra | Boundaries ≤ 0.2 s |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Saved review, accumulated (2026-10-18) | 227.71 | 1.80 | 22.57 | 3.79 | — |
+| Before (post framing fix) | 153.85 | 0 | 98.23 | 0 | 6/22 |
+| After | **251.61** | 0 | 0.47 | 2.55 | **17/22** |
+
+  The gain comes mainly from keeping reviewed cues. A fresh whole-reference read alone, on the same warm OCR cache, still reads ~154 correct word-seconds: refinement went from 41 s / 19 new reads to 135 s / 79 new reads, moving 13/20 boundaries off the 0.5 s grid and raising boundaries ≤ 0.2 s from 6/22 to 10/22. Reading budget is still exhausted; replies and the middle promise line are still not read fresh. Appearance (font family/size consistency) is unchanged.
+
 ## Bounded handwritten-reply decision — 2026-10-18
 
 **NO-GO for unattended completion with the current approach.** One new bounded experiment used 12 complete source-bound crops (four native frames; two preparations per line): **12 fresh TrOCR + 12 fresh Tesseract evaluations, zero experimental cache hits**, no download/cache changes. TrOCR correctly read all three reply lines, including “too”; Tesseract still failed the lower ending. Correct cached model words already exist; explicit cross-reader conflicts and incomplete automatic localization/timing prevent safe saved completion. [Exact lines, outputs and decision](CAPTION_BASELINE_PROVENANCE.md#bounded-reply-decision--2026-10-18).
