@@ -20,6 +20,9 @@ METHOD = "phase-similarity-v1"
 RENDERER_VERSION = "sdr-eq-mp4-v11"
 LONG_EDGE = 192
 WINDOW, STEP = 32, 16
+MIN_WINDOWS = 12
+TEXTURED = 0.35  # Share of the grid that must carry texture: one bright light is not a scene.
+INLIERS = 0.5
 DECODE_SECONDS, ESTIMATE_SECONDS, TOTAL_SECONDS = 30, 30, 60
 MAX_RAW_BYTES = 80 * 1024 * 1024
 SMOOTH_FRAMES = 19  # 0.6 s at 30 fps: intentional moves are slower than shake.
@@ -158,6 +161,7 @@ def pair(np, a, b, window):
     gx, gy = float(gx[0]), float(gy[0])
     ox, oy = round(gx), round(gy)
     patches_a, patches_b, centres = [], [], []
+    grid = len(range(0, h - WINDOW + 1, STEP)) * len(range(0, w - WINDOW + 1, STEP))
     for top in range(0, h - WINDOW + 1, STEP):
         for left in range(0, w - WINDOW + 1, STEP):
             bt, bl = top + oy, left + ox
@@ -170,16 +174,18 @@ def pair(np, a, b, window):
             pb = b[bt : bt + WINDOW, bl : bl + WINDOW]
             patches_b.append(pb - pb.mean())
             centres.append((left + WINDOW / 2 - w / 2, top + WINDOW / 2 - h / 2))
-    if len(centres) < 6:
-        return 0.0, 0.0, gx, gy
+    if len(centres) < max(MIN_WINDOWS, TEXTURED * grid):
+        # Too little texture (dark or flat frames): no evidence, not a whole-frame guess
+        # that would follow moving lights or subjects.
+        return 0.0, 0.0, 0.0, 0.0
     dx, dy, peak = correlate(np, np.array(patches_a) * window, np.array(patches_b) * window)
     dx, dy = dx + ox, dy + oy
     centres = np.array(centres)
     keep = peak > 0.05
-    model = (0.0, 0.0, gx, gy)
+    model = (0.0, 0.0, 0.0, 0.0)
     for _ in range(3):
-        if keep.sum() < 6:
-            break
+        if keep.sum() < MIN_WINDOWS:
+            return 0.0, 0.0, 0.0, 0.0
         x, y = centres[keep, 0], centres[keep, 1]
         weights = np.sqrt(peak[keep])
         rows = (
@@ -200,6 +206,10 @@ def pair(np, a, b, window):
         )
         # Static overlays (captions, logos) and mismatched windows drop out as outliers.
         keep = (peak > 0.05) & (residual <= max(0.75, 3 * float(np.median(residual[keep]))))
+    # The camera moves the whole frame; when most textured windows disagree, the motion
+    # belongs to a subject, not the camera.
+    if keep.sum() < INLIERS * len(centres):
+        return 0.0, 0.0, 0.0, 0.0
     return model
 
 
