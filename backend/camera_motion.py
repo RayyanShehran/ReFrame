@@ -407,8 +407,9 @@ def rolls(np, frames, start, matrices, offsets):
     """
     height = frames.shape[1]
     turned = explained = gain_sum = windows = 0.0
-    for first in range(0, len(matrices) - ROTATION_WINDOW, ROTATION_WINDOW):
-        last = first + ROTATION_WINDOW
+    span = min(ROTATION_WINDOW, len(matrices) - 1)  # A short shot is one window.
+    for first in range(0, len(matrices) - span, span) if span else ():
+        last = first + span
         matrix = matrices[last] @ np.linalg.inv(matrices[first])
         offset = (offsets[last] - matrix @ offsets[first]) * height
         angle = abs(math.atan2(matrix[1, 0], matrix[0, 0]))
