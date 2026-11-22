@@ -300,7 +300,7 @@ Unsegmented discovery observations retain full-frame OCR fallback; unfinished ab
 
 ## Camera motion copying
 
-Additive schema **23** stores a revisioned `camera_motion_settings` row: default on, with per-shot keyframe and shake curves copied from a `phase-similarity-v1` measurement and bound to the retained reference. Generation measures inside its worker (optional NumPy, 60-second bound; failure only adds a notice). Sequence renders bind `expected_motion_revision`, snapshot the setting (renderer v11 when motion applies) and apply one edge-safe `zoompan` per slot, after framing's Fill crop or before Fit padding. Captions burn afterwards. [Design, method and evidence](CAMERA_MOTION.md).
+Additive schema **23** stores a revisioned `camera_motion_settings` row: default on, with per-shot keyframe and shake curves copied from a `phase-similarity-v1` measurement and bound to the retained reference. Generation measures inside its worker (optional NumPy, 60-second bound; failure only adds a notice). Sequence renders bind `expected_motion_revision`, snapshot the setting (renderer v11 when motion applies) and apply one edge-safe `zoompan` per slot, after framing's Fill crop or before Fit padding. Captions burn afterwards. Motion splits pacing's shots at cuts it detects on its own decode, and a slot spanning a reference cut continues into the next shot's motion; pacing and slot timing still use scdet. [Design, method and evidence](CAMERA_MOTION.md).
 
 ## Customize and caption temporal follow-up
 

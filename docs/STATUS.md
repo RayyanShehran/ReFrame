@@ -2,6 +2,21 @@
 
 Current default is automatic reference-video generation; Customize retains the advanced editor. Earlier sections record historical milestone boundaries. [Current workflow, verification and limits](AUTOMATIC_GENERATION.md).
 
+## Shot cuts for camera motion — 2026-11-22
+
+Camera motion no longer runs a curve across a cut that pacing missed. Its own 30 fps decode now runs a cut detector:
+- brightness-normalized histogram plus edge-structure change, compared with the motion on both sides;
+- a brightness jump for near-black frames;
+- flash rejection and dissolve detection.
+
+It splits the saved pacing shots at those cuts. A slot whose reference interval spans a cut continues into the next shot's motion. Pacing (slot timing) still uses scdet, deliberately: changing it would invalidate saved sequences and needs its own change.
+
+Against hand-labelled truth (within 2 frames), recall rises from 0.78 to 1.00 (handwritten, 18 cuts) and from 0.62 to 1.00 (printed, 21 cuts); precision stays 1.00. The printed 28 s "shot" is a real long take. Detection adds about 0.7–2 s to the motion step.
+
+In the e2e runs, fake moves across missed cuts are gone and moves scaled down for the zoom margin drop from 3 to 1 slot in each reference; every measured moving slot has the right direction.
+
+`Start-ReFrame.ps1` now also runs on Windows PowerShell 5.1 with redirected output. [Method, evidence and limits](CAMERA_MOTION.md#shot-cuts).
+
 ## Camera motion copying — 2026-11-22
 
 Generation now measures each reference shot's camera motion (zoom, pan, punch-in and shake; rotation is measured only). The measurements are saved as a revisioned, default-on setting (schema 23). Sequence exports apply them per slot with an edge-safe `zoompan`: after the framing crop for Fill, before the bars for Fit. Customize → Export can turn it off.

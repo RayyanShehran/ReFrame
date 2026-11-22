@@ -1,5 +1,6 @@
 """Reference camera motion: per-shot zoom/pan/shake curves and their zoompan application."""
 
+import itertools
 import logging
 import math
 import shutil
@@ -32,6 +33,17 @@ TOLERANCE = 0.003
 SHAKE_RMS = 0.0015
 MAX_BASE_ZOOM = 1.35
 MAX_FILTER_POINTS = 40
+MAX_SHOTS = 60
+# Shot cuts (tuned on two hand-labelled references; see docs/CAMERA_MOTION.md).
+CUT_BINS = 24
+CUT_STD = 9.0  # Below this luma std a frame is near-black: compare brightness, not structure.
+CUT_HIST = 0.12  # Brightness-normalized histogram change.
+CUT_EDGE = 0.35  # Edge-structure change (1 - gradient correlation).
+CUT_STRONG = 0.75  # Edge change that is a cut even between same-looking histograms.
+CUT_LOCAL = 2.0  # A cut stands this far above the motion on both sides.
+CUT_JUMP = 20.0  # Mean-luma jump that cuts into or out of near-black.
+CUT_FLASH = 3  # A picture that returns within this many frames was a flash.
+DISSOLVE = 6
 
 
 class Keyframe(color.Schema):
@@ -62,6 +74,7 @@ class ShotMotion(color.Schema):
 
 class Timings(color.Schema):
     decode_seconds: float = Field(ge=0, allow_inf_nan=False)
+    cuts_seconds: float = Field(default=0, ge=0, allow_inf_nan=False)
     estimate_seconds: float = Field(ge=0, allow_inf_nan=False)
     frames: int = Field(ge=0, strict=True)
 
@@ -70,7 +83,7 @@ class Measurement(color.Schema):
     method: Literal["phase-similarity-v1"] = METHOD
     width: int = Field(ge=2, le=LONG_EDGE, strict=True)
     height: int = Field(ge=2, le=LONG_EDGE, strict=True)
-    shots: list[ShotMotion] = Field(max_length=60)
+    shots: list[ShotMotion] = Field(max_length=MAX_SHOTS)
     timings: Timings
 
 
@@ -124,6 +137,85 @@ def decode(path, directory, deadline):
     if not frames:
         raise ValueError("No reference frames decoded for camera motion")
     return np.frombuffer(raw[: frames * w * h], np.uint8).reshape(frames, h, w).astype(np.float32)
+
+
+def cut_features(np, frames, deadline):
+    """Per-frame mean, std, brightness-normalized histogram and edge-structure map."""
+    means, stds, hists, edges = [], [], [], []
+    for frame in frames:
+        if time.monotonic() > deadline:
+            raise TimeoutError("Shot detection exceeded its bound")
+        mean, std = float(frame.mean()), float(frame.std())
+        normalized = (frame - mean) / max(std, 4.0)
+        gy, gx = np.gradient(frame)
+        gradient = np.hypot(gx, gy).ravel()
+        means.append(mean)
+        stds.append(std)
+        hists.append(np.histogram(normalized, CUT_BINS, (-3, 3))[0] / frame.size)
+        edges.append((gradient - gradient.mean()) / (gradient.std() + 1e-6))
+    return np.array(means), np.array(stds), hists, edges
+
+
+def cut_difference(np, features, a, b):
+    """(histogram change 0..1, edge-structure change 0..2) between frames a and b."""
+    _, _, hists, edges = features
+    correlation = float(np.dot(edges[a], edges[b])) / len(edges[a])
+    return 0.5 * float(np.abs(hists[a] - hists[b]).sum()), 1 - correlation
+
+
+def cut_frames(np, frames, deadline=math.inf):
+    """First frames of new shots: hard cuts, cuts into near-black and dissolves; not flashes."""
+    features = cut_features(np, frames, deadline)
+    means, stds = features[0], features[1]
+    count = len(frames)
+    pairs = [cut_difference(np, features, i - 1, i) if i else (0.0, 0.0) for i in range(count)]
+    hist, edge = np.array([p[0] for p in pairs]), np.array([p[1] for p in pairs])
+
+    def same(a, b):
+        if min(stds[a], stds[b]) < CUT_STD:
+            return abs(means[a] - means[b]) < CUT_JUMP / 2
+        h, e = cut_difference(np, features, a, b)
+        return h < CUT_HIST and e < CUT_EDGE * 0.6
+
+    score = np.zeros(count)
+    for i in range(1, count):
+        if any(same(i - 1, j) for j in range(i + 1, min(count, i + 1 + CUT_FLASH))) or any(
+            same(j, i) for j in range(max(0, i - 1 - CUT_FLASH), i - 1)
+        ):
+            continue  # A flash: the picture returns within a few frames (or this is its return).
+        if min(stds[i - 1], stds[i]) < CUT_STD:
+            # Near-black frames carry no structure: a cut is a sudden brightness jump.
+            jump = abs(means[i] - means[i - 1])
+            score[i] = jump / 50 if jump >= CUT_JUMP else 0
+            continue
+        # Motion level on each side, two frame pairs deep: shots of 3+ frames keep
+        # neighbouring cuts out, and continuous motion (whip pans, moving lights) raises both.
+        sides = [edge[max(1, i - 2) : i], edge[i + 1 : i + 3]]
+        local = min((side.max() for side in sides if len(side)), default=0.0)
+        similar_look = hist[i] < CUT_HIST and edge[i] < CUT_STRONG
+        if not similar_look and edge[i] >= max(CUT_EDGE, CUT_LOCAL * local):
+            score[i] = hist[i] + edge[i]
+    # Dissolves: the middle frame is a blend of two different pictures DISSOLVE frames away.
+    for i in range(DISSOLVE, count - DISSOLVE):
+        a, b = i - DISSOLVE, i + DISSOLVE
+        if score[a : b + 1].any() or min(stds[a], stds[b], stds[i]) < CUT_STD:
+            continue
+        h, e = cut_difference(np, features, a, b)
+        if e < 0.6 or (h < 0.15 and e < CUT_STRONG):
+            continue
+        spread = float(np.abs(frames[a] - frames[b]).mean())
+        residual = float(np.abs(frames[i] - (frames[a] + frames[b]) / 2).mean())
+        if residual < 0.25 * spread:
+            score[i] = -(1 - residual / spread)  # Negative marks a dissolve candidate.
+    found = []
+    for i in np.nonzero(score)[0]:
+        gradual = score[i] < 0 and found and score[found[-1]] < 0
+        if found and i - found[-1] < (2 * DISSOLVE if gradual else 2):
+            if abs(score[i]) > abs(score[found[-1]]):
+                found[-1] = int(i)
+            continue
+        found.append(int(i))
+    return found
 
 
 def hann(np, shape):
@@ -366,8 +458,18 @@ def measure(path, shots, directory, stop, deadline):
     frames = decode(path, directory, deadline)
     decoded = time.monotonic()
     color.guard(stop, deadline)
-    window = hann(np, (WINDOW, WINDOW))
     estimate_deadline = min(deadline, decoded + ESTIMATE_SECONDS)
+    # Saved shots can miss cuts; a curve must never run across one. A detected cut within 2
+    # frames of a saved boundary is that same cut.
+    cuts = cut_frames(np, frames, estimate_deadline)
+    shots = [
+        (a, b)
+        for start, end in shots
+        for a, b in itertools.pairwise([start, *(c for c in cuts if start + 2 < c < end - 2), end])
+    ][:MAX_SHOTS]
+    cut = time.monotonic()
+    color.guard(stop, deadline)
+    window = hann(np, (WINDOW, WINDOW))
     result = []
     for start, end in shots:
         color.guard(stop, deadline)
@@ -376,14 +478,18 @@ def measure(path, shots, directory, stop, deadline):
         result.append(shot_motion(np, frames, start, end, window, estimate_deadline))
     timings = Timings(
         decode_seconds=round(decoded - began, 3),
-        estimate_seconds=round(time.monotonic() - decoded, 3),
+        cuts_seconds=round(cut - decoded, 3),
+        estimate_seconds=round(time.monotonic() - cut, 3),
         frames=len(frames),
     )
     logger.info(
-        "Camera motion: %d frames, %d shots; decode %.2f s, estimate %.2f s",
+        "Camera motion: %d frames, %d detected cuts, %d shots; decode %.2f s, cuts %.2f s, "
+        "estimate %.2f s",
         timings.frames,
+        len(cuts),
         len(result),
         timings.decode_seconds,
+        timings.cuts_seconds,
         timings.estimate_seconds,
     )
     return Measurement(width=frames.shape[2], height=frames.shape[1], shots=result, timings=timings)
@@ -512,7 +618,7 @@ class Settings(color.Schema):
     method: Literal["phase-similarity-v1"] | None = None
     reference_operation_id: str | None = None
     reference_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
-    shots: list[ShotMotion] = Field(default_factory=list, max_length=60)
+    shots: list[ShotMotion] = Field(default_factory=list, max_length=MAX_SHOTS)
     timings: Timings | None = None
     created_at: str | None = None
     updated_at: str | None = None
@@ -629,21 +735,34 @@ def applies(settings):
 
 
 def slot_samples(settings, slot):
-    """Per-frame (scale, x, y) for a slot, rebased to identity at its first reference frame."""
+    """Per-frame (scale, x, y) for a slot, rebased to identity at its first reference frame.
+
+    A slot whose reference interval spans a cut keeps going from where its curve is with the
+    next shot's motion (the footage does not cut there); past the last shot it holds.
+    """
     if not applies(settings) or slot.reference_start_frame is None:
         return None
     start = slot.reference_start_frame
-    shot = next(
-        (s for s in settings.shots if s.start_frame <= start < s.end_frame and s.moves), None
-    )
-    if shot is None:
+    end = start + slot.duration_frames
+    if not any(s.moves and s.start_frame < end and start < s.end_frame for s in settings.shots):
         return None
-    s0, x0, y0, _ = sample(shot, start)
-    result = []
-    for k in range(slot.duration_frames):
-        s, x, y, _ = sample(shot, min(start + k, shot.end_frame - 1))
+    base, shot, origin, result = (1.0, 0.0, 0.0), None, None, []
+    for frame in range(start, end):
+        current = next((s for s in settings.shots if s.start_frame <= frame < s.end_frame), None)
+        if current is not shot:
+            base = result[-1] if result else base
+            shot, origin = current, sample(current, frame) if current else None
+        if shot is None:
+            result.append(base)
+            continue
+        s, x, y, _ = sample(shot, frame)
+        s0, x0, y0, _ = origin
         relative = s / s0
-        result.append((relative, x - relative * x0, y - relative * y0))
+        # This shot's move since `origin`, applied on top of the accumulated `base`.
+        bs, bx, by = base
+        result.append(
+            (relative * bs, relative * bx + x - relative * x0, relative * by + y - relative * y0)
+        )
     return result
 
 
@@ -661,7 +780,7 @@ def analyze_project(project_id, directory, stop, deadline):
         (round(shot.start_seconds * 30), min(3600, round(shot.end_seconds * 30)))
         for shot in pacing.blueprint.shots
     ]
-    shots = [(start, end) for start, end in shots if end > start][:60]
+    shots = [(start, end) for start, end in shots if end > start][:MAX_SHOTS]
     if directory.exists():
         shutil.rmtree(directory)
     try:

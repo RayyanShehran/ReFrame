@@ -116,6 +116,12 @@
           "title": "Decode Seconds",
           "type": "number"
         },
+        "cuts_seconds": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Cuts Seconds",
+          "type": "number"
+        },
         "estimate_seconds": {
           "minimum": 0,
           "title": "Estimate Seconds",
