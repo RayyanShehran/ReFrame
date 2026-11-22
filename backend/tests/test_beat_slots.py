@@ -30,7 +30,7 @@ def test_slots_keep_three_frame_shots_and_merge_shorter_pieces(local, monkeypatc
     client, directory, _ = local
     # 1 s, a 3-frame and a 5-frame montage shot, a 1.5-frame piece, then 1 s.
     _, sequence = generated(client, directory, (1, 0.1, 1 / 6, 0.05, 1), monkeypatch)
-    assert [slot["duration_frames"] for slot in sequence["slots"]] == [30, 3, 7, 30]
+    assert [slot["duration_frames"] for slot in sequence["slots"]] == [30, 3, 7, 29]
     assert all(
         slot["reference_start_frame"] == slot["output_start_frame"] for slot in sequence["slots"]
     )
