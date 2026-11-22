@@ -179,6 +179,73 @@ def test_a_pure_pan_keeps_its_magnitude_despite_the_base_zoom(tmp_path):
     assert abs(scale - 1) < 0.01 and abs(y) < 0.005
 
 
+def scene(seed, frames, gain=1.0, level=None, pan=0.0):
+    """A textured shot with a slow pan; `gain`/`level` darken it around a new mean."""
+    image = texture(seed)
+    shot = []
+    for i in range(frames):
+        frame = warp(image, 1.0, pan * i / 30, 0.0).astype(float)
+        if level is not None:
+            frame = gain * (frame - 129) + level
+        shot.append(np.clip(frame, 0, 255).astype(np.uint8))
+    return shot
+
+
+def detected(path, directory):
+    directory.mkdir()
+    return motion.cut_frames(np, motion.decode(path, directory, time.monotonic() + 60))
+
+
+def near(found, expected, tolerance=1):
+    return len(found) == len(expected) and all(
+        abs(f - e) <= tolerance for f, e in zip(found, expected)
+    )
+
+
+def test_hard_cuts_are_found_including_a_four_frame_shot(tmp_path):
+    frames = scene(1, 20, pan=0.02) + scene(2, 4) + scene(3, 26, pan=-0.03)
+    found = detected(encode(tmp_path / "cuts.mp4", frames), tmp_path / "stage")
+    assert near(found, [20, 24]), found
+
+
+def test_a_dissolve_is_one_cut_near_its_middle(tmp_path):
+    a, b = scene(1, 60), scene(2, 60)
+    frames = a[:24] + [
+        (a[24 + i] * (1 - (i + 1) / 13) + b[24 + i] * ((i + 1) / 13)).astype(np.uint8)
+        for i in range(12)
+    ] + b[36:]
+    found = detected(encode(tmp_path / "dissolve.mp4", frames), tmp_path / "stage")
+    assert near(found, [30], tolerance=3), found
+
+
+def test_cuts_between_dark_scenes_and_into_near_black_are_found(tmp_path):
+    frames = (
+        scene(1, 20, gain=1.0, level=22)  # Dark, textured, similar brightness to the next.
+        + scene(2, 20, gain=1.0, level=30)
+        + scene(3, 20, gain=0.15, level=4)  # Near-black: no structure to compare.
+    )
+    found = detected(encode(tmp_path / "dark.mp4", frames), tmp_path / "stage")
+    assert near(found, [20, 40]), found
+
+
+def test_a_flash_is_not_a_cut(tmp_path):
+    frames = scene(1, 60, pan=0.02)
+    for i in (20, 21):  # Two over-exposed frames, then the same shot again.
+        frames[i] = np.clip(frames[i].astype(float) * 0.4 + 170, 0, 255).astype(np.uint8)
+    frames[45] = np.full_like(frames[45], 250)  # One white frame.
+    found = detected(encode(tmp_path / "flash.mp4", frames), tmp_path / "stage")
+    assert found == [], found
+
+
+def test_measure_splits_a_saved_shot_at_a_detected_cut(tmp_path):
+    image = texture()
+    frames = [warp(image, 1 + 0.1 * i / 29, 0, 0) for i in range(30)] + scene(3, 30)
+    shots = measure(encode(tmp_path / "missed.mp4", frames), tmp_path / "stage")
+    assert [(s.start_frame, s.end_frame) for s in shots] == [(0, 30), (30, 60)]
+    assert motion.sample(shots[0], 29)[0] == pytest.approx(1.1, abs=0.015)
+    assert shots[1].moves == []
+
+
 def test_slow_pan_is_measured_without_sub_pixel_bias(tmp_path):
     # Under 0.5 px per frame at analysis size: a parabolic peak fit locks toward whole pixels.
     image = texture()
