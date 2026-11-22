@@ -2,6 +2,21 @@
 
 Current default is automatic reference-video generation; Customize retains the advanced editor. Earlier sections record historical milestone boundaries. [Current workflow, verification and limits](AUTOMATIC_GENERATION.md).
 
+## Camera roll copying — 2026-11-23
+
+Sequence exports now copy the reference's camera roll as well as its zoom and pan. A shot rolls only when two checks pass:
+- its smoothed angle reaches 1°;
+- in local 10-frame windows, the angle actually aligns the picture.
+
+Investigating every reference shot showed that the larger raw angles are mostly not camera roll: subject motion (a swimmer, a close-up body), noise, or 26° of drift over the printed long take. Angle shake is stored separately. The roll is applied with FFmpeg `rotate` before `zoompan`. The base zoom keeps the turned corners inside the picture, under the same 1.35 cap and scale-down notice. Fit turns only the picture, never its bars. Settings move to schema version 2; earlier saved angles are never applied.
+
+Isolated e2e:
+- Only the two real rolls apply: handwritten +2.3° and printed −3.1°. The printed one measures 0.99 of the applied angle in the export. The dark handwritten slot under-reads, but the intended angle fits 11/11 checked frames.
+- Zoom/pan results, cut detection (18/18, 21/21) and the handwritten caption retry (251.61 / 0 / 0.47 / 2.55, 17/22) are unchanged.
+- The motion step takes 10.5–20.7 s of its 60 s bound.
+
+Limit: footage with black borders baked into the picture that framing keeps now shows the border edge tilting. [Method, evidence and limits](CAMERA_MOTION.md#rotation).
+
 ## Shot cuts for camera motion — 2026-11-22
 
 Camera motion no longer runs a curve across a cut that pacing missed. Its own 30 fps decode now runs a cut detector:
