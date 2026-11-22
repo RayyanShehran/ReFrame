@@ -40,8 +40,8 @@ def test_a_slot_across_a_reference_cut_continues_into_the_next_shots_motion():
 
     samples = motion.slot_samples(settings, slot(20, 30))
     assert len(samples) == 30
-    assert samples[:11] == [(1.0, 0.0, 0.0)] * 11  # Static until the cut, no jump at it.
-    assert samples[-1] == pytest.approx(motion.sample(settings.shots[1], 49)[:3])
+    assert samples[:11] == [(1.0, 0.0, 0.0, 0.0)] * 11  # Static until the cut, no jump at it.
+    assert samples[-1] == pytest.approx(motion.sample(settings.shots[1], 49))
     # A slot that only covers static shots gets no motion at all.
     assert motion.slot_samples(settings, slot(0, 30)) is None
 
@@ -157,7 +157,9 @@ def test_a_rolled_slot_in_fit_keeps_the_bars_still_and_black(local):
         check=True,
     ).stdout
     width, height = output.width, output.height
-    image = round(width * 360 / 640)  # The 640x360 clip fitted to the canvas width.
+    # The clip fitted to the canvas width, centred between the bars.
+    source = client.get(f"/api/projects/{pid}/framing/source").json()
+    image = round(width * source["display_height"] / source["display_width"])
     top = (height - image) // 2
     for index in range(output.decoded_frames):
         frame = raw[index * width * height : (index + 1) * width * height]

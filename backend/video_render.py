@@ -243,7 +243,9 @@ def specification(
         grading=grade,
         framing=saved_framing,
         sequence=sequence,
-        renderer_version=motion_copy.RENDERER_VERSION
+        renderer_version=motion_copy.ROTATION_RENDERER_VERSION
+        if motion_copy.rotates(motion)
+        else motion_copy.RENDERER_VERSION
         if motion_copy.applies(motion)
         else "sdr-eq-mp4-v10"
         if grade
