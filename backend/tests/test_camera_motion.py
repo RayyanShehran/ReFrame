@@ -248,6 +248,10 @@ def test_measure_splits_a_saved_shot_at_a_detected_cut(tmp_path):
     assert [(s.start_frame, s.end_frame) for s in shots] == [(0, 30), (30, 60)]
     assert motion.sample(shots[0], 29)[0] == pytest.approx(1.1, abs=0.015)
     assert shots[1].moves == []
+    # A saved cut a frame away from the detected one is the same cut: no sliver shot.
+    stage = tmp_path / "again"
+    shots = measure(tmp_path / "missed.mp4", stage, ((0, 31), (31, 60)))
+    assert [(s.start_frame, s.end_frame) for s in shots] == [(0, 31), (31, 60)]
 
 
 def test_slow_pan_is_measured_without_sub_pixel_bias(tmp_path):
