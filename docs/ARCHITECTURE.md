@@ -8,7 +8,7 @@ The shared clip staging context bounds the raw multipart body before parsing (10
 
 ## Project persistence and consistency
 
-Python 3.12 `sqlite3` stores metadata in ignored `data/reframe.sqlite3`, with schema version 22, foreign keys, UUID IDs, parameter binding and explicit transactions. Earlier supported versions migrate additively while preserving projects, media, analyses, recipes, plans and outputs. Every database connection is created, used and closed on one worker thread. Filesystem/database work runs off the async event loop; cancellation waits for the owned worker before releasing ownership. This app supports one process on loopback, one user, at most 10 projects and 10 footage clips per project (500 MiB total source footage). A process lock serializes conflicting project upload/delete work; a separate shared inspection lock covers both upload endpoints.
+Python 3.12 `sqlite3` stores metadata in ignored `data/reframe.sqlite3`, with schema version 23, foreign keys, UUID IDs, parameter binding and explicit transactions. Earlier supported versions migrate additively while preserving projects, media, analyses, recipes, plans and outputs. Every database connection is created, used and closed on one worker thread. Filesystem/database work runs off the async event loop; cancellation waits for the owned worker before releasing ownership. This app supports one process on loopback, one user, at most 10 projects and 10 footage clips per project (500 MiB total source footage). A process lock serializes conflicting project upload/delete work; a separate shared inspection lock covers both upload endpoints.
 
 Projects store a fixed canonical TikTok URL/string ID, metadata snapshot and UTC inspection timestamp. Clips store display metadata, generated media name, SHA-256, UTC save timestamp and state. Storage names and project IDs are validated before filesystem use; paths are never returned. Runtime data is outside `frontend/public`. Completed outputs and scoped previews use validated project routes; retained inputs are not exposed as arbitrary filesystem paths.
 
@@ -297,6 +297,10 @@ Caption method v18 supersedes the earlier v3 scheduling description: bounded los
 
 Unsegmented discovery observations retain full-frame OCR fallback; unfinished absence checks remain partial. Broad background signatures cannot supply words. Bright neutral canvases additionally permit dark-polarity segmentation. Real dark/white and gray/gray fixtures verify recognition only; style/export accuracy for those new examples is not established.
 
+
+## Camera motion copying
+
+Additive schema **23** stores a revisioned `camera_motion_settings` row: default on, with per-shot keyframe and shake curves copied from a `phase-similarity-v1` measurement and bound to the retained reference. Generation measures inside its worker (optional NumPy, 60-second bound; failure only adds a notice). Sequence renders bind `expected_motion_revision`, snapshot the setting (renderer v11 when motion applies) and apply one edge-safe `zoompan` per slot, after framing's Fill crop or before Fit padding. Captions burn afterwards. [Design, method and evidence](CAMERA_MOTION.md).
 
 ## Customize and caption temporal follow-up
 

@@ -552,7 +552,7 @@ def test_partial_caption_review_requires_confirmation_and_resumes_only_caption_r
     assert client.post(url, json=options).status_code == 202
     failed = wait(client, url)
     assert failed["failure_code"] == "caption_partial", failed
-    assert failed["completed"] == ["slots", "sequence", "grading", "audio"]
+    assert failed["completed"] == ["slots", "sequence", "grading", "motion", "audio"]
     assert failed["caption_review"]["cues"][0]["text"] == "Reliable words"
     assert client.get(f"/api/projects/{pid}/render").json()["output"] is None
     correction = {

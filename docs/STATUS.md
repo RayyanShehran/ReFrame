@@ -2,6 +2,14 @@
 
 Current default is automatic reference-video generation; Customize retains the advanced editor. Earlier sections record historical milestone boundaries. [Current workflow, verification and limits](AUTOMATIC_GENERATION.md).
 
+## Camera motion copying — 2026-11-22
+
+Generation now measures each reference shot's camera motion (zoom, pan, punch-in and shake; rotation is measured only). The measurements are saved as a revisioned, default-on setting (schema 23). Sequence exports apply them per slot with an edge-safe `zoompan`: after the framing crop for Fill, before the bars for Fit. Customize → Export can turn it off.
+
+Isolated e2e: the 7 static handwritten slots are pixel-identical to a motion-off render. 6 of 8 handwritten and 4 of 5 printed moving slots measure 0.91–1.06 of the applied magnitude, in the right direction; handwritten timing is within 3 frames. No requested crop leaves the picture. Detection takes 14–16 s per reference, and generation time is within run-to-run variation. The handwritten caption retry stays at 251.61 / 0 / 0.47 / 2.55, 17/22.
+
+Limits: pacing's shot boundaries decide the curves, moves beyond the 1.35 zoom margin are scaled down, rotation is not applied, and a large moving subject can read as camera motion. [Design, method and evidence](CAMERA_MOTION.md).
+
 ## Consistent caption sizes within a lettering group — 2026-11-22
 
 Lines of one handwriting got very different partial-read size estimates (7.73% for the opening, 6.03% for "I've done it all..."), so a group's median depended on which lines were read. Patrick Hand's straight apostrophe sits above its ascenders, so every line containing one rendered 16% taller at size 10 and estimated 16% smaller; the reference lettering keeps apostrophes inside the letter band. Rendered letter height is now measured on the line without apostrophes and quotation marks (`letter_sample`); width and baseline still use the full line. DejaVu Sans and Barlow Condensed apostrophes stay within the letters, so printed sizes are unchanged. The width-sample bound rises from 24 to 48 for the second sample per line.

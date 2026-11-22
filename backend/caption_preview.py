@@ -9,6 +9,7 @@ from uuid import UUID
 from pydantic import Field
 
 import audio_settings
+import camera_motion
 import captions
 import color_analysis as color
 import color_recipe as recipe
@@ -180,6 +181,8 @@ def snapshot(project_id, request, deadline):
             request.expected_framing_revision,
             request.expected_sequence_revision,
             request.expected_grading_revision,
+            # Previews show the current saved motion; they publish no output.
+            camera_motion.read(project_id).settings.revision,
         )
         if not spec.captions.enabled or request.cue_index >= len(spec.captions.cues):
             raise ReferenceError(422, "invalid_cue", "Enable and save a valid cue first.")

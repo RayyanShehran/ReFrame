@@ -14,6 +14,7 @@ from pydantic import Field, ValidationError, field_validator, model_validator
 import assembly
 import audio_settings
 import automatic_captions
+import camera_motion
 import captions
 import clip_library
 import color_analysis as color
@@ -812,6 +813,53 @@ async def worker(project_id, operation_id, data, stop):
             raise stage_failure(project_id, module, current)
         return current
 
+    async def copy_motion():
+        """Optional: a missing extra or bounded failure renders without new camera motion.
+
+        Every outcome completes the step, so a retry does not repeat an unavailable measure."""
+        if not camera_motion.available():
+            operation.notices.append(
+                "Camera motion was not copied: set up the optional visual extra (NumPy)."
+            )
+            operation.completed.append("motion")
+            return
+        directory = staging(operation_id) / "camera-motion"
+        directory.parent.mkdir(parents=True, exist_ok=True)
+        began = time.monotonic()
+        try:
+            measured = await owned(
+                camera_motion.analyze_project,
+                stop,
+                project_id,
+                directory,
+                stop,
+                min(deadline, time.monotonic() + camera_motion.TOTAL_SECONDS),
+            )
+        except engine.ProbeTimeout:
+            if stop.is_set() or time.monotonic() >= deadline:
+                raise
+            operation.notices.append("Camera motion reached its time bound and was not copied.")
+            operation.completed.append("motion")
+            return
+        except (engine.RetrievalFailure, TimeoutError, ValueError) as error:
+            if isinstance(error, engine.RetrievalFailure) and not error.cleanup_safe:
+                raise
+            operation.notices.append("Camera motion could not be measured and was not copied.")
+            operation.completed.append("motion")
+            return
+        await locked(
+            camera_motion.save_analysis,
+            project_id,
+            measured,
+            camera_motion.read(project_id).settings.revision,
+            advance="motion",
+        )
+        moving = sum(1 for shot in measured.shots if shot.moves)
+        operation.notices.append(
+            f"Camera motion: {moving} of {len(measured.shots)} reference shots move "
+            f"({time.monotonic() - began:.1f} s)."
+        )
+
     failure = None
     safe = True
     try:
@@ -923,6 +971,8 @@ async def worker(project_id, operation_id, data, stop):
                 ),
                 advance="grading",
             )
+        if "motion" not in operation.completed:
+            await copy_motion()
         if "audio" not in operation.completed:
             previous = audio_settings.read(project_id).settings
             await locked(
@@ -960,6 +1010,7 @@ async def worker(project_id, operation_id, data, stop):
             framing.read(project_id).settings.revision,
             saved_sequence.revision,
             grading.read_settings(project_id).revision,
+            camera_motion.read(project_id).settings.revision,
         )
         output = render.get_operation(project_id).output
         operation.output_id = str(output.output_id)
@@ -1170,6 +1221,7 @@ def prepare_captions(project_id, mode, stop, deadline, operation):
                 framing.read(project_id).settings.revision,
                 selected_sequence.revision,
                 grading.read_settings(project_id).revision,
+                camera_motion.read(project_id).settings.revision,
                 caption_override=disabled,
             )
             spec = spec.model_copy(update={"captions": disabled})

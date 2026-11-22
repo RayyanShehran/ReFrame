@@ -11,10 +11,19 @@ import { CaptionState } from "./caption-editor";
 import { FramingState, formatLabels } from "./framing-controls";
 import { fontLabel, validFont, type FontBinding } from "./caption-style-controls";
 
-type Spec = { grading?: { settings: { mode: keyof typeof colorModes; revision: number } } | null; recipe_revision: number; edit_plan?: { revision: number } | null; sequence?: { revision: number } | null; audio?: { revision: number; mode: keyof typeof audioModeLabels }; captions?: { revision: number; enabled: boolean; font_binding?: FontBinding; style?: { font_origin?: string } }; framing?: { revision: number; format: keyof typeof formatLabels } };
+type Spec = { grading?: { settings: { mode: keyof typeof colorModes; revision: number } } | null; recipe_revision: number; edit_plan?: { revision: number } | null; sequence?: { revision: number } | null; audio?: { revision: number; mode: keyof typeof audioModeLabels }; captions?: { revision: number; enabled: boolean; font_binding?: FontBinding; style?: { font_origin?: string } }; framing?: { revision: number; format: keyof typeof formatLabels }; camera_motion?: { revision: number; enabled: boolean } | null };
 type Output = { output_id: string; spec: Spec; width: number; height: number; duration_seconds: number; size_bytes: number; font_warnings?: string[] };
 type Operation = MediaOperation & { output: Output | null; spec: Spec | null; outdated: boolean };
 const apiBase = (process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000").replace(/\/$/, "");
+type Motion = { revision: number; enabled: boolean; moving: number; total: number; stale: boolean };
+const defaultMotion: Motion = { revision: 0, enabled: true, moving: 0, total: 0, stale: false };
+function parseMotion(data: unknown): Motion {
+  const value = data as { status?: string; settings?: { revision?: unknown; enabled?: unknown; shots?: { moves?: unknown[] }[] } };
+  const settings = value?.settings;
+  if (!settings || !Number.isSafeInteger(settings.revision) || (settings.revision as number) < 0 || typeof settings.enabled !== "boolean") return defaultMotion;
+  const shots = Array.isArray(settings.shots) ? settings.shots : [];
+  return { revision: settings.revision as number, enabled: settings.enabled, total: shots.length, moving: shots.filter(s => Array.isArray(s?.moves) && s.moves.length).length, stale: value.status === "stale" };
+}
 function parse(data: unknown): Operation {
   const value = data as Operation;
   if (!value || !["idle", "running", "ready", "failed"].includes(value.status) || typeof value.outdated !== "boolean") throw new Error("Invalid render response.");
@@ -34,6 +43,28 @@ function parse(data: unknown): Operation {
 export function RenderVideo({ grading, savedStrength, savedValues, projectId, revision, recipeReady, dirty, busy, planState, sequenceState = emptySequence, audioState = { revision: 0, ready: true, dirty: false, busy: false }, framingState = { revision: 0, ready: true, dirty: false, busy: false }, captionState = { revision: 0, ready: true, dirty: false, busy: false, enabled: false, mode: null, planRevision: null } }: { grading?: GradingState; savedStrength?: number; savedValues?: { brightness: number; contrast: number; saturation: number }; projectId: string; revision: number | null; recipeReady: boolean; dirty: boolean; busy: boolean; planState?: PlanState; sequenceState?: SequenceState; audioState?: AudioState; captionState?: CaptionState; framingState?: FramingState }) {
   const [chosenMode, setMode] = useState<string | null>(null);
   const { operation, error, starting, start, refresh } = useMediaOperation(projectId, "render", parse, 360);
+  const [loadedMotion, setLoadedMotion] = useState<{ url: string; value: Motion } | null>(null);
+  const [motionBusy, setMotionBusy] = useState(false);
+  const [motionError, setMotionError] = useState<string | null>(null);
+  const motionUrl = `${apiBase}/api/projects/${encodeURIComponent(projectId)}/camera-motion`;
+  const motion = loadedMotion?.url === motionUrl ? loadedMotion.value : null;
+  const setMotion = (value: Motion) => setLoadedMotion({ url: motionUrl, value });
+  useEffect(() => {
+    let live = true;
+    fetch(motionUrl, { method: "GET" }).then(r => r.json()).then(d => { if (live) setLoadedMotion({ url: motionUrl, value: parseMotion(d) }); }).catch(() => { if (live) setLoadedMotion({ url: motionUrl, value: defaultMotion }); });
+    return () => { live = false; };
+  }, [motionUrl]);
+  const toggleMotion = async () => {
+    if (!motion) return;
+    setMotionBusy(true); setMotionError(null);
+    try {
+      const response = await fetch(motionUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ expected_revision: motion.revision, enabled: !motion.enabled }) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data?.detail?.message || data?.message || "Camera motion was not saved. Reload and retry.");
+      setMotion(parseMotion(data));
+    } catch (failure) { setMotionError(failure instanceof Error ? failure.message : "Camera motion was not saved."); }
+    finally { setMotionBusy(false); }
+  };
   useEffect(() => { refresh(); }, [grading?.revision, grading?.version, refresh]);
   const output = operation?.output;
   const mode = chosenMode ?? (output?.spec.sequence ? "sequence" : output?.spec.edit_plan ? "cuts" : "whole");
@@ -44,7 +75,8 @@ export function RenderVideo({ grading, savedStrength, savedValues, projectId, re
     !captionState.ready || (output.spec.captions?.revision ?? 0) !== captionState.revision ||
     !audioState.ready || (output.spec.audio?.revision ?? 0) !== audioState.revision ||
     (output.spec.edit_plan && (!planState?.ready || output.spec.edit_plan.revision !== planState.revision)) ||
-    (output.spec.sequence && (!sequenceState.ready || output.spec.sequence.revision !== sequenceState.revision)));
+    (output.spec.sequence && (!sequenceState.ready || output.spec.sequence.revision !== sequenceState.revision)) ||
+    (!!output.spec.sequence && !!motion && (output.spec.camera_motion?.revision ?? 0) !== motion.revision));
   const running = operation?.status === "running";
   const current = operation?.status === "ready" && !!output && !outdated && !!output.spec.edit_plan === cuts && !!output.spec.sequence === sequence;
   const navigation = useWorkspaceNavigation();
@@ -71,6 +103,7 @@ export function RenderVideo({ grading, savedStrength, savedValues, projectId, re
   block(!framingState.ready, "framing", "Load valid saved framing before rendering.");
   block(framingState.dirty, "framing", "Save your unsaved framing changes before rendering.");
   block(framingState.busy, "framing", "Wait for the framing operation to finish.");
+  block(motionBusy, "export", "Wait for the camera motion setting to save.");
   const actionSection = blockers[0]?.section ?? "export";
   const actionLabel = blockers[0]?.message ?? (running || starting ? "View rendering progress" : current ? "Play or download your video" : "Review settings and render");
   useEffect(() => { next?.({ section: actionSection, label: actionLabel }); }, [next, actionSection, actionLabel]);
@@ -80,6 +113,7 @@ export function RenderVideo({ grading, savedStrength, savedValues, projectId, re
     (output.spec.captions?.revision ?? 0) !== captionState.revision && captionState.revision !== null && "captions",
     (output.spec.framing?.revision ?? 0) !== framingState.revision && framingState.revision !== null && "framing",
     output.spec.edit_plan && planState?.revision != null && output.spec.edit_plan.revision !== planState.revision && "cut plan",
+    output.spec.sequence && motion && (output.spec.camera_motion?.revision ?? 0) !== motion.revision && "camera motion",
   ].filter(Boolean) : [];
   const url = output ? `${apiBase}/api/projects/${encodeURIComponent(projectId)}/outputs/${output.output_id}` : "";
   return <><WorkspaceSurface name="preview"><div className="output-monitor" aria-label="Output monitor">
@@ -104,11 +138,14 @@ export function RenderVideo({ grading, savedStrength, savedValues, projectId, re
       <p>Saved captions: {captionState.enabled ? "enabled" : "disabled"} · Revision {captionState.revision ?? "loading"}</p>
       <p>Saved format: {framingState.ready ? formatLabels[framingState.format ?? "original"] : "loading"}{framingState.dimensions ? ` · ${framingState.dimensions}` : ""}</p>
       {framingState.format && framingState.format !== "original" && <p>Saved fit: {framingState.fit === "automatic" ? "Automatic (per-slot Fill or Fit)" : framingState.fit === "fill" ? "Fill (crop edges)" : "Fit (whole image)"}</p>}
+      <label><input type="checkbox" checked={motion?.enabled ?? true} disabled={!motion || motionBusy || running} onChange={() => void toggleMotion()} /> Copy camera motion from the reference</label>
+      <p className="hint">Zooms, pans and shake per reference shot, applied to multi-clip sequence renders. {motion?.total ? `Measured: ${motion.moving} of ${motion.total} reference shots move.` : "Measured when you generate a video."}{motion?.stale ? " The reference changed since it was measured." : ""}</p>
+      {motionError && <p role="alert">{motionError}</p>}
       {(dirty || audioState.dirty || captionState.dirty || framingState.dirty || (cuts && planState?.dirty) || (sequence && sequenceState.dirty)) && <p role="status">Unsaved drafts are not included. Save the changes below before rendering.</p>}
     </div>
     {blockers.map(({ section, message }) => <p key={message} role="status">{message}{navigation && <> <button onClick={() => navigation.open(section)}>Open {sections[section]}</button></>}</p>)}
     <button className="button-primary" disabled={!!blockers.length || starting || running || current}
-      onClick={() => void start({ ...(grading ? { expected_grading_revision: grading.revision } : {}), expected_revision: revision, expected_audio_revision: audioState.revision, expected_caption_revision: captionState.revision, expected_framing_revision: framingState.revision, ...(cuts ? { expected_plan_revision: planState?.revision } : sequence ? { expected_sequence_revision: sequenceState.revision } : {}) })}>{operation?.status === "failed" ? "Retry render" : "Render video"}</button>
+      onClick={() => void start({ ...(grading ? { expected_grading_revision: grading.revision } : {}), expected_revision: revision, expected_audio_revision: audioState.revision, expected_caption_revision: captionState.revision, expected_framing_revision: framingState.revision, ...(motion?.revision ? { expected_motion_revision: motion.revision } : {}), ...(cuts ? { expected_plan_revision: planState?.revision } : sequence ? { expected_sequence_revision: sequenceState.revision } : {}) })}>{operation?.status === "failed" ? "Retry render" : "Render video"}</button>
     {running && <p role="status">Rendering saved color settings{operation.spec?.edit_plan ? ` and cut plan revision ${operation.spec.edit_plan.revision}` : ""}… This can take up to five minutes.</p>}
     {error && <p role="alert">{error}</p>}
     {operation?.status === "failed" && <p role="alert">{operation.message || "Rendering failed. Retry explicitly."}</p>}

@@ -89,7 +89,7 @@ Export summarizes saved revisions, recipe strength, audio, captions and framing.
 
 Run one backend process bound to `127.0.0.1`. This is a single-user local app with no authentication, suitable only for the local machine. Do not expose it to the network or run multiple workers.
 
-- `data/reframe.sqlite3`: project snapshots, clips, reference media, independent analyses, recipes, plans, audio settings, captions and render records. Python's [sqlite3 module](https://docs.python.org/3.12/library/sqlite3.html) uses separate worker-owned connections, parameterized SQL, explicit transactions, foreign keys and schema version 22; startup migrates earlier supported versions while preserving saved projects and results.
+- `data/reframe.sqlite3`: project snapshots, clips, reference media, independent analyses, recipes, plans, audio settings, captions and render records. Python's [sqlite3 module](https://docs.python.org/3.12/library/sqlite3.html) uses separate worker-owned connections, parameterized SQL, explicit transactions, foreign keys and schema version 23; startup migrates earlier supported versions while preserving saved projects and results.
 - `data/project-staging/`: generated names for unfinished project uploads and scoped multipart spools.
 - `data/projects/<UUID>/`: separate generated names for retained user clips and reference media. Original clip filenames are display data. API responses never include filesystem paths.
 - `data/reference-staging/<operation UUID>/`: downloader fragments, media and bounded tool output for the current reference operation.
