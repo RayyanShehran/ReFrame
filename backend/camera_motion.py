@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 
 METHOD = "phase-similarity-v1"
 RENDERER_VERSION = "sdr-eq-mp4-v11"
+ROTATION_RENDERER_VERSION = "sdr-eq-mp4-v12"
 LONG_EDGE = 192
 WINDOW, STEP = 32, 16
 MIN_WINDOWS = 12
@@ -44,6 +45,14 @@ CUT_LOCAL = 2.0  # A cut stands this far above the motion on both sides.
 CUT_JUMP = 20.0  # Mean-luma jump that cuts into or out of near-black.
 CUT_FLASH = 3  # A picture that returns within this many frames was a flash.
 DISSOLVE = 6
+# Rotation (tuned on two references; see docs/CAMERA_MOTION.md): below the floor it is noise,
+# and above it the angle must explain the picture in local windows, or it is subject motion
+# or drift.
+ROTATION_FLOOR = math.radians(1.0)
+ROTATION_WINDOW = 10
+ROTATION_SHARE = 0.8  # Share of the rotation in windows where the angle improves alignment.
+ROTATION_GAIN = 0.2  # Mean alignment improvement in gray levels.
+ROTATION_SHAKE_RMS = math.radians(0.15)
 
 
 class Keyframe(color.Schema):
@@ -69,6 +78,7 @@ class ShotMotion(color.Schema):
     keyframes: list[Keyframe] = Field(min_length=1, max_length=MAX_KEYFRAMES)
     shake_x: list[Wave] = Field(default_factory=list, max_length=2)
     shake_y: list[Wave] = Field(default_factory=list, max_length=2)
+    shake_angle: list[Wave] = Field(default_factory=list, max_length=2)
     moves: list[Move] = Field(default_factory=list)
 
 
@@ -350,9 +360,9 @@ def simplify(points, tolerance):
     return sorted(keep)
 
 
-def waves(np, residual):
+def waves(np, residual, floor=SHAKE_RMS):
     n = len(residual)
-    if n < 8 or float(np.sqrt(np.mean(residual**2))) < SHAKE_RMS:
+    if n < 8 or float(np.sqrt(np.mean(residual**2))) < floor:
         return []
     spectrum = np.fft.rfft(residual)
     found = []
@@ -369,6 +379,57 @@ def waves(np, residual):
     return found
 
 
+def alignment_error(np, a, b, matrix, offset):
+    """|a - b warped back| and its valid mask, where b = matrix @ p + offset (centred pixels)."""
+    h, w = a.shape
+    ys, xs = np.mgrid[0:h, 0:w].astype(np.float32)
+    px, py = xs - w / 2, ys - h / 2
+    qx = matrix[0, 0] * px + matrix[0, 1] * py + offset[0] + w / 2
+    qy = matrix[1, 0] * px + matrix[1, 1] * py + offset[1] + h / 2
+    valid = (qx >= 0) & (qx <= w - 1) & (qy >= 0) & (qy <= h - 1)
+    x0 = np.clip(np.floor(qx), 0, w - 2).astype(int)
+    y0 = np.clip(np.floor(qy), 0, h - 2).astype(int)
+    fx, fy = np.clip(qx - x0, 0, 1), np.clip(qy - y0, 0, 1)
+    warped = (
+        b[y0, x0] * (1 - fx) * (1 - fy)
+        + b[y0, x0 + 1] * fx * (1 - fy)
+        + b[y0 + 1, x0] * (1 - fx) * fy
+        + b[y0 + 1, x0 + 1] * fx * fy
+    )
+    return np.abs(warped - a), valid
+
+
+def rolls(np, frames, start, matrices, offsets):
+    """Whether the measured rotation explains the picture in local windows.
+
+    Each window warps its last frame back onto its first with the measured similarity and
+    with the angle zeroed. Subject motion and drift turn the fit without aligning the picture.
+    """
+    height = frames.shape[1]
+    turned = explained = gain_sum = windows = 0.0
+    span = min(ROTATION_WINDOW, len(matrices) - 1)  # A short shot is one window.
+    for first in range(0, len(matrices) - span, span) if span else ():
+        last = first + span
+        matrix = matrices[last] @ np.linalg.inv(matrices[first])
+        offset = (offsets[last] - matrix @ offsets[first]) * height
+        angle = abs(math.atan2(matrix[1, 0], matrix[0, 0]))
+        scale = math.sqrt(abs(np.linalg.det(matrix)))
+        a, b = frames[start + first], frames[start + last]
+        with_angle, valid = alignment_error(np, a, b, matrix, offset)
+        without, valid_zero = alignment_error(np, a, b, scale * np.eye(2), offset)
+        overlap = valid & valid_zero
+        if overlap.sum() < 100:
+            continue
+        gain = float(without[overlap].mean() - with_angle[overlap].mean())
+        turned += angle
+        explained += angle if gain > 0.05 else 0.0
+        gain_sum += gain
+        windows += 1
+    if not windows or not turned:
+        return False
+    return explained >= ROTATION_SHARE * turned and gain_sum / windows >= ROTATION_GAIN
+
+
 def shot_motion(np, frames, start, end, window, deadline):
     end = min(end, len(frames))
     count = max(1, end - start)
@@ -376,6 +437,7 @@ def shot_motion(np, frames, start, end, window, deadline):
     anchor, anchor_matrix, anchor_offset = 0, np.eye(2), np.zeros(2)
     splits = []
     height = frames.shape[1]
+    matrices, offsets = [np.eye(2)] * count, [np.zeros(2)] * count
     for i in range(1, count):
         if time.monotonic() > deadline:
             raise TimeoutError("Camera motion estimation exceeded its bound")
@@ -396,10 +458,25 @@ def shot_motion(np, frames, start, end, window, deadline):
             anchor, anchor_matrix, anchor_offset = i, cumulative, offset
         angle[i] = math.atan2(cumulative[1, 0], cumulative[0, 0])
         xs[i], ys[i] = offset
+        matrices[i], offsets[i] = cumulative, offset
     smoothed = [smooth(np, series, splits) for series in (log_scale, xs, ys, angle)]
     # A pan or zoom starts from the shot's first frame: keep the curve anchored there.
     smoothed = [series - series[0] for series in smoothed]
     shake_x, shake_y = waves(np, xs - smoothed[1]), waves(np, ys - smoothed[2])
+    shake_angle = waves(np, angle - smoothed[3], ROTATION_SHAKE_RMS)
+    if shake_angle:
+        # A wobble biases the 0.6 s fit near the shot's ends: fit the roll without it, then
+        # measure the wobble against that roll.
+        t = np.arange(count) / 30
+        wobble = sum(
+            w.amplitude * np.sin(2 * np.pi * w.frequency * t + w.phase) for w in shake_angle
+        )
+        smoothed[3] = smooth(np, angle - wobble, splits)
+        smoothed[3] -= smoothed[3][0]
+        shake_angle = waves(np, angle - smoothed[3], ROTATION_SHAKE_RMS)
+    turn = max(float(np.abs(smoothed[3]).max()), sum(w.amplitude for w in shake_angle))
+    if turn < ROTATION_FLOOR or not rolls(np, frames, start, matrices, offsets):
+        smoothed[3], shake_angle = np.zeros(count), []  # Noise, subject motion or drift.
     scale = np.exp(smoothed[0])
     moves = []
     if splits:
@@ -410,9 +487,9 @@ def shot_motion(np, frames, start, end, window, deadline):
         moves.append("zoom_out")
     if max(np.abs(smoothed[1]).max(), np.abs(smoothed[2]).max()) >= 0.015:
         moves.append("pan")
-    if np.abs(smoothed[3]).max() >= 0.01:
+    if np.abs(smoothed[3]).max() >= ROTATION_FLOOR:
         moves.append("rotate")
-    if shake_x or shake_y:
+    if shake_x or shake_y or shake_angle:
         moves.append("shake")
     intentional = [m for m in moves if m != "shake"]
     if intentional:
@@ -443,6 +520,7 @@ def shot_motion(np, frames, start, end, window, deadline):
         keyframes=keyframes,
         shake_x=shake_x,
         shake_y=shake_y,
+        shake_angle=shake_angle,
         moves=moves,
     )
 
@@ -483,11 +561,12 @@ def measure(path, shots, directory, stop, deadline):
         frames=len(frames),
     )
     logger.info(
-        "Camera motion: %d frames, %d detected cuts, %d shots; decode %.2f s, cuts %.2f s, "
-        "estimate %.2f s",
+        "Camera motion: %d frames, %d detected cuts, %d shots (%d roll); decode %.2f s, "
+        "cuts %.2f s, estimate %.2f s",
         timings.frames,
         len(cuts),
         len(result),
+        sum("rotate" in s.moves or bool(s.shake_angle) for s in result),
         timings.decode_seconds,
         timings.cuts_seconds,
         timings.estimate_seconds,
@@ -514,26 +593,41 @@ def sample(shot, frame, shake=True):
         ]
     if shake:
         t = (frame - shot.start_frame) / 30
-        for index, axis in ((1, shot.shake_x), (2, shot.shake_y)):
+        for index, axis in ((1, shot.shake_x), (2, shot.shake_y), (3, shot.shake_angle)):
             values[index] += sum(
                 w.amplitude * math.sin(2 * math.pi * w.frequency * t + w.phase) for w in axis
             )
     return tuple(values)
 
 
-def required_zoom(samples, width, height):
-    """Base zoom z0 so that output = z0 * scale * p + (x, y) never leaves the source frame.
+def full(samples):
+    """(scale, x, y, angle) samples; a sample without an angle does not rotate."""
+    return [tuple(sample) + (0.0,) * (4 - len(sample)) for sample in samples]
 
-    The crop centre moves (x, y) / (z0 * scale) source heights and must stay inside the frame:
-    z0 * scale >= 1 + 2|x| * height / width and >= 1 + 2|y|."""
+
+def required_zoom(samples, width, height):
+    """Base zoom z0 so that the turned, moved crop never leaves the source frame.
+
+    The frame turns by `angle` about its centre, then a crop of (W, H) / Z, Z = z0 * scale,
+    is centred (x, y) * H / Z off the centre. All four crop corners, turned back, must lie in
+    the frame: Z >= |cos| + |sin| H/W + 2 |x cos + y sin| H/W and
+    Z >= |cos| + |sin| W/H + 2 |x sin - y cos|. With no angle this is the plain pan bound."""
     zoom = 1.0
-    for scale, x, y, *_ in samples:  # Rotation is measured but not applied.
-        zoom = max(zoom, (1 + 2 * abs(x) * height / width) / scale, (1 + 2 * abs(y)) / scale)
+    aspect = height / width
+    for scale, x, y, angle in full(samples):
+        cos, sin = math.cos(angle), math.sin(angle)
+        across = abs(cos) + abs(sin) * aspect + 2 * abs(x * cos + y * sin) * aspect
+        down = abs(cos) + abs(sin) / aspect + 2 * abs(x * sin - y * cos)
+        if angle:
+            # zoompan crops at whole pixels and rotate blends its edge, and clip() cannot hold
+            # a turned crop inside the picture: keep the corners 2 pixels in.
+            across, down = across * width / (width - 4), down * height / (height - 4)
+        zoom = max(zoom, across / scale, down / scale)
     return zoom * 1.0005  # Covers crop rounding at the frame edge.
 
 
 def scaled(samples, share):
-    return [(scale**share, x * share, y * share) for scale, x, y, *_ in samples]
+    return [(scale**share, x * share, y * share, a * share) for scale, x, y, a in full(samples)]
 
 
 def base_zoom(samples, width, height):
@@ -567,6 +661,7 @@ def motion_filter(samples, width, height, offset=0):
     `offset` starts a partial (preview) segment at that slot frame with the slot's base zoom."""
     notice = None
     share = 1.0
+    samples = full(samples)
     if required_zoom(samples, width, height) > MAX_BASE_ZOOM:
         low, high = 0.0, 1.0
         for _ in range(30):
@@ -580,19 +675,21 @@ def motion_filter(samples, width, height, offset=0):
     moved = scaled(samples, share)
     z0 = required_zoom(moved, width, height)
     rows = []
-    for frame, (scale, x, y) in enumerate(moved):
+    for frame, (scale, x, y, angle) in enumerate(moved):
         zoom = z0 * scale
         crop_w, crop_h = width / zoom, height / zoom
         # The move is applied after the base zoom, so it keeps its size on screen.
         left = width / 2 - x / zoom * height - crop_w / 2
         top = height / 2 - y / zoom * height - crop_h / 2
-        rows.append((frame, zoom, left, top))
-    # Breakpoints within a quarter pixel (and 0.00025 zoom), below visible rounding.
+        rows.append((frame, zoom, left, top, angle))
+    # Breakpoints within a quarter pixel (0.00025 zoom; a quarter pixel of corner travel for
+    # the angle), below visible rounding.
+    radius = math.hypot(width, height) / 2
     tolerance = 0.25
     while True:
         points = [
-            (f, z * 1000 / tolerance * 0.25, lx / tolerance, ty / tolerance)
-            for f, z, lx, ty in rows
+            (f, z * 1000 / tolerance * 0.25, lx / tolerance, ty / tolerance, a * radius / tolerance)
+            for f, z, lx, ty, a in rows
         ]
         kept = simplify(points, 1.0)
         if len(kept) <= MAX_FILTER_POINTS:
@@ -606,13 +703,20 @@ def motion_filter(samples, width, height, offset=0):
         f"zoompan=z='{z}':x='clip({x},0,iw-iw/zoom)':y='clip({y},0,ih-ih/zoom)'"
         f":d=1:s={width}x{height}:fps=30"
     )
+    if any(abs(row[4]) > 1e-6 for row in rows):
+        # Turn the frame clockwise about its centre first; the base zoom covers the corners.
+        turn = piecewise(
+            [(rows[i][0], rows[i][4]) for i in kept], f"(n+{offset})" if offset else "n"
+        )
+        graph = f"rotate=a='{turn}':c=black," + graph
     return graph, notice
 
 
 class Settings(color.Schema):
     """Saved, revisioned motion copied from a measurement; what rendering consumes."""
 
-    schema_version: Literal[1] = 1
+    # Version 1 was saved before rotation had a noise floor; its angles are never applied.
+    schema_version: Literal[1, 2] = 2
     revision: int = Field(default=0, ge=0, strict=True)
     enabled: bool = True
     method: Literal["phase-similarity-v1"] | None = None
@@ -698,6 +802,7 @@ def save_analysis(project_id, measurement, expected_revision):
     return store(
         project_id,
         expected_revision,
+        schema_version=2,
         method=measurement.method,
         reference_operation_id=str(reference.operation_id),
         reference_sha256=reference.media.sha256,
@@ -734,8 +839,16 @@ def applies(settings):
     return bool(settings and settings.enabled and any(s.moves for s in settings.shots))
 
 
+def rotates(settings):
+    return (
+        applies(settings)
+        and settings.schema_version >= 2
+        and any(s.shake_angle or any(k.angle for k in s.keyframes) for s in settings.shots)
+    )
+
+
 def slot_samples(settings, slot):
-    """Per-frame (scale, x, y) for a slot, rebased to identity at its first reference frame.
+    """Per-frame (scale, x, y, angle) for a slot, rebased to identity at its first frame.
 
     A slot whose reference interval spans a cut keeps going from where its curve is with the
     next shot's motion (the footage does not cut there); past the last shot it holds.
@@ -746,7 +859,8 @@ def slot_samples(settings, slot):
     end = start + slot.duration_frames
     if not any(s.moves and s.start_frame < end and start < s.end_frame for s in settings.shots):
         return None
-    base, shot, origin, result = (1.0, 0.0, 0.0), None, None, []
+    turns = settings.schema_version >= 2
+    base, shot, origin, result = (1.0, 0.0, 0.0, 0.0), None, None, []
     for frame in range(start, end):
         current = next((s for s in settings.shots if s.start_frame <= frame < s.end_frame), None)
         if current is not shot:
@@ -755,13 +869,21 @@ def slot_samples(settings, slot):
         if shot is None:
             result.append(base)
             continue
-        s, x, y, _ = sample(shot, frame)
-        s0, x0, y0, _ = origin
-        relative = s / s0
-        # This shot's move since `origin`, applied on top of the accumulated `base`.
-        bs, bx, by = base
+        s, x, y, a = sample(shot, frame)
+        s0, x0, y0, a0 = origin
+        relative, turn = s / s0, (a - a0 if turns else 0.0)
+        # This shot's similarity since `origin` on top of the accumulated `base`: scales
+        # multiply, angles add, and the base offset turns with the new rotation.
+        bs, bx, by, ba = base
+        cos, sin = math.cos(turn), math.sin(turn)
+        dx, dy = bx - x0, by - y0
         result.append(
-            (relative * bs, relative * bx + x - relative * x0, relative * by + y - relative * y0)
+            (
+                relative * bs,
+                relative * (cos * dx - sin * dy) + x,
+                relative * (sin * dx + cos * dy) + y,
+                ba + turn,
+            )
         )
     return result
 

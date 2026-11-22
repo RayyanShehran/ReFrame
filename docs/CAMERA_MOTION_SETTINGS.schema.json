@@ -84,6 +84,14 @@
           "title": "Shake Y",
           "type": "array"
         },
+        "shake_angle": {
+          "items": {
+            "$ref": "#/$defs/Wave"
+          },
+          "maxItems": 2,
+          "title": "Shake Angle",
+          "type": "array"
+        },
         "moves": {
           "items": {
             "enum": [
@@ -176,8 +184,11 @@
   "description": "Saved, revisioned motion copied from a measurement; what rendering consumes.",
   "properties": {
     "schema_version": {
-      "const": 1,
-      "default": 1,
+      "default": 2,
+      "enum": [
+        1,
+        2
+      ],
       "title": "Schema Version",
       "type": "integer"
     },
