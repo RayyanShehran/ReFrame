@@ -1,0 +1,273 @@
+{
+  "$defs": {
+    "Keyframe": {
+      "additionalProperties": false,
+      "properties": {
+        "frame": {
+          "maximum": 3600,
+          "minimum": 0,
+          "title": "Frame",
+          "type": "integer"
+        },
+        "scale": {
+          "exclusiveMaximum": 5,
+          "exclusiveMinimum": 0.2,
+          "title": "Scale",
+          "type": "number"
+        },
+        "x": {
+          "maximum": 2,
+          "minimum": -2,
+          "title": "X",
+          "type": "number"
+        },
+        "y": {
+          "maximum": 2,
+          "minimum": -2,
+          "title": "Y",
+          "type": "number"
+        },
+        "angle": {
+          "maximum": 3.141592653589793,
+          "minimum": -3.141592653589793,
+          "title": "Angle",
+          "type": "number"
+        }
+      },
+      "required": [
+        "frame",
+        "scale",
+        "x",
+        "y",
+        "angle"
+      ],
+      "title": "Keyframe",
+      "type": "object"
+    },
+    "ShotMotion": {
+      "additionalProperties": false,
+      "properties": {
+        "start_frame": {
+          "maximum": 3599,
+          "minimum": 0,
+          "title": "Start Frame",
+          "type": "integer"
+        },
+        "end_frame": {
+          "maximum": 3600,
+          "minimum": 1,
+          "title": "End Frame",
+          "type": "integer"
+        },
+        "keyframes": {
+          "items": {
+            "$ref": "#/$defs/Keyframe"
+          },
+          "maxItems": 12,
+          "minItems": 1,
+          "title": "Keyframes",
+          "type": "array"
+        },
+        "shake_x": {
+          "items": {
+            "$ref": "#/$defs/Wave"
+          },
+          "maxItems": 2,
+          "title": "Shake X",
+          "type": "array"
+        },
+        "shake_y": {
+          "items": {
+            "$ref": "#/$defs/Wave"
+          },
+          "maxItems": 2,
+          "title": "Shake Y",
+          "type": "array"
+        },
+        "moves": {
+          "items": {
+            "enum": [
+              "zoom_in",
+              "zoom_out",
+              "punch_in",
+              "pan",
+              "rotate",
+              "shake"
+            ],
+            "type": "string"
+          },
+          "title": "Moves",
+          "type": "array"
+        }
+      },
+      "required": [
+        "start_frame",
+        "end_frame",
+        "keyframes"
+      ],
+      "title": "ShotMotion",
+      "type": "object"
+    },
+    "Timings": {
+      "additionalProperties": false,
+      "properties": {
+        "decode_seconds": {
+          "minimum": 0,
+          "title": "Decode Seconds",
+          "type": "number"
+        },
+        "estimate_seconds": {
+          "minimum": 0,
+          "title": "Estimate Seconds",
+          "type": "number"
+        },
+        "frames": {
+          "minimum": 0,
+          "title": "Frames",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "decode_seconds",
+        "estimate_seconds",
+        "frames"
+      ],
+      "title": "Timings",
+      "type": "object"
+    },
+    "Wave": {
+      "additionalProperties": false,
+      "properties": {
+        "amplitude": {
+          "maximum": 0.5,
+          "minimum": 0,
+          "title": "Amplitude",
+          "type": "number"
+        },
+        "frequency": {
+          "exclusiveMinimum": 0,
+          "maximum": 15,
+          "title": "Frequency",
+          "type": "number"
+        },
+        "phase": {
+          "maximum": 6.283185307179586,
+          "minimum": -6.283185307179586,
+          "title": "Phase",
+          "type": "number"
+        }
+      },
+      "required": [
+        "amplitude",
+        "frequency",
+        "phase"
+      ],
+      "title": "Wave",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Saved, revisioned motion copied from a measurement; what rendering consumes.",
+  "properties": {
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "revision": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Revision",
+      "type": "integer"
+    },
+    "enabled": {
+      "default": true,
+      "title": "Enabled",
+      "type": "boolean"
+    },
+    "method": {
+      "anyOf": [
+        {
+          "const": "phase-similarity-v1",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Method"
+    },
+    "reference_operation_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Reference Operation Id"
+    },
+    "reference_sha256": {
+      "anyOf": [
+        {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Reference Sha256"
+    },
+    "shots": {
+      "items": {
+        "$ref": "#/$defs/ShotMotion"
+      },
+      "maxItems": 60,
+      "title": "Shots",
+      "type": "array"
+    },
+    "timings": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Timings"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "created_at": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Created At"
+    },
+    "updated_at": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Updated At"
+    }
+  },
+  "title": "Settings",
+  "type": "object"
+}

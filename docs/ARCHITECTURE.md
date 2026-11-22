@@ -298,6 +298,10 @@ Caption method v18 supersedes the earlier v3 scheduling description: bounded los
 Unsegmented discovery observations retain full-frame OCR fallback; unfinished absence checks remain partial. Broad background signatures cannot supply words. Bright neutral canvases additionally permit dark-polarity segmentation. Real dark/white and gray/gray fixtures verify recognition only; style/export accuracy for those new examples is not established.
 
 
+## Camera motion copying
+
+Additive schema **23** stores a revisioned `camera_motion_settings` row: default on, with per-shot keyframe and shake curves copied from a `phase-similarity-v1` measurement and bound to the retained reference. Generation measures inside its worker (optional NumPy, 60-second bound; failure only adds a notice). Sequence renders bind `expected_motion_revision`, snapshot the setting (renderer v11 when motion applies) and apply one edge-safe `zoompan` per slot, after framing's Fill crop or before Fit padding. Captions burn afterwards. [Design, method and evidence](CAMERA_MOTION.md).
+
 ## Customize and caption temporal follow-up
 
 The existing mounted editors now use independent Reference/Media/Cuts/Color/Captions/Audio/Framing/Export destinations. Context stores separate slot/cue/color selection; existing output and sequence use stable portal surfaces, not a second renderer/timeline. Correction component state survives moving its presentation into Captions. Explicit per-resource persistence/revisions remain; no Save all or simulated video preview. [Capability map](CUSTOMIZE_WORKSPACE.md).

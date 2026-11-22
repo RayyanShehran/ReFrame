@@ -73,3 +73,68 @@ because zoompan crops axis-aligned rectangles.
   offset.
 - Whole-clip and cut-plan renders are unchanged. Turning the setting off renders exactly as
   before.
+
+## Implementation notes
+
+- **Sub-pixel accuracy:** the sub-pixel peak uses Foroosh's phase-correlation estimate, not a
+  parabola, which locked toward whole pixels and read slow pans 25–45% short. Each frame is
+  measured against an anchor up to 8 frames back, which re-anchors after 6 px or a 4% scale change.
+- **No evidence, no motion:** a frame pair reports no motion when fewer than 35% of the grid
+  windows carry texture, or when fewer than half of them agree with the camera model. Dark scenes
+  with a moving light, and moving subjects, therefore read as static.
+- **Size on screen:** the move is applied after the base zoom, so it keeps its size on screen.
+  The base zoom is `z0 = max(1/s, (1 + 2|x|·W⁻¹·H)/s, (1 + 2|y|)/s)` over the slot.
+- **Previews:** caption previews and generation's unpublished assembled-audio export use the
+  current saved motion revision.
+- **Customize:** Export shows the toggle and how many reference shots move.
+- **Optional step:** generation's motion step always completes, with a notice when NumPy is
+  missing or measuring fails.
+- **Snapshot:** the setting is not part of generation's customized-settings snapshot, so turning
+  it on or off never forces a replacement prompt.
+
+## Evidence — 2026-11-22
+
+**Synthetic, `tests/test_camera_motion.py`:** NumPy-warped texture clips with exact ground truth,
+encoded with H.264.
+
+| Truth | Measured |
+|---|---|
+| zoom 1.12, pan −0.06 / +0.03 | 1.118, −0.060, +0.029 |
+| pan 0.080 | 0.0795 |
+| slow pan 0.030 / −0.020 | 0.0297 / −0.0198 |
+| zoom 1.10 | 1.098 |
+| 4 Hz shake, 0.012 amplitude | separated as shake (frequency and amplitude within tolerance) |
+| static clip; dark frame with a sweeping light | no motion |
+
+Applying a known curve and re-measuring it gives the curve back within tolerance, with no black
+border pixels.
+
+**Real references:** isolated e2e copy, normal UI flows; the real `data/` is unchanged. Each
+export was compared per slot with a second render of the same sequence with motion off. That
+isolates the applied motion from the footage's own handheld movement.
+
+- **Handwritten (15 shots, 8 moving):**
+  - The 7 static slots are pixel-identical to the motion-off render.
+  - 6 of the 8 moving slots measure 0.94–1.06 of the applied magnitude, in the dominant
+    direction, with half-move timing within 0–3 frames.
+  - One slot under-reads (0.28); in 9 of 12 checked frames the intended curve explains the
+    export better than no motion.
+  - One dark night slot cannot be measured.
+- **Printed (14 shots, 5 moving):** 4 of the 5 moving slots measure 0.91–1.03 of the applied
+  magnitude, in the dominant direction. One dark slot cannot be measured (the intended curve
+  fits better in 10 of 11 frames).
+- **Edges:** on every slot and frame the requested crop window lies inside the picture (0 px
+  overshoot).
+- **Timing:** detection took 14.0 s (handwritten, 39.6 s reference) and 15.8 s (printed, 32.4 s
+  reference). Generation times are within run-to-run variation: handwritten retry 383 s (370–372 s
+  before), printed to the caption-review pause 420 s (391–423 s before).
+
+**Limits:**
+
+- **Pacing:** missed cuts and very long "shots" are pacing limits. A 28.5 s printed shot copies
+  15% of its accumulated move, and the reference's shot boundaries decide the curves.
+- **Large moves:** moves beyond the 1.35 base-zoom margin are scaled down.
+- **Rotation:** rotation is measured, not applied.
+- **Camera vs subject:** detection cannot tell a camera move from a large subject that fills the
+  frame. Without a frame-by-frame camera truth for real footage, the real-reference curves are
+  plausible estimates, not verified ground truth.
