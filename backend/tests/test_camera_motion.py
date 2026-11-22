@@ -383,3 +383,14 @@ def test_render_applies_a_known_roll_without_black_corners(tmp_path):
     assert corners.min() >= 20 and edges.min() >= 20, "black corner in the rolled output"
     (shot,) = measure(output, tmp_path / "stage")
     assert motion.sample(shot, FRAMES - 1, shake=False)[3] == pytest.approx(turn, abs=0.005)
+
+
+def test_a_roll_in_a_shot_shorter_than_the_evidence_window_is_kept(tmp_path):
+    turn, image = np.radians(3), texture()
+    rolled = [warp(image, 1.0, 0.0, 0.0, turn * i / 4) for i in range(5)]
+    still = [warp(texture(seed=3), 1.0, 0.0, 0.0)] * (FRAMES - 5)
+    path = encode(tmp_path / "short.mp4", rolled + still)
+    short, rest = measure(path, tmp_path / "stage", ((0, 5), (5, FRAMES)))
+    assert "rotate" in short.moves
+    assert motion.sample(short, 4)[3] == pytest.approx(turn, abs=np.radians(0.3))
+    assert "rotate" not in rest.moves
