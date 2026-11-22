@@ -191,7 +191,7 @@ detector output was examined (`evidence/shots/` in the isolated e2e copy).
   shot's motion, because the footage does not cut there. Past the last shot it holds.
 - The cut step's time is saved as `timings.cuts_seconds` and logged with the other stages.
 
-**Pacing and slot timing still use scdet.** Cut accuracy clearly improves, but changing the
+**Pacing and slot timing used scdet here; since 2026-11-23 they use these cuts too** ([BEAT_SYNC.md](BEAT_SYNC.md)). At the time, cut accuracy clearly improved, but changing the
 pacing algorithm:
 
 - bumps pacing blueprint schema 1 (whose algorithm, threshold and method are literals);

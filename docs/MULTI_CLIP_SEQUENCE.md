@@ -10,7 +10,7 @@ Sequence output: **1–60 slots, 1–3600 total frames at 30 fps**. Source range
 
 ## Storage/API
 
-SQLite schema **18**, sequence schema **1**, method **reference-slots-30fps-v1**, renderer **sdr-eq-mp4-v9**. Original `clips`/old plans/specs remain compatible; older renders default to no sequence. One sequence per project.
+SQLite schema **18**, sequence schema **1**, method **reference-slots-30fps-v1** (now schema 2, `reference-slots-30fps-v2`: [BEAT_SYNC.md](BEAT_SYNC.md)), renderer **sdr-eq-mp4-v9**. Original `clips`/old plans/specs remain compatible; older renders default to no sequence. One sequence per project.
 
 - GET/POST `/api/projects/{id}/clips`: list/stream-upload. First library upload can retain the original; subsequent sources are additional clips.
 - POST `/api/projects/{id}/clips/{clip_id}`: validated display name. DELETE: explicit removal, blocked while a media job runs or saved sequence assigns it.
