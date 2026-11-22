@@ -1,5 +1,6 @@
 import shutil
 import subprocess
+import types
 
 import pytest
 
@@ -24,6 +25,25 @@ def zoom_shot(start, end):
         ],
         moves=["zoom_in", "pan"],
     )
+
+
+def test_a_slot_across_a_reference_cut_continues_into_the_next_shots_motion():
+    static = motion.ShotMotion(
+        start_frame=0,
+        end_frame=30,
+        keyframes=[motion.Keyframe(frame=0, scale=1.0, x=0.0, y=0.0, angle=0.0)],
+    )
+    settings = motion.Settings(shots=[static, zoom_shot(30, 60)])
+
+    def slot(start, frames):
+        return types.SimpleNamespace(reference_start_frame=start, duration_frames=frames)
+
+    samples = motion.slot_samples(settings, slot(20, 30))
+    assert len(samples) == 30
+    assert samples[:11] == [(1.0, 0.0, 0.0)] * 11  # Static until the cut, no jump at it.
+    assert samples[-1] == pytest.approx(motion.sample(settings.shots[1], 49)[:3])
+    # A slot that only covers static shots gets no motion at all.
+    assert motion.slot_samples(settings, slot(0, 30)) is None
 
 
 def test_saved_motion_is_bound_applied_without_black_edges_and_toggled(local):
