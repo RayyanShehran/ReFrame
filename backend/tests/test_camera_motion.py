@@ -210,10 +210,14 @@ def test_hard_cuts_are_found_including_a_four_frame_shot(tmp_path):
 
 def test_a_dissolve_is_one_cut_near_its_middle(tmp_path):
     a, b = scene(1, 60), scene(2, 60)
-    frames = a[:24] + [
-        (a[24 + i] * (1 - (i + 1) / 13) + b[24 + i] * ((i + 1) / 13)).astype(np.uint8)
-        for i in range(12)
-    ] + b[36:]
+    frames = (
+        a[:24]
+        + [
+            (a[24 + i] * (1 - (i + 1) / 13) + b[24 + i] * ((i + 1) / 13)).astype(np.uint8)
+            for i in range(12)
+        ]
+        + b[36:]
+    )
     found = detected(encode(tmp_path / "dissolve.mp4", frames), tmp_path / "stage")
     assert near(found, [30], tolerance=3), found
 
