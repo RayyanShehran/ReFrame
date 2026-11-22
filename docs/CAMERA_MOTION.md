@@ -131,10 +131,115 @@ isolates the applied motion from the footage's own handheld movement.
 
 **Limits:**
 
-- **Pacing:** missed cuts and very long "shots" are pacing limits. A 28.5 s printed shot copies
-  15% of its accumulated move, and the reference's shot boundaries decide the curves.
+- **Long takes:** a 28.2 s printed shot is a real long take, not a missed cut. Its slot copies
+  15% of the accumulated move (see [Shot cuts](#shot-cuts) for the missed-cut part).
 - **Large moves:** moves beyond the 1.35 base-zoom margin are scaled down.
 - **Rotation:** rotation is measured, not applied.
 - **Camera vs subject:** detection cannot tell a camera move from a large subject that fills the
   frame. Without a frame-by-frame camera truth for real footage, the real-reference curves are
   plausible estimates, not verified ground truth.
+
+## Shot cuts
+
+Added 2026-11-22. Before this, curves followed pacing's scdet shots exactly, and those miss
+cuts.
+
+**Ground truth:** the cuts in both e2e references were hand-labelled to the frame before the
+detector output was examined (`evidence/shots/` in the isolated e2e copy).
+
+- **Handwritten:** 18 hard cuts.
+- **Printed:** 21 hard cuts in a 4.3 s montage of 3–5-frame shots, then one continuous 28.2 s
+  tracking take.
+
+**Why scdet misses cuts:** all of its errors are misses (precision 1.0).
+
+- Missed cuts score 3.8–9.5, against threshold 10.
+- Flashing lights and a fade reach 5.5 without a cut, so a lower threshold cannot separate
+  them.
+- The misses are dark-to-dark cuts, cuts into near-black, and cuts between shots with similar
+  brightness and color grading.
+- Ruled out as causes: sampling rate, minimum shot length, dissolves and flashes.
+
+**Detector** (`camera_motion.cut_frames`): it runs on the motion step's own 192-pixel gray
+30 fps decode, adding no second decode or new bound.
+
+1. **Hard cut:** a frame pair is a cut when:
+   - the edge-structure change (1 − correlation of normalized gradient-magnitude maps) is at
+     least 0.35 **and** at least twice the motion level on *both* sides (the larger of two
+     neighbouring pairs per side);
+   - **and** the brightness-normalized luma histogram changes by 0.12 or more, unless the edge
+     change alone is at least 0.75.
+
+   Continuous motion (whip pans, moving lights) raises both sides and is rejected. Two pairs
+   per side keep neighbouring cuts out of the window for shots of 3 or more frames.
+2. **Near-black frames** (luma std < 9): a cut is a mean-luma jump of 20 or more. Fades change
+   only a few levels per frame.
+3. **Flash:** a change is not a cut when the picture returns to the previous frame within 3
+   frames, or when the frame is that return.
+4. **Dissolve:** the middle frame is close to the average of two different pictures 6 frames
+   either side, with no hard cut between them.
+
+**Use:**
+
+- Motion shots are pacing's shots split at detected cuts. A detected cut within 2 frames of a
+  pacing boundary is the same cut, so no 1-frame shots appear.
+- A slot whose reference interval spans a cut continues from where its curve is with the next
+  shot's motion, because the footage does not cut there. Past the last shot it holds.
+- The cut step's time is saved as `timings.cuts_seconds` and logged with the other stages.
+
+**Pacing and slot timing still use scdet.** Cut accuracy clearly improves, but changing the
+pacing algorithm:
+
+- bumps pacing blueprint schema 1 (whose algorithm, threshold and method are literals);
+- marks every saved edit plan and sequence stale;
+- needs a raw-frame decode beyond pacing's 1 MiB/2 MiB bounds;
+- would add eight 3–5-frame slots to the printed reference, which footage matching and captions
+  have not been run against.
+
+That belongs in its own change, with these truth files as its benchmark.
+
+### Evidence — 2026-11-22
+
+Precision and recall within 2 frames, against the hand-labelled truth:
+
+| Reference | Before (scdet) | After (scdet + detector) | Longest shot before → after (true) |
+|---|---|---|---|
+| Handwritten, 18 cuts | P 1.00, R 0.78 (missed 4) | P 1.00, R 1.00 | 7.03 → 7.03 s (7.03 s) |
+| Printed, 21 cuts | P 1.00, R 0.62 (missed 8) | P 1.00, R 1.00 | 28.53 → 28.17 s (28.17 s) |
+
+Synthetic tests cover hard cuts (including a 4-frame shot), a dissolve, dark-to-dark and
+into-near-black cuts, a flash and a white frame that are not cuts, and shot splitting.
+
+**Timing:** the cut step took 0.6–0.8 s offline and 0.6–2.0 s inside generation. The whole
+motion step took 20.4 s (handwritten, previously 14.3 s) and 12.4 s (printed, previously
+16.0 s). New-project generation to the caption-review pause took 539 s (handwritten) and 400 s
+(printed; 420 s in the previous run).
+
+**Per-slot motion (motion on vs off):** fake moves across missed cuts are gone, and fewer slots
+need their move scaled down.
+
+| Slot | Before | After |
+|---|---|---|
+| Handwritten 10 (rug → back → night) | fake move scaled to 56% | the rug shot's pan at full size; still too dark to measure (the intended curve fits 30 of 34 frames, 15 before) |
+| Handwritten 12 (beach → sky) | fake +0.09 pan scaled to 35% | the sky shot's move at full size, measured at 0.96 |
+| Handwritten 14 (field → sea) | 1.5% zoom-out | the sea shot's full 3.3% zoom-out, measured at 0.93 |
+| Printed 1 | fake move scaled to 85%; unmeasurable | its real pan at full size, measured at 0.78 |
+| Printed 3 | fake 6.6% zoom-out across a dark cut | static (both shots are static) |
+| Printed 11 | fake move scaled to 58% | its real pan at full size, measured at 0.98 |
+
+- **Unchanged slots:** they measure as before (0.93–1.04). The handwritten slot 3 under-read
+  (0.23) and the printed long take (share 0.15) remain.
+- **Edges:** no requested crop leaves the picture.
+- **Captions:** the handwritten caption retry score is unchanged at
+  251.61 / 0 / 0.47 / 2.55, 17/22.
+
+**Limits:**
+
+- The thresholds were tuned on these two references, so the margins are thin and this is not
+  independent validation: a histogram minimum of 0.15, an edge minimum of 0.45 or a contrast
+  floor of 12 each loses a cut.
+- Cuts between two near-black shots of similar brightness, and dissolves longer than about 12
+  frames, can still be missed.
+- An A-B-A intercut whose middle shot is shorter than 3 frames reads as a flash.
+- App INFO logs, including the stage timings, are not shown by the launcher, because logging is
+  not configured. The timings are saved in the setting and the generation notice.
