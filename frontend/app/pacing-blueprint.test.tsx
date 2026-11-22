@@ -3,7 +3,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { PacingBlueprint } from "./pacing-blueprint";
 
 const blueprint = {
-  schema_version: 1, algorithm_version: "scdet-consecutive-v1", analyzed_at: "today",
+  schema_version: 2, algorithm_version: "scdet-cut-detector-v2", analyzed_at: "today",
   source: { media_sha256: "a".repeat(64) }, tool_versions: { ffmpeg: "9.0.2" },
   duration_seconds: 7, processing_width: 64, processing_height: 64, threshold: 10,
   successful_frames: 84, candidate_cut_timestamps: [1, 3], estimated_cut_count: 2,
@@ -13,6 +13,9 @@ const blueprint = {
     { start_seconds: 3, end_seconds: 7, duration_seconds: 4 }],
   interpretation_limits: ["Flashes and motion can cause false positives."],
   color_metadata: { warnings: [] }, other_categories: { transitions: "not_analyzed", captions: "not_analyzed", audio: "not_analyzed" },
+  scdet_cut_timestamps: [1], detected_cut_frames: [90], cut_detector: "camera-motion-cuts-v1",
+  rhythm: { tempo_bpm: 123.05, strength: 0.21, clear: false, beats: [] },
+  timings: { scdet_seconds: 1.2, detector_seconds: 0.8, rhythm_seconds: 0.4 },
 };
 const response = (status: string, extra = {}) => ({ ok: true, json: async () => ({
   status, message: null, failure_code: null, blueprint: status === "ready" ? blueprint : null, ...extra,
@@ -53,4 +56,16 @@ it("requires explicit retry and rejects nonfinite result metrics", async () => {
   fireEvent.click(screen.getByRole("button", { name: "Retry pacing analysis" }));
   await screen.findByText(/Invalid pacing blueprint response/);
   expect(screen.queryByText(/Estimated cuts and pacing are ready/)).not.toBeInTheDocument();
+});
+
+it("shows the added cuts and the measured music rhythm, and rejects schema 1 results", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => response("ready")));
+  const view = render(<PacingBlueprint projectId="first" />);
+  await screen.findByText(/Estimated cuts and pacing are ready/);
+  expect(screen.getByText(/1 found by the cut detector/)).toBeInTheDocument();
+  expect(screen.getByText("About 123 BPM; no clear beat, so slots keep the reference's cut timing.")).toBeInTheDocument();
+  view.unmount();
+  vi.stubGlobal("fetch", vi.fn(async () => response("ready", { blueprint: { ...blueprint, schema_version: 1, algorithm_version: "scdet-consecutive-v1" } })));
+  render(<PacingBlueprint projectId="first" />);
+  await screen.findByText(/Invalid pacing blueprint response/);
 });

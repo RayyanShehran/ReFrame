@@ -253,3 +253,70 @@ def test_pacing_quarantine_blocks_color_and_survives_recovery(local, tmp_path, m
     assert stage.exists()
     assert client.post(f"/api/projects/{saved['id']}/style-blueprint").status_code == 500
     assert client.delete(f"/api/projects/{saved['id']}").status_code == 500
+
+
+def source_for(path):
+    return {
+        "path": path,
+        "identity": color.Source(
+            video_id="123",
+            canonical_url="https://www.tiktok.com/@fixture/video/123",
+            media_sha256=hashlib.sha256(path.read_bytes()).hexdigest(),
+        ),
+    }
+
+
+def test_real_dark_cuts_that_scdet_misses_are_added_by_the_cut_detector(tmp_path):
+    pytest.importorskip("numpy")
+    from tests.test_camera_motion import encode, scene
+
+    frames = (
+        scene(1, 20, gain=1.0, level=22)
+        + scene(2, 20, gain=1.0, level=30)
+        + scene(5, 20, gain=0.15, level=4)
+    )
+    path = encode(tmp_path / "dark.mp4", frames)
+    _, result = pacing.pipeline(
+        source_for(path), tmp_path / "stage", threading.Event(), time.monotonic() + 30
+    )
+    assert result.schema_version == 2 and result.algorithm_version == pacing.ALGORITHM
+    assert result.scdet_cut_timestamps == []  # scdet misses both dark cuts...
+    assert result.detected_cut_frames == [20, 40]  # ...the cut detector finds them...
+    assert [round(t * 30) for t in result.candidate_cut_timestamps] == [
+        20,
+        40,
+    ]  # ...and slots use them.
+    assert result.cut_detector == "camera-motion-cuts-v1"
+    assert result.rhythm is None  # No audio track.
+    assert result.timings.detector_seconds >= 0
+
+
+def test_real_reference_rhythm_is_measured_from_its_audio(tmp_path):
+    np = pytest.importorskip("numpy")
+    import wave
+
+    from tests.test_beats import clicks
+
+    video = tmp_path / "video.mkv"
+    fixture(video, [((128, 128, 128), 12 * 12)])
+    sound = tmp_path / "clicks.wav"
+    samples = clicks(np.arange(0.5, 11.5, 0.5), 12)  # 120 BPM
+    with wave.open(str(sound), "wb") as out:
+        out.setnchannels(1)
+        out.setsampwidth(2)
+        out.setframerate(22050)
+        out.writeframes((np.clip(samples, -1, 1) * 32767).astype("<i2").tobytes())
+    path = tmp_path / "reference.mkv"
+    subprocess.run(
+        [shutil.which("ffmpeg"), "-v", "error", "-i", str(video), "-i", str(sound)]
+        + ["-c:v", "copy", "-c:a", "aac", str(path)],
+        check=True,
+        capture_output=True,
+        timeout=30,
+    )
+    _, result = pacing.pipeline(
+        source_for(path), tmp_path / "stage", threading.Event(), time.monotonic() + 30
+    )
+    assert result.rhythm is not None and result.rhythm.clear
+    assert result.rhythm.tempo_bpm == pytest.approx(120, abs=2)
+    assert result.candidate_cut_timestamps == []  # A still picture: no cuts from either detector.

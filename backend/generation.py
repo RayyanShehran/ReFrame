@@ -600,6 +600,8 @@ def snapshot(project_id, stop=None, deadline=None):
         "reference": binding,
         "clips": clips,
         "revisions": revisions,
+        # Slots follow pacing: checkpoints from another pacing algorithm would be stale.
+        "pacing_algorithm": pacing_analysis.ALGORITHM,
     }
 
 

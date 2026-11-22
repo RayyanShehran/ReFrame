@@ -6,6 +6,7 @@ from typing import Literal
 
 from pydantic import Field, model_validator
 
+import beats
 import clip_library
 import color_analysis as color
 import color_recipe as recipe
@@ -14,7 +15,18 @@ import pacing_analysis
 import projects
 from references import ReferenceError
 
-ALGORITHM = "reference-slots-30fps-v1"
+# v2: slots from schema-2 pacing (every detected cut), short pieces merged, on-beat cuts snapped
+# to the output's music (docs/BEAT_SYNC.md).
+ALGORITHM = "reference-slots-30fps-v2"
+
+
+class Music(color.Schema):
+    """What the slot cuts were synced to when they were generated."""
+
+    mode: Literal["original", "reference", "mix", "mute"]
+    offset_seconds: float = Field(ge=0, le=120, allow_inf_nan=False)
+    clear_beats: bool
+    moved_cuts: int = Field(ge=0, le=60, strict=True)
 
 
 class Assignment(color.Schema):
@@ -56,10 +68,11 @@ class Slot(Assignment):
 
 
 class Sequence(color.Schema):
-    schema_version: Literal[1] = 1
-    algorithm_version: Literal["reference-slots-30fps-v1"] = ALGORITHM
+    schema_version: Literal[1, 2] = 2
+    algorithm_version: Literal["reference-slots-30fps-v1", "reference-slots-30fps-v2"] = ALGORITHM
     revision: int = Field(ge=1, strict=True)
     pacing: recipe.ReferenceBinding
+    music: Music | None = None
     slots: list[Slot] = Field(min_length=1, max_length=60)
     output_frames: int = Field(ge=1, le=3600, strict=True)
     created_at: str
@@ -199,6 +212,14 @@ def write(project_id, sequence, expected):
         db.execute("UPDATE projects SET updated_at=? WHERE id=?", (projects.now(), project_id))
 
 
+def music(project_id):
+    """(audio mode, reference offset seconds) of the saved audio choice."""
+    import audio_settings  # Imports modules that import this one.
+
+    settings = audio_settings.read(project_id).settings
+    return settings.mode, settings.reference_offset_seconds
+
+
 def generate(project_id, request):
     row = record(project_id)
     check(row, request.expected_revision)
@@ -212,24 +233,43 @@ def generate(project_id, request):
         blueprint.duration_seconds,
         blueprint.duration_seconds,
     )
+    # A 1-2 frame piece is a flash or detector jitter, not a shot: it joins the previous slot.
+    # Montage shots of 3+ frames are the reference's rhythm and stay.
+    cuts = [
+        s.output_start_frame
+        for s in segments[1:]
+        if s.output_end_frame - s.output_start_frame >= beats.MIN_SLOT_FRAMES
+    ]
+    if cuts and cuts[0] < beats.MIN_SLOT_FRAMES:
+        cuts.pop(0)  # A short first piece joins the next slot instead.
+    mode, offset = music(project_id)
+    rhythm = getattr(blueprint, "rhythm", None)
+    clear = bool(rhythm and rhythm.clear)
+    moved = 0
+    if clear and mode in {"reference", "mix"}:
+        # The output plays reference audio from `offset`: its beats sit `offset` earlier.
+        heard = [b - offset for b in rhythm.beats if b >= offset]
+        cuts, moved = beats.snap(cuts, rhythm.beats, heard, total)
+    edges = [0, *cuts, total]
     previous = Sequence.model_validate_json(row["sequence"]) if row else None
     timestamp = projects.now()
     sequence = Sequence(
         revision=request.expected_revision + 1,
         pacing=binding,
+        music=Music(mode=mode, offset_seconds=offset, clear_beats=clear, moved_cuts=moved),
         output_frames=total,
         slots=[
             Slot(
                 id=uuid.uuid4(),
-                duration_frames=s.output_end_frame - s.output_start_frame,
+                duration_frames=end - start,
                 source_start_frame=0,
-                reference_start_frame=s.output_start_frame,
-                reference_end_frame=s.output_end_frame,
-                source_end_frame=s.output_end_frame - s.output_start_frame,
-                output_start_frame=s.output_start_frame,
-                output_end_frame=s.output_end_frame,
+                reference_start_frame=start,
+                reference_end_frame=end,
+                source_end_frame=end - start,
+                output_start_frame=start,
+                output_end_frame=end,
             )
-            for s in segments
+            for start, end in zip(edges, edges[1:])
         ],
         created_at=previous.created_at if previous else timestamp,
         updated_at=timestamp,

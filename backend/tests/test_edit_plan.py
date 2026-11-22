@@ -12,7 +12,7 @@ from tests.test_color_recipe import local as local  # noqa: F401
 from tests.test_color_recipe import seed_analyses
 
 
-def seed_pacing(project_id, lengths=(1, 1, 1), footage_duration=4):
+def seed_pacing(project_id, lengths=(1, 1, 1), footage_duration=4, rhythm=None):
     with projects.database() as connection:
         connection.execute("DELETE FROM pacing_operations WHERE project_id=?", (project_id,))
     operation, source = pacing.begin_operation(project_id)
@@ -44,6 +44,7 @@ def seed_pacing(project_id, lengths=(1, 1, 1), footage_duration=4):
         cuts_per_minute=(len(lengths) - 1) * 60 / boundaries[-1],
         color_metadata=color.inspect_colors({}),
         interpretation_limits=pacing.LIMITS,
+        **({"rhythm": rhythm} if rhythm else {}),
     )
     with projects.database() as connection:
         connection.execute(

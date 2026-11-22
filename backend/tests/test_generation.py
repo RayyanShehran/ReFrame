@@ -1619,3 +1619,40 @@ def test_kept_cue_does_not_take_a_different_overlapping_captions_lettering():
     assert restyled.appearance.style.size_percent == 7.8
     assert restyled.appearance.style.color == "#F1C812"
     assert restyled.appearance.style.vertical == 0.8
+
+
+def test_checkpoints_from_an_older_pacing_algorithm_are_not_reused(local, monkeypatch):
+    client, directory, _ = local
+    pid = seed(client, directory)
+    monkeypatch.setattr(generation.visual_matching, "readiness", lambda: {"ready": True})
+
+    def fail(*args, **kwargs):
+        raise engine.RetrievalFailure("sample_limit", "Fixture coverage unavailable")
+
+    monkeypatch.setattr(generation.visual_matching, "analyze", fail)
+    url = f"/api/projects/{pid}/generation"
+    options = {"captions": "off", "audio": "mute", "replace_customized": True}
+    assert client.post(url, json=options).status_code == 202
+    assert wait(client, url)["completed"] == ["slots"]
+    # A checkpoint saved before pacing schema 2 has no pacing algorithm in its snapshot.
+    with projects.database() as db:
+        row = db.execute(
+            "SELECT snapshot FROM generation_operations WHERE project_id=?", (pid,)
+        ).fetchone()
+        old = json.loads(row[0])
+        old.pop("pacing_algorithm", None)
+        db.execute(
+            "UPDATE generation_operations SET snapshot=? WHERE project_id=?",
+            (json.dumps(old), pid),
+        )
+    regenerated = []
+    original = sequence.generate
+    monkeypatch.setattr(
+        sequence, "generate", lambda *a, **k: regenerated.append(1) or original(*a, **k)
+    )
+    retry = options | {"expected_revision": 1, "matching_mode": "measurements"}
+    assert client.post(url, json=retry).status_code == 202
+    ready = wait(client, url)
+    assert ready["status"] == "ready", ready
+    assert regenerated  # Slots from older pacing would be stale: they are rebuilt.
+    assert sequence.read(pid).status == "ready"

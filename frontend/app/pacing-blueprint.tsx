@@ -3,7 +3,7 @@
 import { useMediaOperation, type MediaOperation } from "./use-media-operation";
 
 type Blueprint = {
-  schema_version: 1; algorithm_version: string; analyzed_at: string;
+  schema_version: 2; algorithm_version: string; analyzed_at: string;
   source: { media_sha256: string }; tool_versions: Record<string, string>;
   duration_seconds: number; processing_width: number; processing_height: number;
   threshold: 10; successful_frames: number; candidate_cut_timestamps: number[];
@@ -12,6 +12,9 @@ type Blueprint = {
   shots: { start_seconds: number; end_seconds: number; duration_seconds: number }[];
   interpretation_limits: string[]; color_metadata: { warnings: string[] };
   other_categories: Record<string, "not_analyzed">;
+  scdet_cut_timestamps: number[]; detected_cut_frames: number[];
+  cut_detector: "camera-motion-cuts-v1" | "unavailable";
+  rhythm: { tempo_bpm: number; strength: number; clear: boolean; beats: number[] } | null;
 };
 type Operation = MediaOperation & { blueprint: Blueprint | null };
 const finite = (n: unknown): n is number => typeof n === "number" && Number.isFinite(n);
@@ -20,7 +23,12 @@ function parse(data: unknown): Operation {
   const operation = data as Operation;
   if (operation.status === "ready") {
     const b = operation.blueprint;
-    if (!b || b.schema_version !== 1 || b.algorithm_version !== "scdet-consecutive-v1" || b.threshold !== 10 ||
+    if (!b || b.schema_version !== 2 || b.algorithm_version !== "scdet-cut-detector-v2" || b.threshold !== 10 ||
+        !Array.isArray(b.scdet_cut_timestamps) || !b.scdet_cut_timestamps.every(t => b.candidate_cut_timestamps.includes(t)) ||
+        !Array.isArray(b.detected_cut_frames) || !b.detected_cut_frames.every(Number.isInteger) ||
+        !["camera-motion-cuts-v1", "unavailable"].includes(b.cut_detector) ||
+        (b.rhythm !== null && (!b.rhythm || !finite(b.rhythm.tempo_bpm) || typeof b.rhythm.clear !== "boolean" ||
+          !Array.isArray(b.rhythm.beats) || !b.rhythm.beats.every(finite))) ||
         !finite(b.duration_seconds) || b.duration_seconds <= 0 || b.duration_seconds > 120 ||
         ![b.mean_shot_seconds, b.median_shot_seconds].every(n => finite(n) && n > 0 && n <= 120) ||
         !finite(b.cuts_per_minute) || b.cuts_per_minute < 0 ||
@@ -47,7 +55,7 @@ export function PacingBlueprint({ projectId }: { projectId: string }) {
   const b = operation?.blueprint;
   return <section className="reference-section" aria-label="Style Blueprint — estimated cuts and pacing">
     <h3>Optional reference pacing</h3>
-    <p className="hint">Optional for whole-clip export. Read-only estimates from the retained reference. Transitions, captions and audio remain not analyzed.</p>
+    <p className="hint">Optional for whole-clip export. Read-only estimates from the retained reference, including the rhythm of its music. Transitions and captions are not analyzed here.</p>
     {!operation && !error && <p role="status">Loading pacing status…</p>}
     {operation?.status === "idle" && <p>Pacing has not been analyzed. Color results are independent.</p>}
     {operation?.status === "running" && <p role="status">Checking consecutive reference frames for likely cuts… Processing continues if you leave.</p>}
@@ -62,6 +70,10 @@ export function PacingBlueprint({ projectId }: { projectId: string }) {
         <dt>Mean shot length</dt><dd>{b.mean_shot_seconds.toFixed(3)} seconds</dd>
         <dt>Median shot length</dt><dd>{b.median_shot_seconds.toFixed(3)} seconds</dd>
         <dt>Cuts per minute</dt><dd>{b.cuts_per_minute.toFixed(2)}</dd>
+        <dt>Cut sources</dt><dd>{b.scdet_cut_timestamps.length} found by scene-change scoring; {b.estimated_cut_count - b.scdet_cut_timestamps.length} found by the cut detector{b.cut_detector === "unavailable" ? " (unavailable without the optional visual extra)" : ""}.</dd>
+        <dt>Music rhythm</dt><dd>{!b.rhythm ? "Not measured (no audio, or the optional visual extra is missing)."
+          : b.rhythm.clear ? `About ${Math.round(b.rhythm.tempo_bpm)} BPM with a clear beat; on-beat cuts follow the music.`
+          : `About ${Math.round(b.rhythm.tempo_bpm)} BPM; no clear beat, so slots keep the reference's cut timing.`}</dd>
         <dt>Processing coverage</dt><dd>{b.successful_frames} consecutive decoded frames across {b.duration_seconds} seconds; {b.processing_width} × {b.processing_height}, threshold {b.threshold}.</dd>
         <dt>Version</dt><dd>Schema {b.schema_version} · {b.algorithm_version}</dd>
         <dt>Tools</dt><dd>{Object.entries(b.tool_versions).map(([name, version]) => `${name}: ${version}`).join(" · ")}</dd>

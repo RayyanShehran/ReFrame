@@ -2,6 +2,24 @@
 
 Current default is automatic reference-video generation; Customize retains the advanced editor. Earlier sections record historical milestone boundaries. [Current workflow, verification and limits](AUTOMATIC_GENERATION.md).
 
+## Cuts on the music — 2026-11-23
+
+Slots now cut at every reference cut.
+- **Pacing schema 2:** scdet plus the camera-motion cut detector, which catches the dark and similar-looking cuts scdet missed.
+- **One timeline:** output and reference share a timeline, so the export's cuts meet the reference music exactly where the reference's cuts do.
+- **Beats:** pacing also measures the reference's rhythm with NumPy. On-beat cuts snap to the output music only when it is offset from the reference and its beat is clear; otherwise slots keep the reference's cut timing.
+- **Short pieces:** 1–2-frame pieces merge into the previous slot; 3–5-frame montage shots stay.
+- **Old data:** v1 pacing and sequences become stale, and generation rebuilds old slot checkpoints.
+
+Isolated e2e (UI, both references):
+- **Exported cuts:** 18/18 and 21/21, every one exact (before: 14/18 and 13/21). Slots went from 15 to 19 and from 14 to 22.
+- **Music alignment:** export cuts are now on onsets and beats at the reference's own rates (printed: 52% / 86% of cuts within ±1 / ±2 frames of an onset).
+- **Rhythm:** neither reference has a clear beat, so nothing was snapped.
+- **Unchanged:** camera motion curves and the handwritten caption retry (251.61 / 0 / 0.47 / 2.55, 17/22).
+- **Timing:** pacing re-analysis takes 6–15 s, and generation to the caption-review pause took 468 s and 395 s.
+
+[Design, evidence and limits](BEAT_SYNC.md).
+
 ## Camera roll copying — 2026-11-23
 
 Sequence exports now copy the reference's camera roll as well as its zoom and pan. A shot rolls only when two checks pass:

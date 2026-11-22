@@ -97,6 +97,44 @@
       "title": "OtherCategories",
       "type": "object"
     },
+    "Rhythm": {
+      "additionalProperties": false,
+      "properties": {
+        "tempo_bpm": {
+          "maximum": 200,
+          "minimum": 0,
+          "title": "Tempo Bpm",
+          "type": "number"
+        },
+        "strength": {
+          "maximum": 1,
+          "minimum": -1,
+          "title": "Strength",
+          "type": "number"
+        },
+        "clear": {
+          "title": "Clear",
+          "type": "boolean"
+        },
+        "beats": {
+          "items": {
+            "maximum": 120,
+            "minimum": 0,
+            "type": "number"
+          },
+          "maxItems": 1000,
+          "title": "Beats",
+          "type": "array"
+        }
+      },
+      "required": [
+        "tempo_bpm",
+        "strength",
+        "clear"
+      ],
+      "title": "Rhythm",
+      "type": "object"
+    },
     "Shot": {
       "additionalProperties": false,
       "properties": {
@@ -153,19 +191,44 @@
       ],
       "title": "Source",
       "type": "object"
+    },
+    "Timings": {
+      "additionalProperties": false,
+      "properties": {
+        "scdet_seconds": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Scdet Seconds",
+          "type": "number"
+        },
+        "detector_seconds": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Detector Seconds",
+          "type": "number"
+        },
+        "rhythm_seconds": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Rhythm Seconds",
+          "type": "number"
+        }
+      },
+      "title": "Timings",
+      "type": "object"
     }
   },
   "additionalProperties": false,
   "properties": {
     "schema_version": {
-      "const": 1,
-      "default": 1,
+      "const": 2,
+      "default": 2,
       "title": "Schema Version",
       "type": "integer"
     },
     "algorithm_version": {
-      "const": "scdet-consecutive-v1",
-      "default": "scdet-consecutive-v1",
+      "const": "scdet-cut-detector-v2",
+      "default": "scdet-cut-detector-v2",
       "title": "Algorithm Version",
       "type": "string"
     },
@@ -283,6 +346,49 @@
     },
     "other_categories": {
       "$ref": "#/$defs/OtherCategories"
+    },
+    "scdet_cut_timestamps": {
+      "items": {
+        "exclusiveMinimum": 0,
+        "maximum": 120,
+        "type": "number"
+      },
+      "maxItems": 1000,
+      "title": "Scdet Cut Timestamps",
+      "type": "array"
+    },
+    "detected_cut_frames": {
+      "items": {
+        "maximum": 3600,
+        "minimum": 1,
+        "type": "integer"
+      },
+      "maxItems": 1000,
+      "title": "Detected Cut Frames",
+      "type": "array"
+    },
+    "cut_detector": {
+      "default": "unavailable",
+      "enum": [
+        "camera-motion-cuts-v1",
+        "unavailable"
+      ],
+      "title": "Cut Detector",
+      "type": "string"
+    },
+    "rhythm": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Rhythm"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "timings": {
+      "$ref": "#/$defs/Timings"
     }
   },
   "required": [
