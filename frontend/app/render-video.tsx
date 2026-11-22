@@ -51,7 +51,7 @@ export function RenderVideo({ grading, savedStrength, savedValues, projectId, re
   const setMotion = (value: Motion) => setLoadedMotion({ url: motionUrl, value });
   useEffect(() => {
     let live = true;
-    fetch(motionUrl).then(r => r.json()).then(d => { if (live) setLoadedMotion({ url: motionUrl, value: parseMotion(d) }); }).catch(() => { if (live) setLoadedMotion({ url: motionUrl, value: defaultMotion }); });
+    fetch(motionUrl, { method: "GET" }).then(r => r.json()).then(d => { if (live) setLoadedMotion({ url: motionUrl, value: parseMotion(d) }); }).catch(() => { if (live) setLoadedMotion({ url: motionUrl, value: defaultMotion }); });
     return () => { live = false; };
   }, [motionUrl]);
   const toggleMotion = async () => {
