@@ -459,12 +459,13 @@ def measure(path, shots, directory, stop, deadline):
     decoded = time.monotonic()
     color.guard(stop, deadline)
     estimate_deadline = min(deadline, decoded + ESTIMATE_SECONDS)
-    # Saved shots can miss cuts; a curve must never run across one.
+    # Saved shots can miss cuts; a curve must never run across one. A detected cut within 2
+    # frames of a saved boundary is that same cut.
     cuts = cut_frames(np, frames, estimate_deadline)
     shots = [
         (a, b)
         for start, end in shots
-        for a, b in itertools.pairwise([start, *(c for c in cuts if start < c < end), end])
+        for a, b in itertools.pairwise([start, *(c for c in cuts if start + 2 < c < end - 2), end])
     ][:MAX_SHOTS]
     cut = time.monotonic()
     color.guard(stop, deadline)
