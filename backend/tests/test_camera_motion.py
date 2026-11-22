@@ -22,11 +22,13 @@ def texture(seed=7, size=(900, 1500)):
     return 40 + 175 * noise
 
 
-def warp(image, scale, x, y):
-    """Output frame whose content is `image` magnified by `scale`, moved by (x, y) heights."""
+def warp(image, scale, x, y, angle=0.0):
+    """Output frame whose content is `image` magnified by `scale`, turned clockwise by `angle`
+    radians and moved by (x, y) heights."""
     rows, cols = np.mgrid[0:HEIGHT, 0:WIDTH].astype(float)
-    qx, qy = (cols - WIDTH / 2) / HEIGHT, (rows - HEIGHT / 2) / HEIGHT
-    px, py = (qx - x) / scale * HEIGHT, (qy - y) / scale * HEIGHT
+    qx, qy = (cols - WIDTH / 2) / HEIGHT - x, (rows - HEIGHT / 2) / HEIGHT - y
+    cos, sin = np.cos(angle), np.sin(angle)
+    px, py = (cos * qx + sin * qy) / scale * HEIGHT, (cos * qy - sin * qx) / scale * HEIGHT
     sx, sy = px + image.shape[1] / 2, py + image.shape[0] / 2
     x0, y0 = np.floor(sx).astype(int), np.floor(sy).astype(int)
     fx, fy = sx - x0, sy - y0
@@ -262,3 +264,122 @@ def test_slow_pan_is_measured_without_sub_pixel_bias(tmp_path):
     _, x, y, _ = motion.sample(shot, FRAMES - 1, shake=False)
     assert x == pytest.approx(0.03, abs=0.003)
     assert y == pytest.approx(-0.02, abs=0.003)
+
+
+def roll(path, angles):
+    image = texture()
+    return encode(path, [warp(image, 1.0, 0.0, 0.0, angle) for angle in angles])
+
+
+def test_known_roll_is_detected_within_tolerance(tmp_path):
+    turn = np.radians(3)
+    path = roll(tmp_path / "roll.mp4", [turn * i / 59 for i in range(FRAMES)])
+    (shot,) = measure(path, tmp_path / "stage")
+    assert "rotate" in shot.moves
+    assert motion.sample(shot, FRAMES - 1)[3] == pytest.approx(turn, abs=np.radians(0.2))
+    assert motion.sample(shot, 30)[3] == pytest.approx(turn * 30 / 59, abs=np.radians(0.2))
+    scale, x, y, _ = motion.sample(shot, FRAMES - 1)
+    assert abs(scale - 1) < 0.01 and abs(x) < 0.005 and abs(y) < 0.005
+
+
+def test_a_still_shot_and_a_roll_below_the_noise_floor_count_as_no_rotation(tmp_path):
+    image = texture()
+    still = [warp(image, 1.0, 0.02 * i / 59, 0.0) for i in range(FRAMES)]
+    (shot,) = measure(encode(tmp_path / "still.mp4", still), tmp_path / "stage")
+    assert "rotate" not in shot.moves and shot.shake_angle == []
+    assert all(key.angle == 0 for key in shot.keyframes)
+    faint = motion.ROTATION_FLOOR * 0.5
+    path = roll(tmp_path / "faint.mp4", [faint * i / 59 for i in range(FRAMES)])
+    (shot,) = measure(path, tmp_path / "stage")
+    assert "rotate" not in shot.moves and shot.shake_angle == []
+    assert all(motion.sample(shot, frame)[3] == 0 for frame in range(FRAMES))
+
+
+def test_shaky_roll_keeps_its_shake_separate_from_the_intentional_roll(tmp_path):
+    turn, wobble = np.radians(3), np.radians(1)
+    angles = [turn * i / 59 + wobble * np.sin(2 * np.pi * 4 * i / 30) for i in range(FRAMES)]
+    (shot,) = measure(roll(tmp_path / "shaky.mp4", angles), tmp_path / "stage")
+    assert {"rotate", "shake"} <= set(shot.moves)
+    strongest = max(shot.shake_angle, key=lambda wave: wave.amplitude)
+    assert strongest.frequency == pytest.approx(4, abs=0.6)
+    assert strongest.amplitude == pytest.approx(wobble, abs=np.radians(0.35))
+    smooth = motion.sample(shot, FRAMES - 1, shake=False)[3]
+    assert smooth == pytest.approx(turn, abs=np.radians(0.4))
+    # The shake is added back when sampling with shake.
+    middle = 37
+    assert motion.sample(shot, middle)[3] == pytest.approx(angles[middle], abs=np.radians(0.4))
+
+
+def corners_inside(samples, width, height):
+    """Every output corner, mapped back through the base zoom, roll and crop, is in the frame."""
+    zoom = motion.base_zoom(samples, width, height)
+    for scale, x, y, angle in samples:
+        z = zoom * scale
+        cos, sin = np.cos(angle), np.sin(angle)
+        for u in (-width / 2, width / 2):
+            for v in (-height / 2, height / 2):
+                # Output corner -> rotated source (crop centre offset -x*H/z, -y*H/z) -> source.
+                qx, qy = u / z - x * height / z, v / z - y * height / z
+                sx, sy = cos * qx + sin * qy, -sin * qx + cos * qy
+                if abs(sx) > width / 2 + 1e-6 or abs(sy) > height / 2 + 1e-6:
+                    return False
+    return True
+
+
+def test_rolled_crop_corners_stay_inside_the_picture_and_large_rolls_are_scaled_down():
+    for width, height in ((WIDTH, HEIGHT), (720, 1280)):
+        rolled = [
+            (1.0 + 0.05 * i / 59, 0.03 * i / 59, -0.01, np.radians(3) * i / 59)
+            for i in range(FRAMES)
+        ]
+        graph, notice = motion.motion_filter(rolled, width, height)
+        assert notice is None and "rotate=" in graph and "zoompan" in graph
+        assert corners_inside(rolled, width, height)
+        assert motion.base_zoom(rolled, width, height) > motion.base_zoom(
+            [s[:3] + (0.0,) for s in rolled], width, height
+        )
+    huge = [(1.0, 0.0, 0.0, np.radians(20) * i / 59) for i in range(FRAMES)]
+    graph, notice = motion.motion_filter(huge, WIDTH, HEIGHT)
+    assert notice  # Scaled down, with a notice, like zoom and pan.
+    share = int(notice.split("to ")[1].split("%")[0]) / 100
+    reduced = [(s, x, y, a * share) for s, x, y, a in huge]
+    assert motion.required_zoom(reduced, WIDTH, HEIGHT) <= motion.MAX_BASE_ZOOM * 1.01
+    assert corners_inside(reduced, WIDTH, HEIGHT)
+
+
+def test_render_applies_a_known_roll_without_black_corners(tmp_path):
+    turn = np.radians(3)
+    curve = motion.ShotMotion(
+        start_frame=0,
+        end_frame=FRAMES,
+        keyframes=[
+            motion.Keyframe(frame=0, scale=1.0, x=0.0, y=0.0, angle=0.0),
+            motion.Keyframe(frame=FRAMES - 1, scale=1.0, x=0.0, y=0.0, angle=turn),
+        ],
+        moves=["rotate"],
+    )
+    samples = [motion.sample(curve, frame) for frame in range(FRAMES)]
+    graph, notice = motion.motion_filter(samples, WIDTH, HEIGHT)
+    assert notice is None
+    source = encode(tmp_path / "flat.mp4", [warp(texture(), 1.0, 0.0, 0.0)] * FRAMES)
+    output = tmp_path / "rolled.mp4"
+    subprocess.run(
+        ["ffmpeg", "-v", "error", "-y", "-i", str(source), "-vf", graph]
+        + ["-c:v", "libx264", "-crf", "16", "-pix_fmt", "yuv420p", str(output)],
+        check=True,
+    )
+    raw = subprocess.run(
+        ["ffmpeg", "-v", "error", "-i", str(output), "-f", "rawvideo", "-pix_fmt", "gray", "-"],
+        capture_output=True,
+        check=True,
+    ).stdout
+    decoded = np.frombuffer(raw, np.uint8).reshape(-1, HEIGHT, WIDTH)
+    assert len(decoded) == FRAMES
+    corners = decoded[:, [0, 0, -1, -1], [0, -1, 0, -1]]
+    edges = np.concatenate(
+        [decoded[:, :2].ravel(), decoded[:, -2:].ravel()]
+        + [decoded[:, :, :2].ravel(), decoded[:, :, -2:].ravel()]
+    )
+    assert corners.min() >= 20 and edges.min() >= 20, "black corner in the rolled output"
+    (shot,) = measure(output, tmp_path / "stage")
+    assert motion.sample(shot, FRAMES - 1, shake=False)[3] == pytest.approx(turn, abs=0.005)
