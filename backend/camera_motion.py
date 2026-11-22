@@ -735,21 +735,34 @@ def applies(settings):
 
 
 def slot_samples(settings, slot):
-    """Per-frame (scale, x, y) for a slot, rebased to identity at its first reference frame."""
+    """Per-frame (scale, x, y) for a slot, rebased to identity at its first reference frame.
+
+    A slot whose reference interval spans a cut keeps going from where its curve is with the
+    next shot's motion (the footage does not cut there); past the last shot it holds.
+    """
     if not applies(settings) or slot.reference_start_frame is None:
         return None
     start = slot.reference_start_frame
-    shot = next(
-        (s for s in settings.shots if s.start_frame <= start < s.end_frame and s.moves), None
-    )
-    if shot is None:
+    end = start + slot.duration_frames
+    if not any(s.moves and s.start_frame < end and start < s.end_frame for s in settings.shots):
         return None
-    s0, x0, y0, _ = sample(shot, start)
-    result = []
-    for k in range(slot.duration_frames):
-        s, x, y, _ = sample(shot, min(start + k, shot.end_frame - 1))
+    base, shot, origin, result = (1.0, 0.0, 0.0), None, None, []
+    for frame in range(start, end):
+        current = next((s for s in settings.shots if s.start_frame <= frame < s.end_frame), None)
+        if current is not shot:
+            base = result[-1] if result else base
+            shot, origin = current, sample(current, frame) if current else None
+        if shot is None:
+            result.append(base)
+            continue
+        s, x, y, _ = sample(shot, frame)
+        s0, x0, y0, _ = origin
         relative = s / s0
-        result.append((relative, x - relative * x0, y - relative * y0))
+        # This shot's move since `origin`, applied on top of the accumulated `base`.
+        bs, bx, by = base
+        result.append(
+            (relative * bs, relative * bx + x - relative * x0, relative * by + y - relative * y0)
+        )
     return result
 
 
