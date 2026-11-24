@@ -243,6 +243,41 @@ def test_a_flash_is_not_a_cut(tmp_path):
     assert found == [], found
 
 
+def soft(seed, frames, level):
+    """A dark, out-of-focus shot: a burned-in caption has the only sharp edges in it."""
+    shot = []
+    for frame in scene(seed, frames, gain=1.2, level=level):
+        f = frame.astype(float)
+        for _ in range(8):
+            f = sum(np.roll(f, s, a) for s in (2, -2) for a in (0, 1)) / 5 + f / 5
+        shot.append(f.astype(np.uint8))
+    return shot
+
+
+def caption(frame, words):
+    """Burn in a white caption of `words` words (four letter strokes each) across the centre."""
+    out = frame.copy()
+    x = WIDTH // 2 - words * 30
+    for _ in range(words):
+        for stroke in range(4):
+            out[170:194, x + stroke * 12 : x + stroke * 12 + 5] = 240
+        x += 60
+    return out
+
+
+def test_a_caption_changing_over_a_dark_soft_shot_is_not_a_cut(tmp_path):
+    # Words appear one at a time, as in lyric edits: 1, then 2, then 4 words.
+    frames = [caption(f, 1 + (i >= 20) + 2 * (i >= 40)) for i, f in enumerate(soft(1, 60, 20))]
+    found = detected(encode(tmp_path / "caption.mp4", frames), tmp_path / "stage")
+    assert found == [], found
+
+
+def test_a_cut_between_dark_soft_shots_under_the_same_caption_is_found(tmp_path):
+    frames = [caption(f, 3) for f in soft(1, 30, 20) + soft(2, 30, 22)]
+    found = detected(encode(tmp_path / "same-caption.mp4", frames), tmp_path / "stage")
+    assert near(found, [30]), found
+
+
 def test_measure_splits_a_saved_shot_at_a_detected_cut(tmp_path):
     image = texture()
     frames = [warp(image, 1 + 0.1 * i / 29, 0, 0) for i in range(30)] + scene(3, 30)
