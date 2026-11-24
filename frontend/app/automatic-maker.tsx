@@ -132,7 +132,7 @@ export function AutomaticMaker() {
   return <div className={customize ? "customize-open" : undefined}>
     {customize && <header className="customize-header"><span className="brand">ReFrame.</span><p>{projects.find(p => p.id === projectId)?.name || "Your project"} · Customize</p><button onClick={() => setCustomize(false)}>Return to result</button></header>}
     <header className="topbar"><span className="brand">ReFrame<span className="brand-dot">.</span></span><span className="header-project">Reference in. Your video out.</span><button onClick={() => void open(null)}>New video</button></header>
-    <section className="hero"><p className="eyebrow">[ Your reference. Your footage. ]</p><h1>Make it <em>your own.</em></h1><p className="intro">Paste a reference. Add your clips. Generate your video.</p></section>
+    <section className="hero"><p className="eyebrow">Your reference. Your footage.</p><h1>Make it <em>your own.</em></h1><p className="intro">Paste a reference. Add your clips. Generate your video.</p></section>
     <section className="reference-section automatic-creation" aria-label="Create video">
       <label>TikTok reference link<input aria-label="TikTok reference link" type="url" placeholder="https://www.tiktok.com/…" value={link} disabled={running || !!projectId} onChange={e => setLink(e.target.value)} /></label>
       <FootagePicker actionLabel="Generate video" label="Choose your clips" disabled={!!running} onFilesSelected={files} />

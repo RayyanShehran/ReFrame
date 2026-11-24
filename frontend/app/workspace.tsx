@@ -141,7 +141,7 @@ export function Workspace({ onProjectChange, onCaptionReviewTarget, captionRevie
       <Connectivity />
     </header>
     {!projectId && <section className="hero" aria-labelledby="hero-title">
-      <p className="eyebrow">[ Your reference. Your footage. ]</p>
+      <p className="eyebrow">Your reference. Your footage.</p>
       <h1 id="hero-title">Make the edit <em>your own.</em></h1>
       <p className="intro">Bring a reference look to your footage. Shape the colors, cuts and captions, then export your video.</p>
     </section>}
@@ -177,7 +177,7 @@ export function Workspace({ onProjectChange, onCaptionReviewTarget, captionRevie
       </form>}
     </>}
     {current && <section className="footage-section" aria-label="Saved project workspace">
-      <div className="project-heading"><p className="eyebrow">[ Editing workspace ]</p><h1>{current.name}</h1></div>
+      <div className="project-heading"><p className="eyebrow">Editing workspace</p><h1>{current.name}</h1></div>
       <GuidedWorkspace key={current.id} hasFootage={current.clip_status === "ready"} footageUnavailable={!["empty", "ready"].includes(current.clip_status)}>
       <ProposalDraftStatus dirty={captionReviewDirty} issues={captionReviewIssues} />
       <WorkspaceSection section="reference"><div className="reference-card"><h3>{current.reference.title || "TikTok reference"}</h3>
