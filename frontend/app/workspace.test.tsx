@@ -151,3 +151,17 @@ it("clears project request timers when a stalled fetch ignores abort", async () 
   view.unmount();
   expect(vi.getTimerCount()).toBe(0);
 });
+
+it("puts its Saved projects menu in the host header slot instead of rendering its own header", async () => {
+  vi.stubGlobal("fetch", vi.fn(async (url: string) => ok(url.endsWith("/api/projects") ? [first] : first)));
+  const slot = document.createElement("div");
+  document.body.append(slot);
+  const opened: (string | null)[] = [];
+  const { container } = render(<Workspace onProjectChange={id => opened.push(id)} headerMenuTarget={slot} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Open First" }));
+  expect(opened).toEqual([first.id]);
+  expect(slot).toContainElement(screen.getByRole("button", { name: "Open First" }));
+  expect(slot).toHaveTextContent("Saved projects");
+  expect(container.querySelector("header")).toBeNull();
+  slot.remove();
+});

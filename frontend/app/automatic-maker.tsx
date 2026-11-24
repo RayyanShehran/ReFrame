@@ -6,6 +6,7 @@ import { FootagePicker } from "./clip-upload";
 import { useMediaOperation, type MediaOperation } from "./use-media-operation";
 import { AutomaticCaptionReview, type CaptionReview } from "./automatic-caption-review";
 import { Workspace } from "./workspace";
+import { AppHeader } from "./app-header";
 
 type Options = { audio: "reference" | "original" | "mix" | "mute"; captions: "reference" | "output_audio" | "off"; allow_reused_ranges: boolean; matching_mode?: "subject_aware" | "measurements" };
 type Generation = MediaOperation & { project_id: string; revision: number; operation_id: string | null; stage: string | null; output_id: string | null; notices: string[]; options: Options | null; caption_review?: CaptionReview | null };
@@ -44,7 +45,7 @@ export function AutomaticMaker() {
   const [busy, setBusy] = useState(false), [error, setError] = useState(""), [customize, setCustomize] = useState(false);
   const [allowReuse, setAllowReuse] = useState(false), [replace, setReplace] = useState(false), [needsReplace, setNeedsReplace] = useState(false);
   const [customizeMounted, setCustomizeMounted] = useState(false), [acceptPartial, setAcceptPartial] = useState(false);
-  const [reviewTarget, setReviewTarget] = useState<HTMLDivElement | null>(null);
+  const [reviewTarget, setReviewTarget] = useState<HTMLDivElement | null>(null), [menuTarget, setMenuTarget] = useState<HTMLDivElement | null>(null);
   const [reviewDirty, setReviewDirty] = useState(false), [replaceVerified, setReplaceVerified] = useState(false);
   const [outputId, setOutputId] = useState<string | null>(null);
   const items = useRef<Item[]>([]), action = useRef<AbortController | null>(null), currentId = useRef<string | null>(null);
@@ -129,10 +130,13 @@ export function AutomaticMaker() {
     } catch (cause) { if (!controller.signal.aborted) { setError(cause instanceof Error ? cause.message : "Generation failed."); if (cause instanceof Error && "code" in cause && cause.code === "generation_replace_required") setNeedsReplace(true); } }
     finally { if (action.current === controller) { action.current = null; setBusy(false); } }
   }
+  const projectName = projects.find(p => p.id === projectId)?.name || "Your project";
   return <div className={customize ? "customize-open" : undefined}>
-    {customize && <header className="customize-header"><span className="brand">ReFrame.</span><p>{projects.find(p => p.id === projectId)?.name || "Your project"} · Customize</p><button onClick={() => setCustomize(false)}>Return to result</button></header>}
-    <header className="topbar"><span className="brand">ReFrame<span className="brand-dot">.</span></span><span className="header-project">Reference in. Your video out.</span><button onClick={() => void open(null)}>New video</button></header>
-    <section className="hero"><p className="eyebrow">[ Your reference. Your footage. ]</p><h1>Make it <em>your own.</em></h1><p className="intro">Paste a reference. Add your clips. Generate your video.</p></section>
+    {/* Customize puts the editor's "Saved projects" menu in the header slot (a portal from Workspace). */}
+    <AppHeader project={customize ? `${projectName} · Customize` : projectId ? projectName : "Reference in. Your video out."}
+      menu={customize ? <div ref={setMenuTarget} /> : !!projects.length && <details className="project-switcher"><summary>Saved videos</summary><ul>{projects.map(project => <li key={project.id}><button onClick={() => void open(project.id)}>{project.name}</button></li>)}</ul></details>}
+      actions={customize ? <button onClick={() => setCustomize(false)}>Return to result</button> : <button onClick={() => void open(null)}>New video</button>} />
+    <section className="hero"><p className="eyebrow">Your reference. Your footage.</p><h1>Make it <em>your own.</em></h1><p className="intro">Paste a reference. Add your clips. Generate your video.</p></section>
     <section className="reference-section automatic-creation" aria-label="Create video">
       <label>TikTok reference link<input aria-label="TikTok reference link" type="url" placeholder="https://www.tiktok.com/…" value={link} disabled={running || !!projectId} onChange={e => setLink(e.target.value)} /></label>
       <FootagePicker actionLabel="Generate video" label="Choose your clips" disabled={!!running} onFilesSelected={files} />
@@ -162,7 +166,6 @@ export function AutomaticMaker() {
     {operation?.status === "ready" && !!operation.caption_review?.unreadable_samples && !!operation.caption_review?.cues.length && <details><summary>Saved caption reading — incomplete</summary><p>These detected words were retained for review. Check the saved caption mode for this video.</p><ul>{operation.caption_review.cues.map((cue, i) => <li key={i}>{cue.start.toFixed(2)}–{cue.end.toFixed(2)}: {cue.text}</li>)}</ul></details>}
     {projectId && operation?.caption_review && <AutomaticCaptionReview portalTarget={customize ? reviewTarget : null} key={`${projectId}:${operation.revision}:${operation.status}`} projectId={projectId} revision={operation.revision} review={operation.caption_review} disabled={!!running} onSaved={generation.refresh} onDirty={setReviewDirty}>{(!!operation.caption_review.verified_cues?.length || !!operation.caption_review.corrected_cues?.length) && <label><input type="checkbox" checked={replaceVerified} disabled={!!running || reviewDirty} onChange={e => setReplaceVerified(e.target.checked)} /> Replace my verified or corrected cues on the next retry</label>}{customize && <div className="caption-recovery"><button disabled={!!running || reviewDirty} onClick={() => void generate(undefined, "reference", false, operation?.options?.audio ?? audio)}>Retry caption reading</button><button disabled={!!running || reviewDirty} onClick={() => void generate(undefined, "off", false, operation?.options?.audio ?? audio)}>Continue without captions</button></div>}</AutomaticCaptionReview>}
     {!outputId && projectId && <button onClick={() => { setCustomizeMounted(true); setCustomize(value => !value); }}>{customize ? "Close Customize" : "Customize"}</button>}
-    {customizeMounted && <div hidden={!customize}><Workspace key={projectId} onCaptionReviewTarget={setReviewTarget} captionReviewDirty={reviewDirty} captionReviewIssues={operation?.caption_review?.unreadable_samples ?? 0} onProjectChange={id => void open(id)} /></div>}
-    {!!projects.length && <details className="project-switcher"><summary>Saved videos</summary><ul>{projects.map(project => <li key={project.id}><button onClick={() => void open(project.id)}>{project.name}</button></li>)}</ul></details>}
+    {customizeMounted && <div hidden={!customize}><Workspace key={projectId} onCaptionReviewTarget={setReviewTarget} headerMenuTarget={customize ? menuTarget : null} captionReviewDirty={reviewDirty} captionReviewIssues={operation?.caption_review?.unreadable_samples ?? 0} onProjectChange={id => void open(id)} /></div>}
   </div>;
 }

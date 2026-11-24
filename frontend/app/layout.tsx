@@ -2,10 +2,7 @@ import type { Metadata } from "next";
 import localFont from "next/font/local";
 import "./globals.css";
 
-const display = localFont({ src: [
-  { path: "./fonts/SourceSerif4.ttf", style: "normal", weight: "200 900" },
-  { path: "./fonts/SourceSerif4-Italic.ttf", style: "italic", weight: "200 900" },
-], variable: "--font-display", display: "swap" });
+// One UI typeface. The Source Serif 4 files and licence stay in ./fonts but are not loaded.
 const controls = localFont({ src: "./fonts/InterTight.ttf", weight: "100 900", variable: "--font-controls", display: "swap" });
 
 export const metadata: Metadata = {
@@ -14,5 +11,5 @@ export const metadata: Metadata = {
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  return <html lang="en"><body className={`${display.variable} ${controls.variable}`}>{children}</body></html>;
+  return <html lang="en"><body className={controls.variable}>{children}</body></html>;
 }

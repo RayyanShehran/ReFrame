@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { Connectivity } from "./connectivity";
+import { createPortal } from "react-dom";
+import { AppHeader } from "./app-header";
 import { ClipLibrary } from "./clip-library";
 import { parseClipDetails, type ClipDetails } from "./clip-upload";
 import { ReferenceSelection } from "./reference-selection";
@@ -52,7 +53,7 @@ function ProposalDraftStatus({ dirty, issues }: { dirty: boolean; issues: number
   return null;
 }
 
-export function Workspace({ onProjectChange, onCaptionReviewTarget, captionReviewDirty = false, captionReviewIssues = 0 }: { onProjectChange?: (id: string | null) => void; onCaptionReviewTarget?: (node: HTMLDivElement | null) => void; captionReviewDirty?: boolean; captionReviewIssues?: number } = {}) {
+export function Workspace({ onProjectChange, onCaptionReviewTarget, headerMenuTarget = null, captionReviewDirty = false, captionReviewIssues = 0 }: { onProjectChange?: (id: string | null) => void; onCaptionReviewTarget?: (node: HTMLDivElement | null) => void; headerMenuTarget?: HTMLElement | null; captionReviewDirty?: boolean; captionReviewIssues?: number } = {}) {
   const [projectId, setProjectId] = useState<string | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [current, setCurrent] = useState<Project | null>(null);
@@ -134,18 +135,7 @@ export function Workspace({ onProjectChange, onCaptionReviewTarget, captionRevie
     void mutate("", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, reference_url: referenceUrl }) }, (data) => open(project(data).id));
   }
 
-  return <>
-    <header className="topbar">
-      <span className="brand">ReFrame<span className="brand-dot">.</span></span>
-      <span className="header-project">{current?.name ?? (projectId ? "Opening project…" : "Local video workspace")}</span>
-      <Connectivity />
-    </header>
-    {!projectId && <section className="hero" aria-labelledby="hero-title">
-      <p className="eyebrow">[ Your reference. Your footage. ]</p>
-      <h1 id="hero-title">Make the edit <em>your own.</em></h1>
-      <p className="intro">Bring a reference look to your footage. Shape the colors, cuts and captions, then export your video.</p>
-    </section>}
-    <details className="project-switcher" open={!projectId}>
+  const switcher = <details className="project-switcher" open={!projectId}>
     <summary><span>Saved projects</span><span className="project-count">{projects.length} / 10</span></summary>
     <section className="reference-section" aria-labelledby="projects-title">
       <h2 id="projects-title">Saved projects</h2>
@@ -164,7 +154,17 @@ export function Workspace({ onProjectChange, onCaptionReviewTarget, captionRevie
         <div className="reference-actions"><button disabled={busy} onClick={() => void mutate(`/${deleting.id}`, { method: "DELETE" }, () => { if (projectId === deleting.id) open(null); setDeleting(null); })}>Confirm delete</button>
           <button disabled={busy} onClick={() => setDeleting(null)}>Cancel deletion</button></div>
       </div>}
-    </section></details>
+    </section></details>;
+
+  return <>
+    {/* Inside the automatic maker its header shows this menu; on its own, the workspace has its own header. */}
+    {onProjectChange ? headerMenuTarget ? createPortal(switcher, headerMenuTarget) : switcher
+      : <AppHeader project={current?.name ?? (projectId ? "Opening project…" : "Local video workspace")} menu={switcher} />}
+    {!projectId && <section className="hero" aria-labelledby="hero-title">
+      <p className="eyebrow">Your reference. Your footage.</p>
+      <h1 id="hero-title">Make the edit <em>your own.</em></h1>
+      <p className="intro">Bring a reference look to your footage. Shape the colors, cuts and captions, then export your video.</p>
+    </section>}
     {!projectId && <>
       <ReferenceSelection key={newVersion} onSelectedChange={(id, url) => {
         if (mutation.current) { generation.current++; mutation.current.abort(); mutation.current = null; setBusy(false); }
@@ -177,7 +177,7 @@ export function Workspace({ onProjectChange, onCaptionReviewTarget, captionRevie
       </form>}
     </>}
     {current && <section className="footage-section" aria-label="Saved project workspace">
-      <div className="project-heading"><p className="eyebrow">[ Editing workspace ]</p><h1>{current.name}</h1></div>
+      <div className="project-heading"><p className="eyebrow">Editing workspace</p><h1>{current.name}</h1></div>
       <GuidedWorkspace key={current.id} hasFootage={current.clip_status === "ready"} footageUnavailable={!["empty", "ready"].includes(current.clip_status)}>
       <ProposalDraftStatus dirty={captionReviewDirty} issues={captionReviewIssues} />
       <WorkspaceSection section="reference"><div className="reference-card"><h3>{current.reference.title || "TikTok reference"}</h3>
