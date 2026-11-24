@@ -163,3 +163,42 @@ it("shows a hint when the reference preview fails and still allows Generate", as
   expect(await screen.findByText("Reference details could not be loaded. You can still generate.")).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Generate video" })).toBeEnabled();
 });
+
+it("shows generation progress as steps from the reported stage, with Cancel", async () => {
+  window.history.replaceState(null,"",`/?project=${pid}`);
+  const cancels: string[] = [];
+  vi.stubGlobal("fetch",vi.fn(async (url:string, init:RequestInit={})=> {
+    if(url.endsWith("/clips")) return ok(library(2));
+    if(url.endsWith("/render")) return ok({output:null});
+    if(url.endsWith("/generation/cancel")) { cancels.push(init.method ?? "GET"); return ok({project_id:pid,revision:4,status:"failed",stage:"Choosing your clips",output_id:null,options:null,notices:[],failure_code:"cancelled",message:"Generation stopped."}); }
+    if(url.endsWith("/generation")) return ok({project_id:pid,revision:4,status:"running",stage:"Choosing your clips",output_id:null,options:null,notices:[],failure_code:null,message:null});
+    if(url.endsWith(pid)) return ok({id:pid,reference:{canonical_url:"https://www.tiktok.com/@fixture/video/6718335390845095173"}});
+    return ok([]);
+  }));
+  render(<AutomaticMaker />);
+  const progress = await screen.findByRole("status", { name: "Generation progress" });
+  const steps = within(progress).getAllByRole("listitem");
+  expect(steps.map(step => step.dataset.state)).toEqual(["done", "current", "upcoming", "upcoming", "upcoming"]);
+  expect(within(progress).getByText("Choosing your clips")).toHaveAttribute("aria-current", "step");
+  fireEvent.click(within(progress).getByRole("button", { name: "Cancel" }));
+  await waitFor(() => expect(cancels).toEqual(["POST"]));
+});
+
+it("groups a failure's recovery options beneath one danger banner", async () => {
+  window.history.replaceState(null,"",`/?project=${pid}`);
+  vi.stubGlobal("fetch",vi.fn(async (url:string)=> {
+    if(url.endsWith("/clips")) return ok(library(3));
+    if(url.endsWith("/render")) return ok({output:{output_id:"previous-output"}});
+    if(url.endsWith("/generation")) return ok({project_id:pid,revision:3,status:"failed",stage:"Recreating captions",output_id:null,options:{audio:"reference",captions:"reference",allow_reused_ranges:false},notices:[],failure_code:"caption_setup",message:"Caption reading needs setup.",caption_review:null});
+    if(url.endsWith(pid)) return ok({id:pid,reference:{canonical_url:"https://www.tiktok.com/@fixture/video/6718335390845095173"}});
+    return ok([]);
+  }));
+  render(<AutomaticMaker />);
+  const alert = await screen.findByRole("alert");
+  expect(alert).toHaveTextContent("Caption reading needs setup.");
+  expect(alert).toHaveClass("banner", "banner-danger");
+  const recovery = screen.getByRole("group", { name: "Recovery options" });
+  expect(within(recovery).getByRole("button", { name: "Retry caption reading" })).toBeInTheDocument();
+  expect(within(recovery).getByRole("button", { name: "Continue without captions" })).toBeInTheDocument();
+  expect(within(recovery).getByText("Setup details")).toBeInTheDocument();
+});

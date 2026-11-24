@@ -1,6 +1,6 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
-import { Badge, Banner, Button, EmptyState, Field, Panel } from "./ui";
+import { Badge, Banner, Button, EmptyState, Field, Panel, ProgressSteps } from "./ui";
 
 it("renders a native button that passes every prop through and defaults to type=button", () => {
   const click = vi.fn();
@@ -47,4 +47,13 @@ it("renders panels and empty states as plain containers", () => {
   expect(screen.getByRole("region", { name: "Create video" })).toHaveClass("panel");
   expect(screen.getByText("No clips yet")).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Choose videos" })).toBeInTheDocument();
+});
+
+it("marks progress steps before the current one as done and the current one with aria-current", () => {
+  render(<ProgressSteps aria-label="Generation stages" steps={["Reading reference", "Choosing your clips", "Rendering"]} current="Choosing your clips" />);
+  const items = within(screen.getByRole("list", { name: "Generation stages" })).getAllByRole("listitem");
+  expect(items.map(item => item.dataset.state)).toEqual(["done", "current", "upcoming"]);
+  expect(items[0]).toHaveTextContent("Reading reference (done)");
+  expect(items[1]).toHaveAttribute("aria-current", "step");
+  expect(items[2]).not.toHaveAttribute("aria-current");
 });
