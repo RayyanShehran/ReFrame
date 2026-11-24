@@ -138,6 +138,12 @@ isolates the applied motion from the footage's own handheld movement.
 - **Long takes:** a 28.2 s printed shot is a real long take, not a missed cut. Its slot copies
   15% of the accumulated move (see [Shot cuts](#shot-cuts) for the missed-cut part).
 - **Large moves:** moves beyond the 1.35 base-zoom margin are scaled down.
+- **Beyond the model:** since 2026-11-24, a shot whose curve leaves the keyframe bounds copies
+  no motion, and the other shots keep theirs. These bounds are ±2 heights of translation, or
+  scale outside 0.2–5. Before this, one such shot failed camera motion for the whole reference.
+  On the third reference, a hazy, flickering 8 mm shot (frames 920–968) drifted to −2.1
+  heights: the tracker re-anchored on every frame and its errors added up. Measuring that
+  kind of footage is not solved.
 - **Rotation:** measured, not applied at the time; applied since 2026-11-23 (see [Rotation](#rotation)).
 - **Camera vs subject:** detection cannot tell a camera move from a large subject that fills the
   frame. Without a frame-by-frame camera truth for real footage, the real-reference curves are

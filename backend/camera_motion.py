@@ -506,6 +506,13 @@ def shot_motion(np, frames, start, end, window, deadline):
     if turn < ROTATION_FLOOR or not rolls(np, frames, start, matrices, offsets):
         smoothed[3], shake_angle = np.zeros(count), []  # Noise, subject motion or drift.
     scale = np.exp(smoothed[0])
+    if max(float(np.abs(smoothed[1]).max()), float(np.abs(smoothed[2]).max())) > 2 or not (
+        0.2 < scale.min() and scale.max() < 5
+    ):
+        # Beyond the Keyframe bounds: more than a slot can copy, or a tracker that lost the
+        # picture (hazy 8 mm film). This shot copies no motion; the other shots keep theirs.
+        still = Keyframe(frame=start, scale=1.0, x=0.0, y=0.0, angle=0.0)
+        return ShotMotion(start_frame=start, end_frame=start + count, keyframes=[still])
     moves = []
     if splits:
         moves.append("punch_in")
