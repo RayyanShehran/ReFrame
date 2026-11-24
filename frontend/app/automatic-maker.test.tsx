@@ -202,3 +202,23 @@ it("groups a failure's recovery options beneath one danger banner", async () => 
   expect(within(recovery).getByRole("button", { name: "Continue without captions" })).toBeInTheDocument();
   expect(within(recovery).getByText("Setup details")).toBeInTheDocument();
 });
+
+it("puts Download, Customize and the single Generate again button in the result's action row", async () => {
+  window.history.replaceState(null,"",`/?project=${pid}`);
+  vi.stubGlobal("fetch",vi.fn(async (url:string)=> {
+    if(url.endsWith("/clips")) return ok(library(2));
+    if(url.endsWith("/render")) return ok({output:{output_id:"saved-output"}});
+    if(url.endsWith("/generation")) return ok({project_id:pid,revision:3,status:"ready",stage:"Rendering",output_id:"saved-output",options:{audio:"mute",captions:"off",allow_reused_ranges:false},notices:["Estimated cuts.","Estimated cuts."],failure_code:null,message:null});
+    if(url.endsWith(pid)) return ok({id:pid,reference:{canonical_url:"https://www.tiktok.com/@fixture/video/6718335390845095173"}});
+    return ok([]);
+  }));
+  render(<AutomaticMaker />);
+  const result = await screen.findByRole("region", { name: "Your video" });
+  await waitFor(() => expect(screen.getAllByRole("button", { name: "Generate again" })).toHaveLength(1));
+  const download = within(result).getByRole("link", { name: "Download video" });
+  expect(download.tagName).toBe("A");
+  const row = download.parentElement!;
+  expect(within(row).getByRole("button", { name: "Customize" })).toBeInTheDocument();
+  expect(within(row).getByRole("button", { name: "Generate again" })).toBeInTheDocument();
+  expect(within(result).getAllByRole("listitem")).toHaveLength(1);  // Notices are de-duplicated.
+});

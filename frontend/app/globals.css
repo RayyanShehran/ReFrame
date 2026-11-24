@@ -301,9 +301,16 @@ footer { color: var(--secondary); padding-top: 40px; font-size: 12px; }
 .caption-recovery { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .caption-recovery > :is(details, label) { flex-basis: 100%; margin: 0; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-.automatic-result { max-width: 1080px; margin-inline: auto; }
-.automatic-result > video { width: 100%; max-height: 72vh; background: #000; }
-.automatic-result > :is(button,a) { margin: 16px 12px 16px 0; }
+/* Result: centred video, one action row, compact notes. */
+.automatic-result { max-width: 1080px; margin: 0 auto 24px; display: grid; justify-items: center; gap: 12px; }
+.shell .automatic-result h2 { justify-self: start; margin: 0; }
+.automatic-result > .hint { justify-self: start; margin: 0; }
+.automatic-result > video { width: 100%; max-height: 72vh; border-radius: var(--radius-lg); background: var(--color-bg); }
+.automatic-result > .generate-controls:empty { display: none; }
+.result-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+.shell .result-actions .generate-button { width: auto; }
+.result-notices { justify-self: stretch; margin: 0; font-size: var(--text-sm); color: var(--color-text-muted); }
+.result-notices ul { margin: 8px 0 0; padding-left: 18px; display: grid; gap: 4px; }
 @media(max-width:600px) { .automatic-options { grid-template-columns: minmax(0,1fr); } .create-card { padding: 16px; } .create-steps > li { padding-left: 36px; } .page-title { margin-top: 20px; } }
 
 .caption-correction-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; margin: 1rem 0; }
