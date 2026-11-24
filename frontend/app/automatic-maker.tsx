@@ -180,6 +180,16 @@ export function AutomaticMaker() {
       <div className="result-actions"><a className="button-link" href={`${apiBase}/api/projects/${projectId}/outputs/${outputId}/download`}>Download video</a><button onClick={() => { setCustomizeMounted(true); setCustomize(value => !value); }}>{customize ? "Close Customize" : "Customize"}</button>{generateButton}</div>
       {!!operation?.notices.length && <details className="result-notices"><summary>About this result</summary><ul>{Array.from(new Set(operation.notices)).map(note => <li key={note}>{note}</li>)}</ul></details>}
     </section>}
+    {operation?.status === "running" && <section className="progress-panel" role="status" aria-label="Generation progress">
+      <h2>Generating your video</h2>
+      {(STAGES as readonly string[]).includes(operation.stage ?? "") ? <ProgressSteps aria-label="Generation stages" steps={STAGES} current={operation.stage!} /> : <p>{operation.stage}</p>}
+      <Button onClick={() => void generation.start({}, "/cancel")}>Cancel</Button>
+    </section>}
+    {/* One danger banner, with every recovery path for the failure grouped beneath it. */}
+    {(failureMessage || visualRecovery || captionRecovery || setupDetails) && <section className="status-panel">
+      {failureMessage && <Banner tone="danger" role="alert">{failureMessage}</Banner>}
+      {(visualRecovery || captionRecovery || setupDetails) && <div className="recovery" role="group" aria-label="Recovery options">{visualRecovery}{captionRecovery}{setupDetails}</div>}
+    </section>}
     <section className="create-card" aria-label="Create video">
       <ol className="create-steps" aria-label="Create steps">
         <li><h2>Reference link</h2>
@@ -209,16 +219,6 @@ export function AutomaticMaker() {
       </ol>
       {!showResult && <div className="generate-controls">{confirmations}{generateButton}</div>}
     </section>
-    {operation?.status === "running" && <section className="progress-panel" role="status" aria-label="Generation progress">
-      <h2>Generating your video</h2>
-      {(STAGES as readonly string[]).includes(operation.stage ?? "") ? <ProgressSteps aria-label="Generation stages" steps={STAGES} current={operation.stage!} /> : <p>{operation.stage}</p>}
-      <Button onClick={() => void generation.start({}, "/cancel")}>Cancel</Button>
-    </section>}
-    {/* One danger banner, with every recovery path for the failure grouped beneath it. */}
-    {(failureMessage || visualRecovery || captionRecovery || setupDetails) && <section className="status-panel">
-      {failureMessage && <Banner tone="danger" role="alert">{failureMessage}</Banner>}
-      {(visualRecovery || captionRecovery || setupDetails) && <div className="recovery" role="group" aria-label="Recovery options">{visualRecovery}{captionRecovery}{setupDetails}</div>}
-    </section>}
     {!projectId && !!projects.length && <section className="recent-projects" aria-labelledby="recent-projects-title"><h2 id="recent-projects-title">Recent projects</h2>
       <ul>{projects.map(project => <li key={project.id}>
         <span className="recent-name">{project.name}</span>

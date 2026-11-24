@@ -283,7 +283,9 @@ footer { color: var(--secondary); padding-top: 40px; font-size: 12px; }
 .clip-add-title { font-weight: 600; color: var(--color-text); }
 .clip-add .footage-drop { margin: 0; padding: 0; border: 0; background: transparent; }
 .clip-add .footage-drop .hint { font-size: var(--text-xs); margin-top: 8px; }
+.create-steps > li:last-child { border-bottom: 0; margin-bottom: 0; padding-bottom: 0; }
 .generate-controls { display: grid; gap: 12px; }
+.create-card > .generate-controls { margin-top: 24px; padding-top: 24px; border-top: 1px solid var(--color-border); }
 .shell .generate-button { width: 100%; }
 /* Generating and failure panels. */
 .progress-panel, .status-panel { max-width: 720px; margin: 0 auto 24px; padding: 20px 24px; border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface-1); }
