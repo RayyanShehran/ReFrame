@@ -1,29 +1,60 @@
 @import "tailwindcss";
 
+/* Design tokens ("Studio"). `static` emits every token to :root, used or not by utilities. */
+@theme static {
+  --font-sans: var(--font-controls), Arial, "Segoe UI", sans-serif;
+  --color-bg: #0e0f10;
+  --color-surface-1: #161719;
+  --color-surface-2: #1d1f22;
+  --color-surface-3: #26292d;
+  --color-border: #2f3237; /* Decorative only. */
+  --color-border-strong: #70757c; /* Input and button outlines: >= 3:1 on surface-2. */
+  --color-text: #ededed;
+  --color-text-muted: #a1a4a9;
+  --color-text-subtle: #73777e; /* Disabled text only. */
+  --color-accent: #c5ff4a;
+  --color-on-accent: #0e0f10;
+  --color-success: #5fd38d;
+  --color-warning: #f0b44c;
+  --color-danger: #ff7a7a;
+  --color-info: #6cb6ff;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-md: 14px;
+  --text-lg: 16px;
+  --text-xl: 20px;
+  --text-2xl: 28px;
+  --spacing: 4px;
+}
+/* Earlier variable names stay as aliases of the tokens. */
 :root {
   color-scheme: dark;
-  --canvas: #060606;
-  --deep: #000000;
-  --panel: #1f1f1f;
-  --raised: #252525;
-  --hover: #313131;
-  --border: #3d3d3d;
-  --text: #ffffff;
-  --body: #e5e5e5;
-  --secondary: #a3a3a3;
-  --accent: #c5ff4a;
-  --line: var(--border);
+  --canvas: var(--color-bg);
+  --deep: var(--color-bg);
+  --panel: var(--color-surface-1);
+  --raised: var(--color-surface-2);
+  --hover: var(--color-surface-3);
+  --border: var(--color-border);
+  --text: var(--color-text);
+  --body: var(--color-text);
+  --secondary: var(--color-text-muted);
+  --muted: var(--color-text-muted);
+  --accent: var(--color-accent);
+  --line: var(--color-border);
 }
 * { box-sizing: border-box; }
-body { margin: 0; background: var(--canvas); color: var(--body); font-family: var(--font-controls), Arial, "Segoe UI", sans-serif; font-size: 15px; line-height: 1.55; }
+body { margin: 0; background: var(--color-bg); color: var(--color-text); font-family: var(--font-sans); font-size: 15px; line-height: 1.55; }
 [hidden] { display: none !important; }
 .shell { width: 100%; max-width: 1440px; min-height: 100vh; margin: auto; padding: 0 clamp(16px, 3vw, 48px) 28px; }
 .shell :is(p, li, label, legend, summary, figcaption, h1, h2, h3, h4, button, td, th) { overflow-wrap: anywhere; }
-.shell :is(h1,h2,h3) { font-family: var(--font-display), Georgia, serif; font-weight: 300; font-optical-sizing: auto; color: var(--text); letter-spacing: -.025em; line-height: 1.15; }
-.shell h1 { font-size: clamp(34px, 4.5vw, 64px); margin: 0; }
-.shell h2 { font-size: 34px; margin: 0 0 12px; }
-.shell h3 { font-size: 27px; margin: 0 0 12px; }
-.shell h4 { font-size: 17px; color: var(--text); margin: 0 0 12px; font-weight: 600; }
+.shell :is(h1,h2,h3) { font-weight: 600; color: var(--color-text); letter-spacing: -.01em; line-height: 1.2; }
+.shell h1 { font-size: var(--text-2xl); margin: 0; }
+.shell h2 { font-size: var(--text-xl); margin: 0 0 12px; }
+.shell h3 { font-size: var(--text-lg); margin: 0 0 12px; }
+.shell h4 { font-size: var(--text-md); color: var(--color-text); margin: 0 0 12px; font-weight: 600; }
 .shell p { margin: 12px 0; max-width: 80ch; }
 .shell a { color: var(--text); text-decoration: underline; text-underline-offset: 4px; }
 .shell :is(button,input,select,textarea) { font: inherit; max-width: 100%; }
@@ -44,7 +75,7 @@ body { margin: 0; background: var(--canvas); color: var(--body); font-family: va
 .status-dot.unavailable { border-radius: 0; background: var(--secondary); }
 .hero { max-width: 820px; padding: 64px 0 48px; }
 .shell .eyebrow { font-size: 11px; letter-spacing: .18em; text-transform: uppercase; color: var(--secondary); font-weight: 500; margin: 0 0 16px; }
-.hero em { color: var(--text); font-style: italic; }
+.hero em { color: var(--color-text); font-style: normal; }
 .hero .intro { font-size: 16px; color: var(--secondary); max-width: 55ch; margin: 20px 0 0; }
 .project-switcher { margin: 24px 0; border: 1px solid var(--border); }
 .project-switcher > summary { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 20px; background: var(--panel); }
@@ -56,7 +87,7 @@ body { margin: 0; background: var(--canvas); color: var(--body); font-family: va
 .project-list li { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; border: 1px solid var(--border); padding: 16px; }
 .project-list li > span { flex: 1 1 100%; min-width: 0; color: var(--text); font-size: 17px; }
 .project-heading { padding: 16px 0 24px; }
-.project-heading h1 { font-size: clamp(30px,3vw,42px); }
+.project-heading h1 { font-size: var(--text-2xl); }
 .project-heading .eyebrow { margin-bottom: 8px; }
 .guided-workspace { width: 100%; min-width: 0; }
 .workspace-guidance { display: flex; align-items: center; flex-wrap: wrap; gap: 12px 20px; padding: 16px 20px; background: var(--panel); border: 1px solid var(--border); }
@@ -175,7 +206,6 @@ footer { color: var(--secondary); padding-top: 40px; font-size: 12px; }
   .header-project { order: 3; flex-basis: 100%; }
   .connectivity { margin-left: auto; }
   .hero { padding: 40px 0 28px; }
-  .hero h1 { font-size: 42px; }
   .project-heading { padding-top: 8px; }
   .reference-section { padding: 16px; }
   .reference-card, .sequence-trim, .export-summary { padding: 16px; }
