@@ -63,6 +63,10 @@ Evidence lives in `evidence/beats/` in the isolated e2e copy.
      off-beat) carries over unchanged.
    - The sequence records what it was synced to (`music`: audio mode, offset, whether beats
      were clear, how many cuts moved).
+   - The mode is the saved audio choice. Generation also passes its requested mode
+     (`Generate.audio_mode`), because it saves the audio choice only after the slots. Before
+     2026-11-24, every new project's first generation synced to the default `original`, so it
+     never snapped. That was found on the third reference, a new project.
 5. **Old data becomes stale through existing bindings.**
    - A saved v1 pacing result fails its ready check with `algorithm_changed`, so the next
      generation (or an explicit Analyze) re-runs pacing.

@@ -893,6 +893,7 @@ async def worker(project_id, operation_id, data, stop):
                     sequence.Generate(
                         expected_revision=current.sequence.revision if current.sequence else 0,
                         replace=bool(current.sequence),
+                        audio_mode=operation.options.audio,
                     ),
                     advance="slots",
                 )
