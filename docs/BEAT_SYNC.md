@@ -25,7 +25,7 @@ Evidence lives in `evidence/beats/` in the isolated e2e copy.
 
 ## Design
 
-1. **Pacing finds every cut** (pacing blueprint schema **2**, algorithm `scdet-cut-detector-v2`).
+1. **Pacing finds every cut** (pacing blueprint schema **2**, algorithm `scdet-cut-detector-v3`; v2 before the caption-robust detector, see [CAMERA_MOTION.md](CAMERA_MOTION.md)).
    - The pacing operation keeps scdet and adds the camera-motion cut detector
      (`camera_motion.cut_frames`, PR #11) on its own 192-pixel 30 fps gray decode.
    - A detected cut within 2 frames of an scdet cut is the same cut, and the scdet timestamp is
@@ -63,6 +63,10 @@ Evidence lives in `evidence/beats/` in the isolated e2e copy.
      off-beat) carries over unchanged.
    - The sequence records what it was synced to (`music`: audio mode, offset, whether beats
      were clear, how many cuts moved).
+   - The mode is the saved audio choice. Generation also passes its requested mode
+     (`Generate.audio_mode`), because it saves the audio choice only after the slots. Before
+     2026-11-24, every new project's first generation synced to the default `original`, so it
+     never snapped. That was found on the third reference, a new project.
 5. **Old data becomes stale through existing bindings.**
    - A saved v1 pacing result fails its ready check with `algorithm_changed`, so the next
      generation (or an explicit Analyze) re-runs pacing.

@@ -286,7 +286,7 @@ def test_real_dark_cuts_that_scdet_misses_are_added_by_the_cut_detector(tmp_path
         20,
         40,
     ]  # ...and slots use them.
-    assert result.cut_detector == "camera-motion-cuts-v1"
+    assert result.cut_detector == "camera-motion-cuts-v2"
     assert result.rhythm is None  # No audio track.
     assert result.timings.detector_seconds >= 0
 

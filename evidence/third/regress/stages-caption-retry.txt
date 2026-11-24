@@ -1,0 +1,7 @@
+    0.1 s  running  Reading reference
+   13.7 s  running  Choosing your clips
+   34.8 s  running  Matching the look
+  159.3 s  running  Recreating captions
+  435.4 s  failed   Recreating captions
+notices: Estimated cuts and pacing, not transition-type recognition. | Flashes and motion can cause false positives; similar-looking shots can hide cuts. | Experimental frame-based visual similarity plus motion/scene measurements. | Adaptive visual sampling covers every clip and reference shot; sparse samples can miss brief action. Dark/quiet/soft images can be intentional. | Similarity is not a probability, action/story/identity recognition or artistic intent. Review images. | Camera motion: 8 of 19 reference shots move (17.5 s).
+message: Caption reading is incomplete. 13 detected cues are saved; retry reading or continue without captions.

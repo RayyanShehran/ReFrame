@@ -1,0 +1,15 @@
+p97: handwritten 18/18 false [] (identical vs production) | printed 21/21 false [] (identical vs production) | third 18/19 false [362, 751] (changed [819, 833] vs production)
+p96: handwritten 18/18 false [] (identical vs production) | printed 21/21 false [] (identical vs production) | third 18/19 false [362, 751] (changed [819, 833] vs production)
+p95: handwritten 18/18 false [] (identical vs production) | printed 21/21 false [] (identical vs production) | third 18/19 false [362] (changed [751, 819, 833] vs production)
+p94: handwritten 18/18 false [] (identical vs production) | printed 21/21 false [] (identical vs production) | third 18/19 false [362] (changed [751, 819, 833] vs production)
+p93: handwritten 18/18 false [] (identical vs production) | printed 21/21 false [] (identical vs production) | third 18/19 false [362] (changed [751, 819, 833] vs production)
+p92: handwritten 18/18 false [] (identical vs production) | printed 21/21 false [] (identical vs production) | third 18/19 false [362, 1087] (changed [751, 819, 833, 1087] vs production)
+p91: handwritten 18/18 false [] (identical vs production) | printed 21/21 false [] (identical vs production) | third 18/19 false [362, 1087] (changed [751, 819, 833, 1087] vs production)
+p95 handwritten: truth-cut edge change min 0.533 (threshold 0.35)
+p95 printed: truth-cut edge change min 0.776 (threshold 0.35)
+p95 third: truth-cut edge change min 0.659 (threshold 0.35)
+p95 third frame 751: hist 0.134 edge 0.481
+p95 third frame 819: hist 0.233 edge 0.959
+p95 third frame 821: hist 0.040 edge 0.129
+p95 third frame 833: hist 0.125 edge 0.050
+p95 third frame 847: hist 0.110 edge 0.104

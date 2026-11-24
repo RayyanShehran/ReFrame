@@ -1,0 +1,332 @@
+{
+ "reference": "third",
+ "frame_rate": 30,
+ "method": "Read frame by frame from caption-band crops of the 30 fps decode (capsheet.py). Word-by-word reveal; each phase is one displayed text. No captions after frame 899.",
+ "styles": {
+  "0-64": "yellow film subtitle, bottom centre",
+  "114-185": "dark blue subtitle, bottom centre, low contrast over a pale sky (hard to read)",
+  "185-899": "white sans lyric, screen centre"
+ },
+ "uncertain": [
+  "520-535: white text over the bright projector light; the first word is partly hidden.",
+  "617-622: 'but who knows' is washed out by the white projector flash; labelled as continuous.",
+  "357: 'but who knows' is still visible in the first light-leak frame, gone from 358."
+ ],
+ "phases": [
+  {
+   "start_frame": 6,
+   "end_frame": 12,
+   "start": 0.2,
+   "end": 0.4,
+   "text": "I'm"
+  },
+  {
+   "start_frame": 12,
+   "end_frame": 23,
+   "start": 0.4,
+   "end": 0.7667,
+   "text": "I'm always"
+  },
+  {
+   "start_frame": 23,
+   "end_frame": 31,
+   "start": 0.7667,
+   "end": 1.0333,
+   "text": "I'm always gonna"
+  },
+  {
+   "start_frame": 31,
+   "end_frame": 37,
+   "start": 1.0333,
+   "end": 1.2333,
+   "text": "I'm always gonna love"
+  },
+  {
+   "start_frame": 37,
+   "end_frame": 64,
+   "start": 1.2333,
+   "end": 2.1333,
+   "text": "I'm always gonna love you."
+  },
+  {
+   "start_frame": 114,
+   "end_frame": 121,
+   "start": 3.8,
+   "end": 4.0333,
+   "text": "Always"
+  },
+  {
+   "start_frame": 121,
+   "end_frame": 127,
+   "start": 4.0333,
+   "end": 4.2333,
+   "text": "Always gonna"
+  },
+  {
+   "start_frame": 127,
+   "end_frame": 134,
+   "start": 4.2333,
+   "end": 4.4667,
+   "text": "Always gonna love"
+  },
+  {
+   "start_frame": 134,
+   "end_frame": 139,
+   "start": 4.4667,
+   "end": 4.6333,
+   "text": "Always gonna love you"
+  },
+  {
+   "start_frame": 139,
+   "end_frame": 185,
+   "start": 4.6333,
+   "end": 6.1667,
+   "text": "Always gonna love you too."
+  },
+  {
+   "start_frame": 185,
+   "end_frame": 196,
+   "start": 6.1667,
+   "end": 6.5333,
+   "text": "May"
+  },
+  {
+   "start_frame": 196,
+   "end_frame": 205,
+   "start": 6.5333,
+   "end": 6.8333,
+   "text": "Maybe"
+  },
+  {
+   "start_frame": 205,
+   "end_frame": 212,
+   "start": 6.8333,
+   "end": 7.0667,
+   "text": "Maybe we"
+  },
+  {
+   "start_frame": 212,
+   "end_frame": 217,
+   "start": 7.0667,
+   "end": 7.2333,
+   "text": "Maybe we get"
+  },
+  {
+   "start_frame": 217,
+   "end_frame": 232,
+   "start": 7.2333,
+   "end": 7.7333,
+   "text": "Maybe we get married"
+  },
+  {
+   "start_frame": 232,
+   "end_frame": 242,
+   "start": 7.7333,
+   "end": 8.0667,
+   "text": "Maybe we get married one"
+  },
+  {
+   "start_frame": 242,
+   "end_frame": 281,
+   "start": 8.0667,
+   "end": 9.3667,
+   "text": "Maybe we get married one day"
+  },
+  {
+   "start_frame": 281,
+   "end_frame": 288,
+   "start": 9.3667,
+   "end": 9.6,
+   "text": "but"
+  },
+  {
+   "start_frame": 288,
+   "end_frame": 297,
+   "start": 9.6,
+   "end": 9.9,
+   "text": "but who"
+  },
+  {
+   "start_frame": 297,
+   "end_frame": 358,
+   "start": 9.9,
+   "end": 11.9333,
+   "text": "but who knows"
+  },
+  {
+   "start_frame": 423,
+   "end_frame": 431,
+   "start": 14.1,
+   "end": 14.3667,
+   "text": "Think"
+  },
+  {
+   "start_frame": 431,
+   "end_frame": 438,
+   "start": 14.3667,
+   "end": 14.6,
+   "text": "Think i'll"
+  },
+  {
+   "start_frame": 438,
+   "end_frame": 444,
+   "start": 14.6,
+   "end": 14.8,
+   "text": "Think i'll take"
+  },
+  {
+   "start_frame": 444,
+   "end_frame": 454,
+   "start": 14.8,
+   "end": 15.1333,
+   "text": "Think i'll take that"
+  },
+  {
+   "start_frame": 454,
+   "end_frame": 461,
+   "start": 15.1333,
+   "end": 15.3667,
+   "text": "Think i'll take that thought"
+  },
+  {
+   "start_frame": 461,
+   "end_frame": 467,
+   "start": 15.3667,
+   "end": 15.5667,
+   "text": "to"
+  },
+  {
+   "start_frame": 467,
+   "end_frame": 474,
+   "start": 15.5667,
+   "end": 15.8,
+   "text": "to the"
+  },
+  {
+   "start_frame": 474,
+   "end_frame": 513,
+   "start": 15.8,
+   "end": 17.1,
+   "text": "to the grave"
+  },
+  {
+   "start_frame": 520,
+   "end_frame": 526,
+   "start": 17.3333,
+   "end": 17.5333,
+   "text": "but"
+  },
+  {
+   "start_frame": 526,
+   "end_frame": 535,
+   "start": 17.5333,
+   "end": 17.8333,
+   "text": "but who"
+  },
+  {
+   "start_frame": 535,
+   "end_frame": 660,
+   "start": 17.8333,
+   "end": 22.0,
+   "text": "but who knows"
+  },
+  {
+   "start_frame": 661,
+   "end_frame": 666,
+   "start": 22.0333,
+   "end": 22.2,
+   "text": "I"
+  },
+  {
+   "start_frame": 666,
+   "end_frame": 676,
+   "start": 22.2,
+   "end": 22.5333,
+   "text": "I know"
+  },
+  {
+   "start_frame": 676,
+   "end_frame": 682,
+   "start": 22.5333,
+   "end": 22.7333,
+   "text": "I know that"
+  },
+  {
+   "start_frame": 682,
+   "end_frame": 688,
+   "start": 22.7333,
+   "end": 22.9333,
+   "text": "I know that I'll"
+  },
+  {
+   "start_frame": 688,
+   "end_frame": 699,
+   "start": 22.9333,
+   "end": 23.3,
+   "text": "I know that I'll love"
+  },
+  {
+   "start_frame": 699,
+   "end_frame": 707,
+   "start": 23.3,
+   "end": 23.5667,
+   "text": "I know that I'll love you"
+  },
+  {
+   "start_frame": 707,
+   "end_frame": 751,
+   "start": 23.5667,
+   "end": 25.0333,
+   "text": "I know that I'll love you always"
+  },
+  {
+   "start_frame": 751,
+   "end_frame": 761,
+   "start": 25.0333,
+   "end": 25.3667,
+   "text": "yeah"
+  },
+  {
+   "start_frame": 761,
+   "end_frame": 776,
+   "start": 25.3667,
+   "end": 25.8667,
+   "text": "yeah girl"
+  },
+  {
+   "start_frame": 776,
+   "end_frame": 809,
+   "start": 25.8667,
+   "end": 26.9667,
+   "text": "yeah girl you"
+  },
+  {
+   "start_frame": 809,
+   "end_frame": 821,
+   "start": 26.9667,
+   "end": 27.3667,
+   "text": "and"
+  },
+  {
+   "start_frame": 821,
+   "end_frame": 833,
+   "start": 27.3667,
+   "end": 27.7667,
+   "text": "and I"
+  },
+  {
+   "start_frame": 833,
+   "end_frame": 847,
+   "start": 27.7667,
+   "end": 28.2333,
+   "text": "and I like"
+  },
+  {
+   "start_frame": 847,
+   "end_frame": 899,
+   "start": 28.2333,
+   "end": 29.9667,
+   "text": "and I like that"
+  }
+ ]
+}

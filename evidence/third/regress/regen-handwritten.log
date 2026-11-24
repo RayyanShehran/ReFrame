@@ -1,0 +1,11 @@
+(3.2, 'running', 'Reading reference')
+(15.9, 'running', 'Choosing your clips')
+(38.5, 'running', 'Matching the look')
+(165.5, 'running', 'Recreating captions')
+paused: failed
+(443.8, 'running', 'Recreating captions')
+(452.9, 'running', 'Rendering')
+{"status": "ready", "generate_seconds": 440.6, "accept_seconds": 45.5}
+Flashes and motion can cause false positives; similar-looking shots can hide cuts.
+Experimental frame-based visual similarity plus motion/scene measurements.
+Camera motion: 8 of 19 reference shots move (17.6 s).

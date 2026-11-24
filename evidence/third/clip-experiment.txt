@@ -1,0 +1,6 @@
+cap none (production) (3.6 s): handwritten 18/18 missed [] false [] | printed 21/21 missed [] false [] | third 17/19 missed [819, 1037] false [362, 751, 833]
+cap p99.5 (5.0 s): handwritten 18/18 missed [] false [] | printed 21/21 missed [] false [] | third 18/19 missed [1037] false [362, 751]
+cap p99 (4.9 s): handwritten 18/18 missed [] false [] | printed 21/21 missed [] false [] | third 18/19 missed [1037] false [362, 751]
+cap p98 (5.1 s): handwritten 18/18 missed [] false [] | printed 21/21 missed [] false [] | third 18/19 missed [1037] false [362, 751]
+cap p95 (5.4 s): handwritten 18/18 missed [] false [] | printed 21/21 missed [] false [] | third 18/19 missed [1037] false [362]
+cap p90 (5.1 s): handwritten 18/18 missed [] false [] | printed 21/21 missed [] false [] | third 18/19 missed [1037] false [362, 1087]

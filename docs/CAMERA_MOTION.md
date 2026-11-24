@@ -138,6 +138,12 @@ isolates the applied motion from the footage's own handheld movement.
 - **Long takes:** a 28.2 s printed shot is a real long take, not a missed cut. Its slot copies
   15% of the accumulated move (see [Shot cuts](#shot-cuts) for the missed-cut part).
 - **Large moves:** moves beyond the 1.35 base-zoom margin are scaled down.
+- **Beyond the model:** since 2026-11-24, a shot whose curve leaves the keyframe bounds copies
+  no motion, and the other shots keep theirs. These bounds are ±2 heights of translation, or
+  scale outside 0.2–5. Before this, one such shot failed camera motion for the whole reference.
+  On the third reference, a hazy, flickering 8 mm shot (frames 920–968) drifted to −2.1
+  heights: the tracker re-anchored on every frame and its errors added up. Measuring that
+  kind of footage is not solved.
 - **Rotation:** measured, not applied at the time; applied since 2026-11-23 (see [Rotation](#rotation)).
 - **Camera vs subject:** detection cannot tell a camera move from a large subject that fills the
   frame. Without a frame-by-frame camera truth for real footage, the real-reference curves are
@@ -176,6 +182,20 @@ detector output was examined (`evidence/shots/` in the isolated e2e copy).
 
    Continuous motion (whip pans, moving lights) raises both sides and is rejected. Two pairs
    per side keep neighbouring cuts out of the window for shots of 3 or more frames.
+
+   Since 2026-11-24 (`camera-motion-cuts-v2`, pacing `scdet-cut-detector-v3`):
+   - **Gradient cap:** gradient magnitudes are capped at each frame's 95th percentile before
+     the correlation. On the third reference's dark, soft shots, burned-in caption letters were
+     the sharpest structure. Caption changes made two false cuts (751, 833), and a cut under an
+     unchanged caption was missed (819).
+   - **Alignment gate:** the change must stay at least 0.35 after the best ±1 px alignment, so
+     a one-pixel step of the same picture is not a cut.
+
+   The first two references' detected cuts are unchanged. Margins:
+   - The 751 false cut is removed only with caps of p95–p93. At p96 and above it stays a cut;
+     at p92 and below a flash edge appears as a cut.
+   - 819 and 833 are fixed for caps of p99.5–p93.
+   - A stepping synthetic pan scores 0.33 after alignment, against the 0.35 threshold.
 2. **Near-black frames** (luma std < 9): a cut is a mean-luma jump of 20 or more. Fades change
    only a few levels per frame.
 3. **Flash:** a change is not a cut when the picture returns to the previous frame within 3

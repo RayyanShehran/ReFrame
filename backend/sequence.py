@@ -101,6 +101,8 @@ class Result(color.Schema):
 class Generate(color.Schema):
     expected_revision: int = Field(ge=0, strict=True)
     replace: bool = False
+    # Generation's requested audio, which it saves only after the slots; else the saved mode.
+    audio_mode: Literal["original", "reference", "mix", "mute"] | None = None
 
 
 class Save(color.Schema):
@@ -243,6 +245,7 @@ def generate(project_id, request):
     if cuts and cuts[0] < beats.MIN_SLOT_FRAMES:
         cuts.pop(0)  # A short first piece joins the next slot instead.
     mode, offset = music(project_id)
+    mode = request.audio_mode or mode
     rhythm = getattr(blueprint, "rhythm", None)
     clear = bool(rhythm and rhythm.clear)
     moved = 0

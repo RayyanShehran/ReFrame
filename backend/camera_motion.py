@@ -44,6 +44,9 @@ CUT_STRONG = 0.75  # Edge change that is a cut even between same-looking histogr
 CUT_LOCAL = 2.0  # A cut stands this far above the motion on both sides.
 CUT_JUMP = 20.0  # Mean-luma jump that cuts into or out of near-black.
 CUT_FLASH = 3  # A picture that returns within this many frames was a flash.
+# Gradients are capped at this percentile per frame, so a small, very sharp overlay (burned-in
+# caption text on a dark, soft shot) cannot dominate the edge structure. Third reference.
+CUT_GRADIENT_CAP = 95
 DISSOLVE = 6
 # Rotation (tuned on two references; see docs/CAMERA_MOTION.md): below the floor it is noise,
 # and above it the angle must explain the picture in local windows, or it is subject motion
@@ -159,6 +162,7 @@ def cut_features(np, frames, deadline):
         normalized = (frame - mean) / max(std, 4.0)
         gy, gx = np.gradient(frame)
         gradient = np.hypot(gx, gy).ravel()
+        gradient = np.minimum(gradient, np.percentile(gradient, CUT_GRADIENT_CAP))
         means.append(mean)
         stds.append(std)
         hists.append(np.histogram(normalized, CUT_BINS, (-3, 3))[0] / frame.size)
@@ -171,6 +175,25 @@ def cut_difference(np, features, a, b):
     _, _, hists, edges = features
     correlation = float(np.dot(edges[a], edges[b])) / len(edges[a])
     return 0.5 * float(np.abs(hists[a] - hists[b]).sum()), 1 - correlation
+
+
+def aligned_change(np, frames, a, b):
+    """Edge-structure change between frames a and b after their best +-1 px alignment."""
+
+    def gradient(frame):
+        g = np.hypot(*np.gradient(frame))
+        return np.minimum(g, np.percentile(g, CUT_GRADIENT_CAP))
+
+    ga, gb = gradient(frames[a])[1:-1, 1:-1], gradient(frames[b])
+    ga = ga - ga.mean()
+    best = -1.0
+    for dy in (-1, 0, 1):
+        for dx in (-1, 0, 1):
+            s = gb[1 + dy : gb.shape[0] - 1 + dy, 1 + dx : gb.shape[1] - 1 + dx]
+            s = s - s.mean()
+            norm = math.sqrt(float((ga * ga).sum() * (s * s).sum())) + 1e-6
+            best = max(best, float((ga * s).sum()) / norm)
+    return 1 - best
 
 
 def cut_frames(np, frames, deadline=math.inf):
@@ -203,7 +226,12 @@ def cut_frames(np, frames, deadline=math.inf):
         sides = [edge[max(1, i - 2) : i], edge[i + 1 : i + 3]]
         local = min((side.max() for side in sides if len(side)), default=0.0)
         similar_look = hist[i] < CUT_HIST and edge[i] < CUT_STRONG
-        if not similar_look and edge[i] >= max(CUT_EDGE, CUT_LOCAL * local):
+        if (
+            not similar_look
+            and edge[i] >= max(CUT_EDGE, CUT_LOCAL * local)
+            # A one-pixel step of the same picture (a slow pan on fine detail) is not a cut.
+            and aligned_change(np, frames, i - 1, i) >= CUT_EDGE
+        ):
             score[i] = hist[i] + edge[i]
     # Dissolves: the middle frame is a blend of two different pictures DISSOLVE frames away.
     for i in range(DISSOLVE, count - DISSOLVE):
@@ -478,6 +506,13 @@ def shot_motion(np, frames, start, end, window, deadline):
     if turn < ROTATION_FLOOR or not rolls(np, frames, start, matrices, offsets):
         smoothed[3], shake_angle = np.zeros(count), []  # Noise, subject motion or drift.
     scale = np.exp(smoothed[0])
+    if max(float(np.abs(smoothed[1]).max()), float(np.abs(smoothed[2]).max())) > 2 or not (
+        0.2 < scale.min() and scale.max() < 5
+    ):
+        # Beyond the Keyframe bounds: more than a slot can copy, or a tracker that lost the
+        # picture (hazy 8 mm film). This shot copies no motion; the other shots keep theirs.
+        still = Keyframe(frame=start, scale=1.0, x=0.0, y=0.0, angle=0.0)
+        return ShotMotion(start_frame=start, end_frame=start + count, keyframes=[still])
     moves = []
     if splits:
         moves.append("punch_in")

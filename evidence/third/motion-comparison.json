@@ -1,0 +1,1075 @@
+{
+ "project": "ce1dec41-cadd-4f44-8d4b-f983de6d852f",
+ "seconds": 135.9,
+ "slots": [
+  {
+   "slot": 1,
+   "moves": "shake",
+   "applied": true,
+   "reference_seconds": [
+    0.0,
+    2.13
+   ],
+   "share": 1.0,
+   "base_zoom": 1.008,
+   "picture": [
+    0,
+    288,
+    0,
+    384
+   ],
+   "target_end": [
+    1.0,
+    0.0002,
+    -0.0002,
+    0.0
+   ],
+   "applied_end": [
+    1.0,
+    0.0002,
+    -0.0002,
+    0.0
+   ],
+   "measured_end": [
+    0.997,
+    0.0018,
+    0.0012,
+    0.0005
+   ],
+   "direction_target": "none",
+   "direction_measured": "none",
+   "dominant_direction_match": true,
+   "magnitude_ratio": 7.221,
+   "half_frame_target": null,
+   "half_frame_measured": null,
+   "textured_frames": "60/64",
+   "intended_curve_fits_better": "13/14",
+   "crop_overshoot_pixels": 0.0,
+   "angle_applied_end_deg": 0.0,
+   "angle_measured_end_deg": 0.029,
+   "angle_peak_applied_deg": 0.0,
+   "angle_ratio": null,
+   "intended_angle_fits_better": null
+  },
+  {
+   "slot": 2,
+   "moves": "static",
+   "applied": false,
+   "mean_abs_difference": 0.07,
+   "reference_seconds": [
+    2.13,
+    6.17
+   ]
+  },
+  {
+   "slot": 3,
+   "moves": "zoom_in,pan,shake",
+   "applied": true,
+   "reference_seconds": [
+    6.17,
+    7.73
+   ],
+   "share": 1.0,
+   "base_zoom": 1.241,
+   "picture": [
+    2,
+    288,
+    0,
+    384
+   ],
+   "target_end": [
+    1.0279,
+    -0.1542,
+    0.0025,
+    0.0
+   ],
+   "applied_end": [
+    1.0279,
+    -0.1542,
+    0.0025,
+    0.0
+   ],
+   "measured_end": [
+    1.026,
+    -0.1509,
+    0.0047,
+    0.0023
+   ],
+   "direction_target": "zoom in left",
+   "direction_measured": "zoom in left",
+   "dominant_direction_match": true,
+   "magnitude_ratio": 0.979,
+   "half_frame_target": 31,
+   "half_frame_measured": 31,
+   "textured_frames": "47/47",
+   "intended_curve_fits_better": "10/11",
+   "crop_overshoot_pixels": 0.0,
+   "angle_applied_end_deg": 0.0,
+   "angle_measured_end_deg": 0.132,
+   "angle_peak_applied_deg": 0.0,
+   "angle_ratio": null,
+   "intended_angle_fits_better": null
+  },
+  {
+   "slot": 4,
+   "moves": "pan,shake",
+   "applied": true,
+   "reference_seconds": [
+    7.73,
+    9.37
+   ],
+   "share": 1.0,
+   "base_zoom": 1.042,
+   "picture": [
+    0,
+    282,
+    111,
+    273
+   ],
+   "target_end": [
+    1.011,
+    -0.0149,
+    -0.0069,
+    0.0
+   ],
+   "applied_end": [
+    1.011,
+    -0.0149,
+    -0.0069,
+    0.0
+   ],
+   "measured_end": [
+    1.013,
+    -0.0134,
+    -0.0049,
+    -0.0006
+   ],
+   "direction_target": "zoom in left",
+   "direction_measured": "zoom in left",
+   "dominant_direction_match": true,
+   "magnitude_ratio": 0.898,
+   "half_frame_target": 11,
+   "half_frame_measured": 10,
+   "textured_frames": "49/49",
+   "intended_curve_fits_better": "10/11",
+   "crop_overshoot_pixels": 0.0,
+   "angle_applied_end_deg": 0.0,
+   "angle_measured_end_deg": -0.032,
+   "angle_peak_applied_deg": 0.0,
+   "angle_ratio": null,
+   "intended_angle_fits_better": null
+  },
+  {
+   "slot": 5,
+   "moves": "zoom_in,pan,shake",
+   "applied": true,
+   "reference_seconds": [
+    9.37,
+    11.87
+   ],
+   "share": 1.0,
+   "base_zoom": 1.229,
+   "picture": [
+    0,
+    288,
+    0,
+    384
+   ],
+   "target_end": [
+    1.0544,
+    -0.1969,
+    -0.0922,
+    0.0
+   ],
+   "applied_end": [
+    1.0544,
+    -0.1969,
+    -0.0922,
+    0.0
+   ],
+   "measured_end": [
+    1.0528,
+    -0.1931,
+    -0.0884,
+    0.0006
+   ],
+   "direction_target": "zoom in left up",
+   "direction_measured": "zoom in left up",
+   "dominant_direction_match": true,
+   "magnitude_ratio": 0.981,
+   "half_frame_target": 28,
+   "half_frame_measured": 29,
+   "textured_frames": "75/75",
+   "intended_curve_fits_better": "15/16",
+   "crop_overshoot_pixels": 0.0,
+   "angle_applied_end_deg": 0.0,
+   "angle_measured_end_deg": 0.036,
+   "angle_peak_applied_deg": 0.0,
+   "angle_ratio": null,
+   "intended_angle_fits_better": null
+  },
+  {
+   "slot": 6,
+   "moves": "pan",
+   "applied": true,
+   "reference_seconds": [
+    11.87,
+    12.07
+   ],
+   "share": 1.0,
+   "base_zoom": 1.114,
+   "picture": [
+    0,
+    288,
+    0,
+    384
+   ],
+   "target_end": [
+    1.0133,
+    -0.067,
+    0.0643,
+    0.0
+   ],
+   "applied_end": [
+    1.0133,
+    -0.067,
+    0.0643,
+    0.0
+   ],
+   "measured_end": [
+    1.0118,
+    -0.0646,
+    0.0659,
+    0.0013
+   ],
+   "direction_target": "zoom in left down",
+   "direction_measured": "zoom in left down",
+   "dominant_direction_match": true,
+   "magnitude_ratio": 0.964,
+   "half_frame_target": 2,
+   "half_frame_measured": 2,
+   "textured_frames": "5/6",
+   "intended_curve_fits_better": "1/2",
+   "crop_overshoot_pixels": 0.0,
+   "angle_applied_end_deg": 0.0,
+   "angle_measured_end_deg": 0.073,
+   "angle_peak_applied_deg": 0.0,
+   "angle_ratio": null,
+   "intended_angle_fits_better": null
+  },
+  {
+   "slot": 7,
+   "moves": "zoom_in,pan,shake",
+   "applied": true,
+   "reference_seconds": [
+    12.07,
+    14.1
+   ],
+   "share": 1.0,
+   "base_zoom": 1.2,
+   "picture": [
+    0,
+    288,
+    0,
+    384
+   ],
+   "target_end": [
+    1.0289,
+    0.0825,
+    0.0859,
+    0.0
+   ],
+   "applied_end": [
+    1.0289,
+    0.0825,
+    0.0859,
+    0.0
+   ],
+   "measured_end": [
+    1.0277,
+    0.0854,
+    0.0871,
+    0.0004
+   ],
+   "direction_target": "zoom in right down",
+   "direction_measured": "zoom in right down",
+   "dominant_direction_match": true,
+   "magnitude_ratio": 1.013,
+   "half_frame_target": 22,
+   "half_frame_measured": 21,
+   "textured_frames": "61/61",
+   "intended_curve_fits_better": "11/13",
+   "crop_overshoot_pixels": 0.0,
+   "angle_applied_end_deg": 0.0,
+   "angle_measured_end_deg": 0.02,
+   "angle_peak_applied_deg": 0.0,
+   "angle_ratio": null,
+   "intended_angle_fits_better": null
+  },
+  {
+   "slot": 8,
+   "moves": "pan,shake",
+   "applied": true,
+   "reference_seconds": [
+    14.1,
+    15.6
+   ],
+   "share": 0.84,
+   "base_zoom": 1.35,
+   "picture": [
+    0,
+    288,
+    0,
+    384
+   ],
+   "target_end": [
+    1.0064,
+    -0.2829,
+    0.0068,
+    0.0
+   ],
+   "applied_end": [
+    1.0054,
+    -0.2377,
+    0.0057,
+    0.0
+   ],
+   "measured_end": [
+    1.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "direction_target": "left",
+   "direction_measured": "none",
+   "dominant_direction_match": false,
+   "magnitude_ratio": -0.0,
+   "half_frame_target": 37,
+   "half_frame_measured": null,
+   "textured_frames": "1/45",
+   "intended_curve_fits_better": "9/10",
+   "crop_overshoot_pixels": 0.0,
+   "angle_applied_end_deg": 0.0,
+   "angle_measured_end_deg": 0.0,
+   "angle_peak_applied_deg": 0.0,
+   "angle_ratio": null,
+   "intended_angle_fits_better": null
+  },
+  {
+   "slot": 9,
+   "moves": "pan,shake",
+   "applied": true,
+   "reference_seconds": [
+    15.6,
+    17.1
+   ],
+   "share": 1.0,
+   "base_zoom": 1.07,
+   "picture": [
+    4,
+    287,
+    86,
+    298
+   ],
+   "target_end": [
+    1.0082,
+    -0.0292,
+    -0.0044,
+    0.0
+   ],
+   "applied_end": [
+    1.0082,
+    -0.0292,
+    -0.0044,
+    0.0
+   ],
+   "measured_end": [
+    1.0101,
+    -0.0274,
+    -0.0009,
+    0.0
+   ],
+   "direction_target": "left",
+   "direction_measured": "zoom in left",
+   "dominant_direction_match": true,
+   "magnitude_ratio": 0.939,
+   "half_frame_target": 7,
+   "half_frame_measured": 8,
+   "textured_frames": "45/45",
+   "intended_curve_fits_better": "9/10",
+   "crop_overshoot_pixels": 0.0,
+   "angle_applied_end_deg": 0.0,
+   "angle_measured_end_deg": 0.003,
+   "angle_peak_applied_deg": 0.0,
+   "angle_ratio": null,
+   "intended_angle_fits_better": null
+  },
+  {
+   "slot": 10,
+   "moves": "zoom_in,pan,shake",
+   "applied": true,
+   "reference_seconds": [
+    17.1,
+    20.57
+   ],
+   "share": 1.0,
+   "base_zoom": 1.0,
+   "picture": [
+    135,
+    149,
+    159,
+    242
+   ],
+   "target_end": [
+    1.3349,
+    -0.1611,
+    -0.0562,
+    0.0
+   ],
+   "applied_end": [
+    1.3349,
+    -0.1611,
+    -0.0562,
+    0.0
+   ],
+   "measured_end": [
+    1.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "direction_target": "zoom in left up",
+   "direction_measured": "none",
+   "dominant_direction_match": false,
+   "magnitude_ratio": 0.0,
+   "half_frame_target": 76,
+   "half_frame_measured": null,
+   "textured_frames": "0/104",
+   "intended_curve_fits_better": "9/22",
+   "crop_overshoot_pixels": 0.0,
+   "angle_applied_end_deg": 0.0,
+   "angle_measured_end_deg": 0.0,
+   "angle_peak_applied_deg": 0.0,
+   "angle_ratio": null,
+   "intended_angle_fits_better": null
+  },
+  {
+   "slot": 11,
+   "moves": "zoom_in",
+   "applied": true,
+   "reference_seconds": [
+    20.57,
+    20.73
+   ],
+   "share": 1.0,
+   "base_zoom": 1.0,
+   "picture": [
+    0,
+    288,
+    0,
+    384
+   ],
+   "target_end": [
+    1.0284,
+    -0.001,
+    -0.0038,
+    0.0
+   ],
+   "applied_end": [
+    1.0284,
+    -0.001,
+    -0.0038,
+    0.0
+   ],
+   "measured_end": [
+    1.0278,
+    0.0004,
+    -0.0029,
+    0.0003
+   ],
+   "direction_target": "zoom in",
+   "direction_measured": "zoom in",
+   "dominant_direction_match": true,
+   "magnitude_ratio": 0.976,
+   "half_frame_target": 2,
+   "half_frame_measured": 3,
+   "textured_frames": "5/5",
+   "intended_curve_fits_better": "1/2",
+   "crop_overshoot_pixels": 0.0,
+   "angle_applied_end_deg": 0.0,
+   "angle_measured_end_deg": 0.018,
+   "angle_peak_applied_deg": 0.0,
+   "angle_ratio": null,
+   "intended_angle_fits_better": null
+  },
+  {
+   "slot": 12,
+   "moves": "zoom_in,pan,shake",
+   "applied": true,
+   "reference_seconds": [
+    20.73,
+    22.0
+   ],
+   "share": 0.823,
+   "base_zoom": 1.35,
+   "picture": [
+    0,
+    288,
+    0,
+    384
+   ],
+   "target_end": [
+    1.0688,
+    0.3407,
+    0.0121,
+    0.0
+   ],
+   "applied_end": [
+    1.0563,
+    0.2804,
+    0.01,
+    0.0
+   ],
+   "measured_end": [
+    1.0493,
+    0.2829,
+    0.0126,
+    -0.001
+   ],
+   "direction_target": "zoom in right",
+   "direction_measured": "zoom in right down",
+   "dominant_direction_match": true,
+   "magnitude_ratio": 1.009,
+   "half_frame_target": 7,
+   "half_frame_measured": 7,
+   "textured_frames": "37/38",
+   "intended_curve_fits_better": "8/9",
+   "crop_overshoot_pixels": 0.0,
+   "angle_applied_end_deg": 0.0,
+   "angle_measured_end_deg": -0.057,
+   "angle_peak_applied_deg": 0.0,
+   "angle_ratio": null,
+   "intended_angle_fits_better": null
+  },
+  {
+   "slot": 13,
+   "moves": "zoom_in,pan,shake",
+   "applied": true,
+   "reference_seconds": [
+    22.0,
+    25.37
+   ],
+   "share": 0.462,
+   "base_zoom": 1.35,
+   "picture": [
+    0,
+    288,
+    0,
+    384
+   ],
+   "target_end": [
+    1.0472,
+    -0.5202,
+    -0.0145,
+    0.0
+   ],
+   "applied_end": [
+    1.0215,
+    -0.2405,
+    -0.0067,
+    0.0
+   ],
+   "measured_end": [
+    1.0189,
+    -0.2355,
+    -0.0042,
+    0.0008
+   ],
+   "direction_target": "zoom in left",
+   "direction_measured": "zoom in left",
+   "dominant_direction_match": true,
+   "magnitude_ratio": 0.979,
+   "half_frame_target": 35,
+   "half_frame_measured": 89,
+   "textured_frames": "35/101",
+   "intended_curve_fits_better": "20/21",
+   "crop_overshoot_pixels": 0.0,
+   "angle_applied_end_deg": 0.0,
+   "angle_measured_end_deg": 0.045,
+   "angle_peak_applied_deg": 0.0,
+   "angle_ratio": null,
+   "intended_angle_fits_better": null
+  },
+  {
+   "slot": 14,
+   "moves": "zoom_in,pan,shake",
+   "applied": true,
+   "reference_seconds": [
+    25.37,
+    27.3
+   ],
+   "share": 1.0,
+   "base_zoom": 1.031,
+   "picture": [
+    4,
+    286,
+    86,
+    298
+   ],
+   "target_end": [
+    1.0327,
+    -0.0151,
+    0.0149,
+    0.0
+   ],
+   "applied_end": [
+    1.0327,
+    -0.0151,
+    0.0149,
+    0.0
+   ],
+   "measured_end": [
+    1.033,
+    -0.0143,
+    0.0164,
+    0.0004
+   ],
+   "direction_target": "zoom in left down",
+   "direction_measured": "zoom in left down",
+   "dominant_direction_match": true,
+   "magnitude_ratio": 1.009,
+   "half_frame_target": 17,
+   "half_frame_measured": 16,
+   "textured_frames": "58/58",
+   "intended_curve_fits_better": "11/13",
+   "crop_overshoot_pixels": 0.0,
+   "angle_applied_end_deg": 0.0,
+   "angle_measured_end_deg": 0.02,
+   "angle_peak_applied_deg": 0.0,
+   "angle_ratio": null,
+   "intended_angle_fits_better": null
+  },
+  {
+   "slot": 15,
+   "moves": "zoom_out,pan,shake",
+   "applied": true,
+   "reference_seconds": [
+    27.3,
+    29.97
+   ],
+   "share": 1.0,
+   "base_zoom": 1.22,
+   "picture": [
+    0,
+    288,
+    111,
+    273
+   ],
+   "target_end": [
+    0.9575,
+    -0.0404,
+    -0.033,
+    0.0
+   ],
+   "applied_end": [
+    0.9575,
+    -0.0404,
+    -0.033,
+    0.0
+   ],
+   "measured_end": [
+    0.9626,
+    -0.0378,
+    -0.0293,
+    0.0013
+   ],
+   "direction_target": "zoom out left up",
+   "direction_measured": "zoom out left up",
+   "dominant_direction_match": true,
+   "magnitude_ratio": 0.881,
+   "half_frame_target": 16,
+   "half_frame_measured": 16,
+   "textured_frames": "80/80",
+   "intended_curve_fits_better": "14/17",
+   "crop_overshoot_pixels": 0.0,
+   "angle_applied_end_deg": 0.0,
+   "angle_measured_end_deg": 0.075,
+   "angle_peak_applied_deg": 0.0,
+   "angle_ratio": null,
+   "intended_angle_fits_better": null
+  },
+  {
+   "slot": 16,
+   "moves": "zoom_out,pan,rotate,shake",
+   "applied": true,
+   "reference_seconds": [
+    29.97,
+    30.63
+   ],
+   "share": 1.0,
+   "base_zoom": 1.264,
+   "picture": [
+    0,
+    288,
+    111,
+    273
+   ],
+   "target_end": [
+    0.974,
+    0.0337,
+    0.0304,
+    -0.0367
+   ],
+   "applied_end": [
+    0.974,
+    0.0337,
+    0.0304,
+    -0.0367
+   ],
+   "measured_end": [
+    0.962,
+    0.0378,
+    0.0336,
+    -0.0375
+   ],
+   "direction_target": "zoom out right down",
+   "direction_measured": "zoom out right down",
+   "dominant_direction_match": true,
+   "magnitude_ratio": 1.123,
+   "half_frame_target": 5,
+   "half_frame_measured": 3,
+   "textured_frames": "20/20",
+   "intended_curve_fits_better": "4/5",
+   "crop_overshoot_pixels": 0.0,
+   "angle_applied_end_deg": -2.101,
+   "angle_measured_end_deg": -2.146,
+   "angle_peak_applied_deg": 3.582,
+   "angle_ratio": 1.022,
+   "intended_angle_fits_better": "4/4"
+  },
+  {
+   "slot": 17,
+   "moves": "static",
+   "applied": false,
+   "mean_abs_difference": 0.04,
+   "reference_seconds": [
+    30.63,
+    32.27
+   ]
+  },
+  {
+   "slot": 18,
+   "moves": "zoom_out,pan,shake",
+   "applied": true,
+   "reference_seconds": [
+    32.27,
+    32.87
+   ],
+   "share": 0.265,
+   "base_zoom": 1.35,
+   "picture": [
+    0,
+    288,
+    0,
+    384
+   ],
+   "target_end": [
+    0.9733,
+    -0.8558,
+    0.0339,
+    0.0
+   ],
+   "applied_end": [
+    0.9929,
+    -0.2265,
+    0.009,
+    0.0
+   ],
+   "measured_end": [
+    0.9951,
+    -0.2221,
+    0.0121,
+    0.0012
+   ],
+   "direction_target": "left",
+   "direction_measured": "left down",
+   "dominant_direction_match": true,
+   "magnitude_ratio": 0.981,
+   "half_frame_target": 9,
+   "half_frame_measured": 9,
+   "textured_frames": "18/18",
+   "intended_curve_fits_better": "4/5",
+   "crop_overshoot_pixels": 0.0,
+   "angle_applied_end_deg": 0.0,
+   "angle_measured_end_deg": 0.068,
+   "angle_peak_applied_deg": 0.0,
+   "angle_ratio": null,
+   "intended_angle_fits_better": null
+  },
+  {
+   "slot": 19,
+   "moves": "zoom_in,pan,rotate,shake",
+   "applied": true,
+   "reference_seconds": [
+    32.87,
+    34.53
+   ],
+   "share": 0.48,
+   "base_zoom": 1.35,
+   "picture": [
+    0,
+    288,
+    111,
+    273
+   ],
+   "target_end": [
+    1.1283,
+    -0.0575,
+    0.1782,
+    0.1635
+   ],
+   "applied_end": [
+    1.0596,
+    -0.0276,
+    0.0855,
+    0.0784
+   ],
+   "measured_end": [
+    1.0626,
+    -0.0275,
+    0.0962,
+    0.0774
+   ],
+   "direction_target": "zoom in left down",
+   "direction_measured": "zoom in left down",
+   "dominant_direction_match": true,
+   "magnitude_ratio": 1.126,
+   "half_frame_target": 11,
+   "half_frame_measured": 4,
+   "textured_frames": "50/50",
+   "intended_curve_fits_better": "10/11",
+   "crop_overshoot_pixels": 0.0,
+   "angle_applied_end_deg": 4.493,
+   "angle_measured_end_deg": 4.437,
+   "angle_peak_applied_deg": 4.79,
+   "angle_ratio": 0.987,
+   "intended_angle_fits_better": "10/10"
+  },
+  {
+   "slot": 20,
+   "moves": "pan",
+   "applied": true,
+   "reference_seconds": [
+    34.53,
+    34.63
+   ],
+   "share": 1.0,
+   "base_zoom": 1.11,
+   "picture": [
+    0,
+    288,
+    0,
+    384
+   ],
+   "target_end": [
+    0.9895,
+    -0.0457,
+    0.0491,
+    0.0
+   ],
+   "applied_end": [
+    0.9895,
+    -0.0457,
+    0.0491,
+    0.0
+   ],
+   "measured_end": [
+    0.9899,
+    -0.0436,
+    0.0501,
+    -0.0001
+   ],
+   "direction_target": "zoom out left down",
+   "direction_measured": "zoom out left down",
+   "dominant_direction_match": true,
+   "magnitude_ratio": 1.019,
+   "half_frame_target": 1,
+   "half_frame_measured": 1,
+   "textured_frames": "3/3",
+   "intended_curve_fits_better": "1/2",
+   "crop_overshoot_pixels": 0.0,
+   "angle_applied_end_deg": 0.0,
+   "angle_measured_end_deg": -0.006,
+   "angle_peak_applied_deg": 0.0,
+   "angle_ratio": null,
+   "intended_angle_fits_better": null
+  },
+  {
+   "slot": 21,
+   "moves": "pan,shake",
+   "applied": true,
+   "reference_seconds": [
+    34.63,
+    36.13
+   ],
+   "share": 0.398,
+   "base_zoom": 1.35,
+   "picture": [
+    0,
+    288,
+    111,
+    273
+   ],
+   "target_end": [
+    0.9989,
+    0.1457,
+    0.3617,
+    0.0
+   ],
+   "applied_end": [
+    0.9996,
+    0.058,
+    0.1439,
+    0.0
+   ],
+   "measured_end": [
+    1.0007,
+    0.0614,
+    0.146,
+    0.0
+   ],
+   "direction_target": "right down",
+   "direction_measured": "right down",
+   "dominant_direction_match": true,
+   "magnitude_ratio": 1.014,
+   "half_frame_target": 15,
+   "half_frame_measured": 14,
+   "textured_frames": "45/45",
+   "intended_curve_fits_better": "9/10",
+   "crop_overshoot_pixels": 0.0,
+   "angle_applied_end_deg": 0.0,
+   "angle_measured_end_deg": 0.001,
+   "angle_peak_applied_deg": 0.0,
+   "angle_ratio": null,
+   "intended_angle_fits_better": null
+  },
+  {
+   "slot": 22,
+   "moves": "static",
+   "applied": false,
+   "mean_abs_difference": 0.03,
+   "reference_seconds": [
+    36.13,
+    36.23
+   ]
+  },
+  {
+   "slot": 23,
+   "moves": "zoom_out,pan,shake",
+   "applied": true,
+   "reference_seconds": [
+    36.23,
+    37.5
+   ],
+   "share": 0.901,
+   "base_zoom": 1.35,
+   "picture": [
+    0,
+    282,
+    111,
+    273
+   ],
+   "target_end": [
+    0.9778,
+    -0.0297,
+    -0.1761,
+    0.0
+   ],
+   "applied_end": [
+    0.98,
+    -0.0268,
+    -0.1587,
+    0.0
+   ],
+   "measured_end": [
+    0.9812,
+    -0.0229,
+    -0.1643,
+    0.0007
+   ],
+   "direction_target": "zoom out left up",
+   "direction_measured": "zoom out left up",
+   "dominant_direction_match": true,
+   "magnitude_ratio": 1.035,
+   "half_frame_target": 9,
+   "half_frame_measured": 9,
+   "textured_frames": "38/38",
+   "intended_curve_fits_better": "8/9",
+   "crop_overshoot_pixels": 0.0,
+   "angle_applied_end_deg": 0.0,
+   "angle_measured_end_deg": 0.042,
+   "angle_peak_applied_deg": 0.0,
+   "angle_ratio": null,
+   "intended_angle_fits_better": null
+  },
+  {
+   "slot": 24,
+   "moves": "pan,shake",
+   "applied": true,
+   "reference_seconds": [
+    37.5,
+    37.93
+   ],
+   "share": 1.0,
+   "base_zoom": 1.103,
+   "picture": [
+    0,
+    288,
+    0,
+    384
+   ],
+   "target_end": [
+    1.0002,
+    0.009,
+    -0.0514,
+    0.0
+   ],
+   "applied_end": [
+    1.0002,
+    0.009,
+    -0.0514,
+    0.0
+   ],
+   "measured_end": [
+    1.0008,
+    0.011,
+    -0.0491,
+    -0.0005
+   ],
+   "direction_target": "up",
+   "direction_measured": "right up",
+   "dominant_direction_match": true,
+   "magnitude_ratio": 0.956,
+   "half_frame_target": 10,
+   "half_frame_measured": 10,
+   "textured_frames": "13/13",
+   "intended_curve_fits_better": "3/4",
+   "crop_overshoot_pixels": 0.0,
+   "angle_applied_end_deg": 0.0,
+   "angle_measured_end_deg": -0.031,
+   "angle_peak_applied_deg": 0.0,
+   "angle_ratio": null,
+   "intended_angle_fits_better": null
+  },
+  {
+   "slot": 25,
+   "moves": "static",
+   "applied": false,
+   "mean_abs_difference": 0.0,
+   "reference_seconds": [
+    37.93,
+    38.7
+   ]
+  }
+ ]
+}

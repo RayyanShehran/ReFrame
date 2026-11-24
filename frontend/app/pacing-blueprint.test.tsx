@@ -3,7 +3,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { PacingBlueprint } from "./pacing-blueprint";
 
 const blueprint = {
-  schema_version: 2, algorithm_version: "scdet-cut-detector-v2", analyzed_at: "today",
+  schema_version: 2, algorithm_version: "scdet-cut-detector-v3", analyzed_at: "today",
   source: { media_sha256: "a".repeat(64) }, tool_versions: { ffmpeg: "9.0.2" },
   duration_seconds: 7, processing_width: 64, processing_height: 64, threshold: 10,
   successful_frames: 84, candidate_cut_timestamps: [1, 3], estimated_cut_count: 2,
@@ -13,7 +13,7 @@ const blueprint = {
     { start_seconds: 3, end_seconds: 7, duration_seconds: 4 }],
   interpretation_limits: ["Flashes and motion can cause false positives."],
   color_metadata: { warnings: [] }, other_categories: { transitions: "not_analyzed", captions: "not_analyzed", audio: "not_analyzed" },
-  scdet_cut_timestamps: [1], detected_cut_frames: [90], cut_detector: "camera-motion-cuts-v1",
+  scdet_cut_timestamps: [1], detected_cut_frames: [90], cut_detector: "camera-motion-cuts-v2",
   rhythm: { tempo_bpm: 123.05, strength: 0.21, clear: false, beats: [] },
   timings: { scdet_seconds: 1.2, detector_seconds: 0.8, rhythm_seconds: 0.4 },
 };

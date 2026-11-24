@@ -434,6 +434,25 @@ def test_long_valid_footage_adapts_under_budget_and_reaches_real_export(local, m
     )
 
 
+def test_a_new_project_syncs_its_slots_to_the_requested_audio(local, monkeypatch):
+    # Slots are generated before the audio choice is saved; on a new project they used to see
+    # the default "original" mode, so on-beat snapping could never run.
+    client, directory, _ = local
+    pid = seed(client, directory)
+    seen, original = [], sequence.generate
+
+    def spy(project_id, request):
+        seen.append(original(project_id, request).sequence.music.mode)
+        raise ReferenceError(409, "test_stop", "Stop after slots.")
+
+    monkeypatch.setattr(sequence, "generate", spy)
+    url = f"/api/projects/{pid}/generation"
+    options = {"captions": "off", "audio": "reference", "replace_customized": True}
+    assert client.post(url, json=options | {"matching_mode": "measurements"}).status_code == 202
+    wait(client, url)
+    assert seen == ["reference"]
+
+
 def test_visual_failure_can_continue_with_measurements_and_retained_checkpoints(local, monkeypatch):
     client, directory, _ = local
     pid = seed(client, directory)

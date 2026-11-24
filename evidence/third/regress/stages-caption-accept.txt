@@ -1,0 +1,6 @@
+    0.1 s  running  Choosing your clips
+    0.6 s  running  Recreating captions
+   10.6 s  running  Rendering
+   44.7 s  ready    Rendering
+notices: Estimated cuts and pacing, not transition-type recognition. | Flashes and motion can cause false positives; similar-looking shots can hide cuts. | Experimental frame-based visual similarity plus motion/scene measurements. | Adaptive visual sampling covers every clip and reference shot; sparse samples can miss brief action. Dark/quiet/soft images can be intentional. | Similarity is not a probability, action/story/identity recognition or artistic intent. Review images. | Camera motion: 8 of 19 reference shots move (17.5 s). | Persistent edge text was excluded as likely logos/usernames; check Customize. | Saved appearance analyses are preserved; automatic font/placement are approximate. | Some possible caption regions remain unreadable or conflicting. Retry reading or continue without captions. | Visible words/timing come from OCR. Check wording in Customize. | Timing: 0.5-second discovery, observed changes refined to 1/30 second. Short or hidden captions can be missed. | Closest available fonts/effects approximate the reference. Complex effects and shadow are not reconstructed. | Incomplete captions exported by explicit confirmation; some words are missing.
+message: None

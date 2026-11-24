@@ -1,0 +1,29 @@
+{
+ "reference": "third",
+ "source": "https://www.tiktok.com/@ahdo_c/video/7568129756005207316 (short link https://www.tiktok.com/t/ZPNBcEBoe/)",
+ "media": "1440x1080 HEVC 60 fps, AAC 44.1 kHz stereo, 38.754 s",
+ "frame_rate": 30,
+ "frames_30fps": 1162,
+ "duration_seconds": 38.754,
+ "method": "Hand-labelled from 30 fps contact sheets (every 3rd frame, contact/), then frame-exact strips around each transition (frames/). Each cut is the first frame (0-based, setpts=PTS-STARTPTS,fps=30) where the previous shot is gone. Labelled before any app analysis of this reference.",
+ "labelled_before_detector_output": true,
+ "cuts": [64, 185, 232, 281, 357, 423, 468, 513, 623, 660, 761, 819, 899, 919, 987, 1037, 1084, 1125, 1138],
+ "flash_transitions": {
+  "357": {"new_shot_from": 363, "kind": "yellow light leak (357-362) dissolving into the next shot"},
+  "919": {"new_shot_from": 921, "kind": "2-frame white flash"},
+  "1037": {"new_shot_from": 1039, "kind": "2-frame white flash"},
+  "1084": {"new_shot_from": 1087, "kind": "3-frame white flash"}
+ },
+ "uncertain": {
+  "617": "Projector image inside the theatre shot whites out (617-622) and the silhouettes shift a little; could be a 6-frame separate shot. Not counted either way.",
+  "939": "8 mm home-movie field: double exposure 938-940 between two near-identical takes. Not counted either way.",
+  "950": "Field: framing jump 949->950 (jump cut or whip). Not counted either way.",
+  "963": "Field: overexposure flash 963-967 with the same scene before and after. Not counted either way."
+ },
+ "scoring": "One-to-one match within 2 frames of the cut, or anywhere from the cut to new_shot_from + 2 for flash transitions. Detections within 2 frames of an uncertain frame are ignored (neither true nor false positives).",
+ "notes": [
+  "Shots: Emma face with sweater (0), Ryan on hill (64), Emma dark blue (185), Ryan at mic (232), Emma with baby at window (281), light leak -> Ryan with child (357), Ryan blue (423), Emma purple (468), theatre silhouettes / home movie (513), silhouettes / kitchen projection (623), hands (660), Emma profile dark (761), Ryan dark (819), kiss (899), flash -> 8 mm flower field (919), pool with child (987), flash -> child walking (1037), flash -> family at arch (1084), empty arch wider (1125), black to the end (1138-1161).",
+  "The source is 60 fps; labels are on the 30 fps decode the app uses, so a cut is accurate to one 30 fps frame.",
+  "Captions lead some cuts by a frame (e.g. 'to the' appears at 467, the cut is at 468)."
+ ]
+}

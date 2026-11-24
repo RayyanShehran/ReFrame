@@ -1,0 +1,117 @@
+{
+ "pacing_all": {
+  "found": 26,
+  "ignored_uncertain": [
+   616
+  ],
+  "matched": 19,
+  "precision": 0.76,
+  "recall": 1.0,
+  "missed": [],
+  "false": [
+   360,
+   362,
+   920,
+   968,
+   1039,
+   1087
+  ],
+  "offsets": {
+   "357": -1,
+   "623": -1,
+   "987": -1,
+   "1037": -1
+  }
+ },
+ "pacing_scdet_only": {
+  "found": 22,
+  "ignored_uncertain": [
+   616
+  ],
+  "matched": 15,
+  "precision": 0.714,
+  "recall": 0.789,
+  "missed": [
+   232,
+   468,
+   761,
+   819
+  ],
+  "false": [
+   360,
+   362,
+   920,
+   968,
+   1039,
+   1087
+  ],
+  "offsets": {
+   "357": -1,
+   "623": -1,
+   "987": -1,
+   "1037": -1
+  }
+ },
+ "detector_frames": [
+  64,
+  185,
+  232,
+  281,
+  358,
+  362,
+  423,
+  468,
+  513,
+  617,
+  623,
+  660,
+  761,
+  819,
+  899,
+  919,
+  987,
+  1084,
+  1125,
+  1138
+ ],
+ "rhythm": {
+  "tempo_bpm": 114.84,
+  "strength": 0.25,
+  "clear": false
+ },
+ "pacing_timings": {
+  "scdet_seconds": 8.547,
+  "detector_seconds": 5.297,
+  "rhythm_seconds": 0.547
+ },
+ "slots": {
+  "found": 24,
+  "ignored_uncertain": [
+   617
+  ],
+  "matched": 19,
+  "precision": 0.826,
+  "recall": 1.0,
+  "missed": [],
+  "false": [
+   362,
+   968,
+   1039,
+   1087
+  ],
+  "offsets": {
+   "357": -1,
+   "623": -1,
+   "987": -1,
+   "1037": -1
+  }
+ },
+ "slot_count": 25,
+ "music": {
+  "mode": "reference",
+  "offset_seconds": 0.0,
+  "clear_beats": false,
+  "moved_cuts": 0
+ },
+ "output_frames": 1161
+}

@@ -2,6 +2,38 @@
 
 Current default is automatic reference-video generation; Customize retains the advanced editor. Earlier sections record historical milestone boundaries. [Current workflow, verification and limits](AUTOMATIC_GENERATION.md).
 
+## Third reference: generalisation test — 2026-11-24
+
+The pipeline was validated on a third reference: a 38.75 s, 1440×1080 HEVC 60 fps
+film-dialogue edit. Its truth was hand-labelled before any app run: 19 cuts, no clear beat
+(max clarity 0.25), no confident roll, and 45 word-by-word caption phases.
+
+Isolated e2e, a fresh UI project with the 7 IDK clips:
+- **Cuts:** 18/19 → **19/19**, slot precision 0.75 → 0.83. The 4 remaining false slot cuts are
+  flash edges.
+- **Camera motion:** before, none was copied. Now all 27 shots are saved, with one shot still,
+  and applied motion matches intended on all 19 measurable slots.
+- **Snapping:** correctly stays off at offset 0 and at +0.25 s.
+- **Handwritten and printed:** unchanged — 18/18, 21/21, identical motion and rolls, and the
+  caption retry at 251.61 / 0 / 0.47 / 2.55, 17/22.
+
+Three fixes:
+- **Cut detector:** burned-in captions no longer drive it (gradient cap plus a ±1 px alignment
+  gate; pacing `scdet-cut-detector-v3`).
+- **Camera motion:** a shot beyond the motion model's bounds copies no motion, instead of
+  failing every shot.
+- **Audio:** a new project's slots now sync to the requested audio. Before, they read the
+  default `original`, so they could never snap.
+
+Partial:
+- flash edges as short slots;
+- one false roll (a head tilt);
+- 8 mm tracking drift;
+- captions at about 30 of 88.5 word-seconds, because OCR keeps only finished lines and misses
+  low-contrast text.
+
+[Truth, results, margins and timing](../evidence/third/README.md).
+
 ## Cuts on the music — 2026-11-23
 
 Slots now cut at every reference cut.

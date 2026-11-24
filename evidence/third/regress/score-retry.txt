@@ -1,0 +1,15 @@
+== HANDWRITTEN RETRY EXPORT (test-third-reference)
+phase          last line                                  C      W       M      E  timing (start err / end err)
+ 1.600- 5.100 you can talk to me about anything     49.000  0.000   0.000  0.000  exact: -0.033 / +0.000
+ 5.100- 7.000 As you get older you know             38.000  0.000   0.000  0.000  exact: +0.000 / +0.033
+ 9.250-10.450 Whatever parties you go to             6.000  0.000   0.000  0.000  exact: -0.017 / +0.017
+16.000-17.500 Drugs you take                         4.500  0.000   0.000  0.000  exact: -0.233 / +0.000
+17.500-19.000 No I'm serious Soph                    6.000  0.000   0.000  0.000  exact: +0.000 / +0.233
+20.970-21.970 I've done it all and you can too       8.000  0.000   0.000  0.050  exact: -0.003 / -0.003
+21.970-24.530 you'll talk to me about it okay       58.880  0.000   0.000  0.000  exact: -0.003 / +0.007
+26.500-27.000 Okay But I'm never gonna               2.500  0.000   0.000  2.500  complete: -0.067 / +1.000
+27.000-29.000 do any of that anyway                 20.000  0.000   0.000  0.000  exact: -0.567 / +0.000
+29.000-30.000 Well that's okay too                  13.533  0.000   0.467  0.000  exact: +0.000 / -0.033
+32.000-39.533 But if you do remember okay           45.198  0.000   0.000  0.000  exact: -0.367 / +0.037
+TOTAL correct/wrong/missing/extra = 251.6113 / 0.0000 / 0.4667 / 2.5500
+boundaries within 0.2 s: 17/22

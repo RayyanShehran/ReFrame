@@ -1,0 +1,12 @@
+window   0.0-  8.0 s    79.5 BPM  clarity 0.222  not clear
+window   4.0- 12.0 s   114.8 BPM  clarity 0.151  not clear
+window   8.0- 16.0 s   120.2 BPM  clarity 0.169  not clear
+window  12.0- 20.0 s   120.2 BPM  clarity 0.198  not clear
+window  16.0- 24.0 s   112.3 BPM  clarity 0.192  not clear
+window  20.0- 28.0 s   178.2 BPM  clarity 0.221  not clear
+window  24.0- 32.0 s   178.2 BPM  clarity 0.154  not clear
+window  28.0- 36.0 s    99.4 BPM  clarity 0.250  not clear
+window  30.8- 38.8 s    86.1 BPM  clarity 0.117  not clear
+beats.analyze: tempo 114.84 BPM, strength 0.25, clear False, 0 beats (threshold CLEAR=0.5)
+whole-track autocorrelation peaks: 129.2 BPM 0.089, 112.3 BPM 0.079, 120.2 BPM 0.079
+onset envelope max within +-35 ms: truth cuts median 0.97, random median 0.53; cuts above the random 75th percentile: 8/19
