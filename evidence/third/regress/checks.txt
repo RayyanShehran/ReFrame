@@ -1,0 +1,6 @@
+handwritten: pacing scdet-cut-detector-v3 detector camera-motion-cuts-v2: 14 scdet + 4 detector cuts; timings {'scdet_seconds': 7.64, 'detector_seconds': 4.516, 'rhythm_seconds': 0.516}
+  slots 19 (main 19); slot cuts == truth: True (18/18); slot cuts == main: True; music {'mode': 'reference', 'offset_seconds': 0.0, 'clear_beats': False, 'moved_cuts': 0}
+  camera motion shots/curves/shakes/moves identical to main: True (19 shots); rolls [(262, 2.29)] (main [(262, 2.29)])
+printed: pacing scdet-cut-detector-v3 detector camera-motion-cuts-v2: 13 scdet + 8 detector cuts; timings {'scdet_seconds': 2.468, 'detector_seconds': 3.157, 'rhythm_seconds': 0.5}
+  slots 22 (main 22); slot cuts == truth: True (21/21); slot cuts == main: True; music {'mode': 'reference', 'offset_seconds': 0.0, 'clear_beats': False, 'moved_cuts': 0}
+  camera motion shots/curves/shakes/moves identical to main: True (22 shots); rolls [(98, 3.08)] (main [(98, 3.08)])
