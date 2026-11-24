@@ -352,7 +352,7 @@ footer { color: var(--secondary); padding-top: 40px; font-size: 12px; }
 .editor-inspector .caption-cue { display:grid; grid-template-columns:minmax(0,1fr); }
 .editor-inspector details { margin-block:12px; }
 .editor-inspector summary { padding:10px 0; }
-.customize-open > :is(.hero,.page-title,.create-card,.progress-panel,.status-panel,.automatic-result,details,.caption-recovery) { display:none; }
+.customize-open > :is(.hero,.page-title,.create-card,.progress-panel,.status-panel,.automatic-result,.recent-projects,details,.caption-recovery) { display:none; }
 .customize-open .footage-section > .project-heading { padding-top:12px; }
 .customize-open .footage-section > .project-heading .eyebrow { display:none; }
 .customize-open .footage-section > .project-heading h1 { font-size:24px; margin:8px 0; }
@@ -409,3 +409,12 @@ footer { color: var(--secondary); padding-top: 40px; font-size: 12px; }
 .field > .hint { margin: 0; font-size: var(--text-sm); }
 .empty-state { display: grid; justify-items: start; gap: 8px; padding: 24px; border: 1px dashed var(--color-border-strong); border-radius: var(--radius-lg); }
 .empty-state-title { margin: 0; font-size: var(--text-lg); font-weight: 600; color: var(--color-text); }
+
+/* Recent projects on the Create screen. */
+.recent-projects { max-width: 720px; margin: 0 auto 24px; }
+.shell .recent-projects h2 { font-size: var(--text-lg); }
+.recent-projects ul { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
+.recent-projects li { display: grid; gap: 6px; align-content: start; justify-items: start; padding: 14px; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface-1); min-width: 0; }
+.recent-name { font-weight: 600; color: var(--color-text); overflow-wrap: anywhere; }
+.recent-projects small { color: var(--color-text-muted); font-size: var(--text-xs); }
+.recent-projects button { min-height: 36px; padding: 6px 12px; font-size: var(--text-sm); }

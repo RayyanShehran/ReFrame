@@ -7,7 +7,7 @@ import { useMediaOperation, type MediaOperation } from "./use-media-operation";
 import { AutomaticCaptionReview, type CaptionReview } from "./automatic-caption-review";
 import { Workspace } from "./workspace";
 import { AppHeader } from "./app-header";
-import { Banner, Button, ProgressSteps } from "./ui";
+import { Badge, Banner, Button, ProgressSteps } from "./ui";
 import { fetchReference } from "./reference-selection";
 
 const MiB = 1024 * 1024;
@@ -17,7 +17,7 @@ const STAGES = ["Reading reference", "Choosing your clips", "Matching the look",
 type Options = { audio: "reference" | "original" | "mix" | "mute"; captions: "reference" | "output_audio" | "off"; allow_reused_ranges: boolean; matching_mode?: "subject_aware" | "measurements" };
 type Generation = MediaOperation & { project_id: string; revision: number; operation_id: string | null; stage: string | null; output_id: string | null; notices: string[]; options: Options | null; caption_review?: CaptionReview | null };
 type Item = { id: string; file: File; url: string; status: "pending" | "uploading" | "succeeded" | "failed"; progress: number; error: string };
-type SavedProject = { id: string; name: string; reference: { canonical_url: string } };
+type SavedProject = { id: string; name: string; reference: { canonical_url: string }; status?: "active" | "deleting" };
 function parse(value: unknown): Generation {
   const g = value as Generation;
   if (!g || typeof g.project_id !== "string" || !Number.isSafeInteger(g.revision) || g.revision < 0 || !["idle", "running", "ready", "failed"].includes(g.status) || !Array.isArray(g.notices) || g.notices.length > 30 || g.notices.some(n => typeof n !== "string" || n.length > 2000)) throw new Error("Generation status could not be read.");
@@ -219,6 +219,13 @@ export function AutomaticMaker() {
       {failureMessage && <Banner tone="danger" role="alert">{failureMessage}</Banner>}
       {(visualRecovery || captionRecovery || setupDetails) && <div className="recovery" role="group" aria-label="Recovery options">{visualRecovery}{captionRecovery}{setupDetails}</div>}
     </section>}
+    {!projectId && !!projects.length && <section className="recent-projects" aria-labelledby="recent-projects-title"><h2 id="recent-projects-title">Recent projects</h2>
+      <ul>{projects.map(project => <li key={project.id}>
+        <span className="recent-name">{project.name}</span>
+        <small>{project.reference.canonical_url.match(/@[^/?#]+/)?.[0] ?? "TikTok reference"}</small>
+        {project.status === "deleting" && <Badge state="needs-attention">Deletion incomplete</Badge>}
+        <button onClick={() => void open(project.id)}>Open {project.name}</button>
+      </li>)}</ul></section>}
     {operation?.status === "ready" && !!operation.caption_review?.unreadable_samples && !!operation.caption_review?.cues.length && <details><summary>Saved caption reading — incomplete</summary><p>These detected words were retained for review. Check the saved caption mode for this video.</p><ul>{operation.caption_review.cues.map((cue, i) => <li key={i}>{cue.start.toFixed(2)}–{cue.end.toFixed(2)}: {cue.text}</li>)}</ul></details>}
     {projectId && operation?.caption_review && <AutomaticCaptionReview portalTarget={customize ? reviewTarget : null} key={`${projectId}:${operation.revision}:${operation.status}`} projectId={projectId} revision={operation.revision} review={operation.caption_review} disabled={!!running} onSaved={generation.refresh} onDirty={setReviewDirty}>{(!!operation.caption_review.verified_cues?.length || !!operation.caption_review.corrected_cues?.length) && <label><input type="checkbox" checked={replaceVerified} disabled={!!running || reviewDirty} onChange={e => setReplaceVerified(e.target.checked)} /> Replace my verified or corrected cues on the next retry</label>}{customize && <div className="caption-recovery"><button disabled={!!running || reviewDirty} onClick={() => void generate(undefined, "reference", false, operation?.options?.audio ?? audio)}>Retry caption reading</button><button disabled={!!running || reviewDirty} onClick={() => void generate(undefined, "off", false, operation?.options?.audio ?? audio)}>Continue without captions</button></div>}</AutomaticCaptionReview>}
     {!outputId && projectId && <button onClick={() => { setCustomizeMounted(true); setCustomize(value => !value); }}>{customize ? "Close Customize" : "Customize"}</button>}

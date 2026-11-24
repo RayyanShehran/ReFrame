@@ -222,3 +222,28 @@ it("puts Download, Customize and the single Generate again button in the result'
   expect(within(row).getByRole("button", { name: "Generate again" })).toBeInTheDocument();
   expect(within(result).getAllByRole("listitem")).toHaveLength(1);  // Notices are de-duplicated.
 });
+
+it("lists recent projects on the Create screen with known status and opens one", async () => {
+  const other = "22222222-2222-4222-8222-222222222222";
+  vi.stubGlobal("fetch",vi.fn(async (url:string)=> {
+    if(url.endsWith("/api/projects")) return ok([
+      {id:pid,name:"Beach edit",reference:{canonical_url:"https://www.tiktok.com/@fixture/video/1"},status:"active"},
+      {id:other,name:"Old edit",reference:{canonical_url:"https://www.tiktok.com/@older/video/2"},status:"deleting"}]);
+    if(url.endsWith("/clips")) return ok(library(1));
+    if(url.endsWith("/render")) return ok({output:null});
+    if(url.endsWith("/generation")) return ok({project_id:pid,revision:0,status:"idle",stage:null,output_id:null,options:null,notices:[],failure_code:null,message:null});
+    if(url.endsWith(pid)) return ok({id:pid,name:"Beach edit",reference:{canonical_url:"https://www.tiktok.com/@fixture/video/1"}});
+    return ok([]);
+  }));
+  render(<AutomaticMaker />);
+  const recent = await screen.findByRole("region", { name: "Recent projects" });
+  const items = within(recent).getAllByRole("listitem");
+  expect(items).toHaveLength(2);
+  expect(items[0]).toHaveTextContent("Beach edit");
+  expect(items[0]).toHaveTextContent("@fixture");
+  expect(within(items[0]).queryByText("Deletion incomplete")).not.toBeInTheDocument();
+  expect(within(items[1]).getByText("Deletion incomplete")).toHaveClass("badge-needs-attention");
+  fireEvent.click(within(recent).getByRole("button", { name: "Open Beach edit" }));
+  await waitFor(() => expect(new URLSearchParams(window.location.search).get("project")).toBe(pid));
+  expect(screen.queryByRole("region", { name: "Recent projects" })).not.toBeInTheDocument();
+});
