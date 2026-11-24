@@ -58,12 +58,12 @@ body { margin: 0; background: var(--color-bg); color: var(--color-text); font-fa
 .shell p { margin: 12px 0; max-width: 80ch; }
 .shell a { color: var(--text); text-decoration: underline; text-underline-offset: 4px; }
 .shell :is(button,input,select,textarea) { font: inherit; max-width: 100%; }
-.shell button, .download-link { min-height: 44px; padding: 10px 16px; border: 1px solid var(--border); border-radius: 4px; color: var(--text); background: transparent; cursor: pointer; font-weight: 500; line-height: 1.35; white-space: normal; }
-.shell button:hover:not(:disabled), .download-link:hover { background: var(--hover); border-color: var(--secondary); }
-.shell button:disabled { color: var(--secondary); border-color: var(--hover); background: transparent; cursor: not-allowed; }
-.shell .button-primary, .shell .download-link { background: var(--accent); border-color: var(--accent); color: var(--deep); font-weight: 600; }
-.shell .button-primary:hover:not(:disabled), .shell .download-link:hover { background: var(--accent); border-color: var(--accent); box-shadow: none; }
-.shell .button-primary:disabled { background: var(--raised); border-color: var(--border); color: var(--secondary); box-shadow: none; }
+.shell button, .download-link, .button-link { min-height: 44px; padding: 10px 16px; border: 1px solid var(--color-border-strong); border-radius: var(--radius-md); color: var(--color-text); background: transparent; cursor: pointer; font-weight: 500; line-height: 1.35; white-space: normal; }
+.shell button:hover:not(:disabled), .download-link:hover, .button-link:hover { background: var(--color-surface-3); border-color: var(--color-text-muted); }
+.shell button:disabled { color: var(--color-text-subtle); border-color: var(--color-border); background: transparent; cursor: not-allowed; }
+.shell .button-primary, .shell .download-link, .shell .button-link { background: var(--color-accent); border-color: var(--color-accent); color: var(--color-on-accent); font-weight: 600; }
+.shell .button-primary:hover:not(:disabled), .shell .download-link:hover, .shell .button-link:hover { background: var(--color-accent); border-color: var(--color-accent); box-shadow: none; filter: brightness(1.08); }
+.shell .button-primary:disabled { background: var(--color-surface-2); border-color: var(--color-border); color: var(--color-text-subtle); box-shadow: none; }
 .shell :is(button,input,select,textarea,a,summary,h2):focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
 .topbar { min-height: 72px; display: flex; align-items: center; gap: 24px; position: sticky; top: 0; z-index: 20; background: var(--deep); border-bottom: 1px solid var(--hover); margin-inline: calc(-1 * clamp(16px, 3vw, 48px)); padding-inline: clamp(16px, 3vw, 48px); }
 .brand { font-size: 25px; color: var(--text); font-weight: 600; letter-spacing: -.06em; white-space: nowrap; }
@@ -107,7 +107,7 @@ body { margin: 0; background: var(--color-bg); color: var(--color-text); font-fa
 .reference-section .reference-section { padding: 20px 0; background: transparent; border: 0; border-top: 1px solid var(--border); }
 .reference-section .eyebrow { margin-bottom: 8px; }
 .reference-section label { display: block; font-size: 14px; font-weight: 500; margin: 12px 0; }
-.reference-section :is(input:not([type="file"]):not([type="range"]):not([type="checkbox"]):not([type="radio"]):not([type="color"]),select,textarea), .workspace-section-picker select { min-height: 44px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 4px; background: var(--raised); color: var(--text); min-width: 0; }
+.reference-section :is(input:not([type="file"]):not([type="range"]):not([type="checkbox"]):not([type="radio"]):not([type="color"]),select,textarea), .workspace-section-picker select { min-height: 44px; padding: 10px 12px; border: 1px solid var(--color-border-strong); border-radius: var(--radius-md); background: var(--color-surface-2); color: var(--color-text); min-width: 0; }
 .reference-section :is(input[type="text"],input:not([type]),textarea) { width: min(100%,32rem); }
 .reference-section :is(input[type="number"],select) { display: block; width: min(100%,24rem); margin-top: 6px; }
 .reference-section input[type="number"] { font-variant-numeric: tabular-nums; }
@@ -135,15 +135,15 @@ body { margin: 0; background: var(--color-bg); color: var(--color-text); font-fa
 .shell input[type="range"] { min-width: 0; width: 100%; min-height: 44px; accent-color: var(--accent); cursor: pointer; touch-action: pan-y; }
 .shell input[type="checkbox"], .shell input[type="radio"] { width: 22px; height: 22px; flex: none; accent-color: var(--accent); }
 .shell label:has(input[type="checkbox"]), .shell label:has(input[type="radio"]) { display: flex; align-items: center; gap: 10px; min-height: 44px; }
-.shell input[type="color"] { min-height: 44px; width: 64px; border: 1px solid var(--border); border-radius: 4px; background: var(--raised); }
+.shell input[type="color"] { min-height: 44px; width: 64px; border: 1px solid var(--color-border-strong); border-radius: var(--radius-md); background: var(--color-surface-2); }
 .shell input[type="file"]:not(.footage-file-input) { display: block; width: 100%; min-width: 0; margin-top: 8px; font-size: 16px; }
-.shell input[type="file"]::file-selector-button { min-height: 44px; padding: 10px 16px; margin-right: 12px; border: 1px solid var(--border); border-radius: 4px; background: var(--raised); color: var(--text); font: inherit; cursor: pointer; }
+.shell input[type="file"]::file-selector-button { min-height: 44px; padding: 10px 16px; margin-right: 12px; border: 1px solid var(--color-border-strong); border-radius: var(--radius-md); background: var(--color-surface-2); color: var(--text); font: inherit; cursor: pointer; }
 .shell details { margin-block: 16px; }
 .shell summary { cursor: pointer; min-height: 44px; padding-block: 12px; font-weight: 500; }
 .shell details > :not(summary) { margin-top: 12px; }
 .footage-section { margin-top: 20px; }
 .rendered-video { display: block; width: 100%; max-height: 540px; background: var(--deep); border-radius: 0; }
-.download-link { display: inline-flex; align-items: center; text-decoration: none !important; }
+.download-link, .button-link { display: inline-flex; align-items: center; text-decoration: none !important; }
 .frame-preview-images { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,260px),1fr)); gap: 16px; align-items: start; }
 .frame-preview-images figure, .font-candidates figure { margin: 0; min-width: 0; }
 .frame-preview-images figcaption { font-size: 13px; color: var(--secondary); padding: 10px 0; }
