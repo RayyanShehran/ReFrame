@@ -13,7 +13,7 @@ type Blueprint = {
   interpretation_limits: string[]; color_metadata: { warnings: string[] };
   other_categories: Record<string, "not_analyzed">;
   scdet_cut_timestamps: number[]; detected_cut_frames: number[];
-  cut_detector: "camera-motion-cuts-v1" | "unavailable";
+  cut_detector: "camera-motion-cuts-v2" | "unavailable";
   rhythm: { tempo_bpm: number; strength: number; clear: boolean; beats: number[] } | null;
 };
 type Operation = MediaOperation & { blueprint: Blueprint | null };
@@ -23,10 +23,10 @@ function parse(data: unknown): Operation {
   const operation = data as Operation;
   if (operation.status === "ready") {
     const b = operation.blueprint;
-    if (!b || b.schema_version !== 2 || b.algorithm_version !== "scdet-cut-detector-v2" || b.threshold !== 10 ||
+    if (!b || b.schema_version !== 2 || b.algorithm_version !== "scdet-cut-detector-v3" || b.threshold !== 10 ||
         !Array.isArray(b.scdet_cut_timestamps) || !b.scdet_cut_timestamps.every(t => b.candidate_cut_timestamps.includes(t)) ||
         !Array.isArray(b.detected_cut_frames) || !b.detected_cut_frames.every(Number.isInteger) ||
-        !["camera-motion-cuts-v1", "unavailable"].includes(b.cut_detector) ||
+        !["camera-motion-cuts-v2", "unavailable"].includes(b.cut_detector) ||
         (b.rhythm !== null && (!b.rhythm || !finite(b.rhythm.tempo_bpm) || typeof b.rhythm.clear !== "boolean" ||
           !Array.isArray(b.rhythm.beats) || !b.rhythm.beats.every(finite))) ||
         !finite(b.duration_seconds) || b.duration_seconds <= 0 || b.duration_seconds > 120 ||

@@ -20,7 +20,8 @@ from references import ReferenceError
 
 logger = logging.getLogger(__name__)
 # Schema 2: scdet plus the camera-motion cut detector, and the reference's rhythm.
-ALGORITHM = "scdet-cut-detector-v2"
+# v3: the detector caps gradients, so burned-in caption text no longer drives its cuts.
+ALGORITHM = "scdet-cut-detector-v3"
 SAME_CUT_FRAMES = 2  # A detected cut this close to an scdet cut is that cut.
 AUDIO_SECONDS = 30
 AUDIO_LIMIT = 16 * 1024 * 1024  # Mono float32 at 22,050 Hz: 120 s is about 10.6 MB.
@@ -60,7 +61,7 @@ class OtherCategories(color.Schema):
 
 class Blueprint(color.Schema):
     schema_version: Literal[2] = 2
-    algorithm_version: Literal["scdet-cut-detector-v2"] = ALGORITHM
+    algorithm_version: Literal["scdet-cut-detector-v3"] = ALGORITHM
     analyzed_at: str
     source: color.Source
     tool_versions: dict[str, str]
@@ -89,7 +90,7 @@ class Blueprint(color.Schema):
     detected_cut_frames: list[Annotated[int, Field(ge=1, le=3600)]] = Field(
         default_factory=list, max_length=1000
     )
-    cut_detector: Literal["camera-motion-cuts-v1", "unavailable"] = "unavailable"
+    cut_detector: Literal["camera-motion-cuts-v2", "unavailable"] = "unavailable"
     rhythm: beats.Rhythm | None = None
     timings: Timings = Field(default_factory=Timings)
 
@@ -258,7 +259,7 @@ def detect_more(path, directory, deadline, timings):
     samples = reference_audio(np, path, directory, deadline)
     rhythm = beats.analyze(np, samples) if samples is not None and len(samples) else None
     timings.rhythm_seconds = round(time.monotonic() - started, 3)
-    return detected, "camera-motion-cuts-v1", rhythm
+    return detected, "camera-motion-cuts-v2", rhythm
 
 
 def pipeline(current_source, directory, stop, deadline):

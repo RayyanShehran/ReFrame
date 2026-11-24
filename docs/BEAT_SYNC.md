@@ -25,7 +25,7 @@ Evidence lives in `evidence/beats/` in the isolated e2e copy.
 
 ## Design
 
-1. **Pacing finds every cut** (pacing blueprint schema **2**, algorithm `scdet-cut-detector-v2`).
+1. **Pacing finds every cut** (pacing blueprint schema **2**, algorithm `scdet-cut-detector-v3`; v2 before the caption-robust detector, see [CAMERA_MOTION.md](CAMERA_MOTION.md)).
    - The pacing operation keeps scdet and adds the camera-motion cut detector
      (`camera_motion.cut_frames`, PR #11) on its own 192-pixel 30 fps gray decode.
    - A detected cut within 2 frames of an scdet cut is the same cut, and the scdet timestamp is
