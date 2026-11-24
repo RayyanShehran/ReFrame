@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
 
-type ReferenceDetails = {
+export type ReferenceDetails = {
   provider: "tiktok";
   video_id: string;
   canonical_url: string;
@@ -15,7 +15,7 @@ type ReferenceDetails = {
 type Phase = "idle" | "checking" | "ready" | "selected";
 const apiBase = (process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000").replace(/\/$/, "");
 
-async function fetchReference(url: string, signal: AbortSignal): Promise<ReferenceDetails> {
+export async function fetchReference(url: string, signal: AbortSignal): Promise<ReferenceDetails> {
   const response = await fetch(`${apiBase}/api/references/inspect`, {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url }), signal,
   });

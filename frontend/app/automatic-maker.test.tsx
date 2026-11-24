@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { AutomaticMaker } from "./automatic-maker";
 vi.mock("./workspace", () => ({ Workspace: () => <div>Advanced editor<input aria-label="Custom caption draft" defaultValue="Saved" /></div> }));
@@ -126,4 +126,40 @@ it("shows three numbered create steps and usage from saved and queued clips", as
   expect(screen.getByText("Clip 0")).toBeInTheDocument();
   fireEvent.change(screen.getByLabelText("Choose your clips"),{target:{files:[new File([new Uint8Array(1024 * 1024)],"third.mp4")]}});
   expect(screen.getByText("3 of 10 · 4.0 of 500 MiB")).toBeInTheDocument();
+});
+
+it("previews a valid link's title and creator after a pause, aborting requests for links that changed", async () => {
+  const inspected: { url: string; signal: AbortSignal }[] = [];
+  let answer: ((value: Response) => void) | null = null;
+  vi.stubGlobal("fetch", vi.fn((url: string, init: RequestInit = {}) => {
+    if (url.endsWith("/api/references/inspect")) {
+      inspected.push({ url: JSON.parse(init.body as string).url, signal: init.signal! });
+      return new Promise<Response>(resolve => { answer = resolve; });
+    }
+    return Promise.resolve(ok([]));
+  }));
+  render(<AutomaticMaker />);
+  await act(async () => {});  // Let the mount-time open(null) reset finish before typing.
+  const input = screen.getByLabelText("TikTok reference link");
+  fireEvent.change(input, { target: { value: "https://www.tiktok.com/@a/video/1" } });
+  fireEvent.change(input, { target: { value: "https://www.tiktok.com/@b/video/2" } });
+  await waitFor(() => expect(inspected).toHaveLength(1));
+  expect(inspected[0].url).toBe("https://www.tiktok.com/@b/video/2");  // The first link was never requested.
+  fireEvent.change(input, { target: { value: "https://www.tiktok.com/@c/video/3" } });
+  expect(inspected[0].signal.aborted).toBe(true);  // An in-flight request for a changed link is aborted.
+  await waitFor(() => expect(inspected).toHaveLength(2));
+  answer!(ok({ provider: "tiktok", video_id: "3", canonical_url: "https://www.tiktok.com/@c/video/3", title: "Sunset edit", author_name: "C", metadata_status: "available", analysis_status: "not_started" }));
+  expect(await screen.findByText("Sunset edit · C")).toBeInTheDocument();
+});
+
+it("shows a hint when the reference preview fails and still allows Generate", async () => {
+  vi.stubGlobal("URL", Object.assign(URL, { createObjectURL: vi.fn(()=>"blob:fixture"), revokeObjectURL: vi.fn() }));
+  vi.stubGlobal("fetch", vi.fn(async (url: string) => url.endsWith("/api/references/inspect")
+    ? ({ ok: false, json: async () => ({ error: { message: "Reference unavailable" } }) } as Response) : ok([])));
+  render(<AutomaticMaker />);
+  await act(async () => {});
+  fireEvent.change(screen.getByLabelText("Choose your clips"),{target:{files:[new File(["fixture"],"first.mp4")]}});
+  fireEvent.change(screen.getByLabelText("TikTok reference link"), { target: { value: "https://www.tiktok.com/@a/video/1" } });
+  expect(await screen.findByText("Reference details could not be loaded. You can still generate.")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Generate video" })).toBeEnabled();
 });

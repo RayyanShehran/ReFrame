@@ -8,6 +8,7 @@ import { AutomaticCaptionReview, type CaptionReview } from "./automatic-caption-
 import { Workspace } from "./workspace";
 import { AppHeader } from "./app-header";
 import { Button } from "./ui";
+import { fetchReference } from "./reference-selection";
 
 const MiB = 1024 * 1024;
 
@@ -51,6 +52,7 @@ export function AutomaticMaker() {
   const [reviewTarget, setReviewTarget] = useState<HTMLDivElement | null>(null), [menuTarget, setMenuTarget] = useState<HTMLDivElement | null>(null);
   const [reviewDirty, setReviewDirty] = useState(false), [replaceVerified, setReplaceVerified] = useState(false);
   const [outputId, setOutputId] = useState<string | null>(null);
+  const [preview, setPreview] = useState<{ url: string; state: "checking" | "ready" | "failed"; title?: string | null; author?: string | null } | null>(null);
   const items = useRef<Item[]>([]), action = useRef<AbortController | null>(null), currentId = useRef<string | null>(null);
   const urls = useRef(new Set<string>());
   const generation = useMediaOperation(projectId ?? "", "generation", parse, 1200);
@@ -105,6 +107,21 @@ export function AutomaticMaker() {
     if (operation.options) { setAudio(operation.options.audio); setCaptionMode(operation.options.captions); setAllowReuse(operation.options.allow_reused_ranges); }
     if (operation.output_id) setOutputId(operation.output_id);
   }, [operation?.revision, operation?.status, operation?.output_id]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Optional title/creator preview for a new project's link: debounced, aborted on any change and
+  // shown only for the link it was fetched for. A failure is a hint; it never blocks Generate.
+  const previewUrl = !projectId && !running && /^https:\/\/([a-z0-9-]+\.)*tiktok\.com\//i.test(link.trim()) ? link.trim() : "";
+  useEffect(() => {
+    if (!previewUrl) return;
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      setPreview({ url: previewUrl, state: "checking" });
+      fetchReference(previewUrl, controller.signal)
+        .then(details => setPreview({ url: previewUrl, state: "ready", title: details.title, author: details.author_name }))
+        .catch(() => { if (!controller.signal.aborted) setPreview({ url: previewUrl, state: "failed" }); });
+    }, 500);
+    return () => { clearTimeout(timer); controller.abort(); };
+  }, [previewUrl]);
+  const shownPreview = preview && preview.url === previewUrl ? preview : null;
   async function generate(matchingMode: "subject_aware" | "measurements" = operation?.options?.matching_mode ?? "subject_aware", captions = captionMode, partial = false, audioMode = audio) {
     if (action.current || running || reviewDirty || (!projectId && !link.trim())) return;
     const controller = new AbortController(); action.current = controller; setBusy(true); setError("");
@@ -152,6 +169,9 @@ export function AutomaticMaker() {
       <ol className="create-steps" aria-label="Create steps">
         <li><h2>Reference link</h2>
           <label>TikTok reference link<input aria-label="TikTok reference link" type="url" placeholder="https://www.tiktok.com/…" value={link} disabled={running || !!projectId} onChange={e => setLink(e.target.value)} /></label>
+          <div aria-live="polite">{shownPreview?.state === "checking" ? <p className="hint">Checking reference…</p>
+            : shownPreview?.state === "ready" ? <p className="reference-preview">{shownPreview.title || "TikTok video"} · {shownPreview.author || "Unknown creator"}</p>
+            : shownPreview?.state === "failed" ? <p className="hint">Reference details could not be loaded. You can still generate.</p> : null}</div>
         </li>
         <li><h2>Clips</h2>
           <p className="clip-usage">{usage}</p>
