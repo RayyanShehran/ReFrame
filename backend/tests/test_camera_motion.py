@@ -100,6 +100,17 @@ def test_cut_resets_the_curve_for_each_shot(tmp_path):
     assert abs(motion.sample(shots[1], 59)[0] - 1) < 0.005
 
 
+def test_a_shot_moving_beyond_the_model_bounds_copies_no_motion_and_keeps_the_others(tmp_path):
+    # Third reference: one 8 mm shot drifted past 2 heights and failed every shot's motion.
+    far = [warp(texture(size=(900, 4000)), 1.0, -2.5 * i / 59, 0.0) for i in range(FRAMES)]
+    zoom = [warp(texture(seed=3), 1 + 0.1 * i / 59, 0, 0) for i in range(FRAMES)]
+    shots = measure(
+        encode(tmp_path / "far.mp4", far + zoom), tmp_path / "stage", ((0, 60), (60, 120))
+    )
+    assert shots[0].moves == [] and motion.sample(shots[0], 59)[:3] == (1.0, 0.0, 0.0)
+    assert motion.sample(shots[1], 119)[0] == pytest.approx(1.1, abs=0.015)
+
+
 def test_render_applies_a_known_curve_without_black_borders(tmp_path):
     curve = motion.ShotMotion(
         start_frame=0,
