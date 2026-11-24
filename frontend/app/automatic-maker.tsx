@@ -7,6 +7,9 @@ import { useMediaOperation, type MediaOperation } from "./use-media-operation";
 import { AutomaticCaptionReview, type CaptionReview } from "./automatic-caption-review";
 import { Workspace } from "./workspace";
 import { AppHeader } from "./app-header";
+import { Button } from "./ui";
+
+const MiB = 1024 * 1024;
 
 type Options = { audio: "reference" | "original" | "mix" | "mute"; captions: "reference" | "output_audio" | "off"; allow_reused_ranges: boolean; matching_mode?: "subject_aware" | "measurements" };
 type Generation = MediaOperation & { project_id: string; revision: number; operation_id: string | null; stage: string | null; output_id: string | null; notices: string[]; options: Options | null; caption_review?: CaptionReview | null };
@@ -131,31 +134,45 @@ export function AutomaticMaker() {
     finally { if (action.current === controller) { action.current = null; setBusy(false); } }
   }
   const projectName = projects.find(p => p.id === projectId)?.name || "Your project";
+  // Usage counts saved clips plus files still waiting to upload, as footageRejection does.
+  const waiting = queue.filter(item => item.status === "pending" || item.status === "uploading");
+  const usage = `${(library?.clips.length ?? 0) + waiting.length} of ${library?.max_clips ?? 10} · ${(((library?.total_bytes ?? 0) + waiting.reduce((sum, item) => sum + item.file.size, 0)) / MiB).toFixed(1)} of ${Math.round((library?.max_bytes ?? 500 * MiB) / MiB)} MiB`;
+  const generateControls = <div className="generate-controls">
+    {(operation?.failure_code === "footage_shortage" || allowReuse) && <label><input type="checkbox" checked={allowReuse} disabled={!!running} onChange={e => setAllowReuse(e.target.checked)} /> Allow reused footage ranges</label>}
+    {needsReplace && <label><input type="checkbox" checked={replace} onChange={e => setReplace(e.target.checked)} /> Replace my saved sequence, color, audio and caption choices for this generation</label>}
+    <Button variant="primary" size="lg" className="generate-button" disabled={!!running || (!projectId && (!link.trim() || !queue.some(item => item.status === "pending"))) || (needsReplace && !replace)} onClick={() => void generate()}>{busy ? "Saving your clips…" : operation?.status === "failed" ? "Retry generation" : outputId ? "Generate again" : "Generate video"}</Button>
+  </div>;
   return <div className={customize ? "customize-open" : undefined}>
     {/* Customize puts the editor's "Saved projects" menu in the header slot (a portal from Workspace). */}
     <AppHeader project={customize ? `${projectName} · Customize` : projectId ? projectName : "Reference in. Your video out."}
       menu={customize ? <div ref={setMenuTarget} /> : !!projects.length && <details className="project-switcher"><summary>Saved videos</summary><ul>{projects.map(project => <li key={project.id}><button onClick={() => void open(project.id)}>{project.name}</button></li>)}</ul></details>}
       actions={customize ? <button onClick={() => setCustomize(false)}>Return to result</button> : <button onClick={() => void open(null)}>New video</button>} />
-    <section className="hero"><p className="eyebrow">Your reference. Your footage.</p><h1>Make it <em>your own.</em></h1><p className="intro">Paste a reference. Add your clips. Generate your video.</p></section>
-    <section className="reference-section automatic-creation" aria-label="Create video">
-      <label>TikTok reference link<input aria-label="TikTok reference link" type="url" placeholder="https://www.tiktok.com/…" value={link} disabled={running || !!projectId} onChange={e => setLink(e.target.value)} /></label>
-      <FootagePicker actionLabel="Generate video" label="Choose your clips" disabled={!!running} onFilesSelected={files} />
-      <p className="hint">MP4/MOV · 100 MiB per file · 10 clips and 500 MiB per project. You can choose clips before adding the link.</p>
-      <ul className="automatic-clips">{queue.map(item => <li key={item.id}>
-        {item.url && <video src={item.url} preload="metadata" muted aria-label={`Thumbnail: ${item.file.name}`} />}
-        <span>{item.file.name}<small>{item.status}{item.status === "uploading" ? ` · ${item.progress}% uploaded` : ""}</small></span>
-        {item.error && <p role="alert">{item.error}</p>}
-        {item.status === "failed" && <button disabled={!!running} onClick={() => mark(item.id, { status: "pending", error: "" })}>Retry {item.file.name}</button>}
-        {item.status !== "succeeded" && <button disabled={!!running} onClick={() => { if (item.url) { URL.revokeObjectURL(item.url); urls.current.delete(item.url); } update(items.current.filter(value => value.id !== item.id)); }}>Remove {item.file.name}</button>}
-      </li>)}</ul>
-      {!!library?.clips.length && <details><summary>{library.clips.length} saved clips</summary><ul>{library.clips.map(clip => <li key={clip.id}>{clip.name}{!clip.available && " · unavailable"}</li>)}</ul></details>}
-      <div className="automatic-options"><label>Audio<select value={audio} disabled={!!running} onChange={e => setAudio(e.target.value as Options["audio"])}><option value="reference">Reference audio</option><option value="original">My footage</option><option value="mix">Mix</option><option value="mute">Mute</option></select></label>
-      <label>Captions<select value={captionMode} disabled={!!running} onChange={e => setCaptionMode(e.target.value as Options["captions"])}><option value="reference">Recreate reference captions</option><option value="output_audio">Caption my audio in reference style</option><option value="off">Off</option></select></label></div>
-      <p className="hint">{captionMode === "reference" ? "Read the reference’s visible words and estimated timing. This is text recognition, not speech transcription." : captionMode === "output_audio" ? "Generate words from your chosen output audio, borrowing the reference appearance." : "Export without captions."}</p>
-      {audio !== "original" && audio !== "mute" && <p className="hint">Reference audio can include speech and sound effects. Only reuse content you have permission to use.</p>}
-      {(operation?.failure_code === "footage_shortage" || allowReuse) && <label><input type="checkbox" checked={allowReuse} disabled={!!running} onChange={e => setAllowReuse(e.target.checked)} /> Allow reused footage ranges</label>}
-      {needsReplace && <label><input type="checkbox" checked={replace} onChange={e => setReplace(e.target.checked)} /> Replace my saved sequence, color, audio and caption choices for this generation</label>}
-      <button className="button-primary" disabled={!!running || (!projectId && (!link.trim() || !queue.some(item => item.status === "pending"))) || (needsReplace && !replace)} onClick={() => void generate()}>{busy ? "Saving your clips…" : operation?.status === "failed" ? "Retry generation" : outputId ? "Generate again" : "Generate video"}</button>
+    <div className="page-title"><h1>{projectId ? projectName : "New video"}</h1><p>{projectId ? "Change your clips or choices, then generate again." : "Paste a TikTok reference, add your clips, then generate."}</p></div>
+    <section className="create-card" aria-label="Create video">
+      <ol className="create-steps" aria-label="Create steps">
+        <li><h2>Reference link</h2>
+          <label>TikTok reference link<input aria-label="TikTok reference link" type="url" placeholder="https://www.tiktok.com/…" value={link} disabled={running || !!projectId} onChange={e => setLink(e.target.value)} /></label>
+        </li>
+        <li><h2>Clips</h2>
+          <p className="clip-usage">{usage}</p>
+          <ul className="automatic-clips">{queue.map(item => <li key={item.id}>
+            {item.url && <video src={item.url} preload="metadata" muted aria-label={`Thumbnail: ${item.file.name}`} />}
+            <span>{item.file.name}<small>{item.status}{item.status === "uploading" ? ` · ${item.progress}% uploaded` : ""}</small></span>
+            {item.error && <p role="alert">{item.error}</p>}
+            {item.status === "failed" && <button disabled={!!running} onClick={() => mark(item.id, { status: "pending", error: "" })}>Retry {item.file.name}</button>}
+            {item.status !== "succeeded" && <button disabled={!!running} onClick={() => { if (item.url) { URL.revokeObjectURL(item.url); urls.current.delete(item.url); } update(items.current.filter(value => value.id !== item.id)); }}>Remove {item.file.name}</button>}
+          </li>)}
+          {library?.clips.map(clip => <li key={clip.id} className="saved-clip"><span>{clip.name}<small>{clip.available ? "saved" : "unavailable"}</small></span></li>)}
+          <li className="clip-add"><span className="clip-add-title">Add clips</span><FootagePicker actionLabel="Generate video" label="Choose your clips" disabled={!!running} onFilesSelected={files} /></li></ul>
+          <p className="hint">MP4 or MOV, up to 100 MiB each. You can add clips before the link.</p>
+        </li>
+        <li><h2>Audio and captions</h2>
+          <div className="automatic-options"><label>Audio<select value={audio} disabled={!!running} onChange={e => setAudio(e.target.value as Options["audio"])}><option value="reference">Reference audio</option><option value="original">My footage</option><option value="mix">Mix</option><option value="mute">Mute</option></select></label>
+          <label>Captions<select value={captionMode} disabled={!!running} onChange={e => setCaptionMode(e.target.value as Options["captions"])}><option value="reference">Recreate reference captions</option><option value="output_audio">Caption my audio in reference style</option><option value="off">Off</option></select></label></div>
+          <p className="hint">{captionMode === "reference" ? "Reads the reference’s on-screen words (text recognition, not speech)." : captionMode === "output_audio" ? "Transcribes your chosen audio in the reference’s caption style." : "No captions."}{audio !== "original" && audio !== "mute" && " Only reuse reference audio you have permission to use."}</p>
+        </li>
+      </ol>
+      {generateControls}
       {operation?.status === "running" && <div role="status" className="automatic-progress"><span className="brand-dot">●</span> {operation.stage}<button onClick={() => void generation.start({}, "/cancel")}>Cancel</button></div>}
       {(error || generation.error || operation?.message) && <p role="alert">{error || generation.error || operation?.message}</p>}
       {operation?.status === "failed" && ["sample_limit", "inference_failed", "cache_limit", "analysis_limit", "processing_timeout", "timeout", "deadline", "model_unavailable", "visual_setup", "dimension_limit"].includes(operation.failure_code ?? "") && (operation.stage === "Choosing your clips" || operation.failure_code === "visual_setup") && <><p>Visual matching could not finish within its limits. Your clips and completed work are saved.</p><button disabled={!!running} onClick={() => void generate("measurements", operation?.options?.captions ?? captionMode, false, operation?.options?.audio ?? audio)}>Continue using motion and scenes</button></>}

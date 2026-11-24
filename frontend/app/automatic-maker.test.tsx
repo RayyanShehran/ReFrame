@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { AutomaticMaker } from "./automatic-maker";
 vi.mock("./workspace", () => ({ Workspace: () => <div>Advanced editor<input aria-label="Custom caption draft" defaultValue="Saved" /></div> }));
@@ -106,4 +106,24 @@ it.each(["Retry caption reading", "Continue without captions", "Use detected cap
   expect(starts[0]).toMatchObject({expected_revision:3,captions:action==="Continue without captions"?"off":"reference",accept_partial_captions:action==="Use detected captions"});
   expect(screen.queryByText("Advanced editor")).not.toBeInTheDocument();
   expect(screen.getByLabelText("Generated video")).toHaveAttribute("src",expect.stringContaining("previous-output"));
+});
+
+it("shows three numbered create steps and usage from saved and queued clips", async () => {
+  window.history.replaceState(null,"",`/?project=${pid}`);
+  vi.stubGlobal("URL", Object.assign(URL, { createObjectURL: vi.fn(()=>"blob:fixture"), revokeObjectURL: vi.fn() }));
+  const saved = { ...library(2), total_bytes: 3 * 1024 * 1024 };
+  vi.stubGlobal("fetch",vi.fn(async (url:string)=> {
+    if(url.endsWith("/clips")) return ok(saved);
+    if(url.endsWith("/render")) return ok({output:null});
+    if(url.endsWith("/generation")) return ok({project_id:pid,revision:0,status:"idle",stage:null,output_id:null,options:null,notices:[],failure_code:null,message:null});
+    if(url.endsWith(pid)) return ok({id:pid,reference:{canonical_url:"https://www.tiktok.com/@fixture/video/6718335390845095173"}});
+    return ok([]);
+  }));
+  render(<AutomaticMaker />);
+  const steps = within(screen.getByRole("list", { name: "Create steps" })).getAllByRole("heading", { level: 2 });
+  expect(steps.map(step => step.textContent)).toEqual(["Reference link", "Clips", "Audio and captions"]);
+  expect(await screen.findByText("2 of 10 · 3.0 of 500 MiB")).toBeInTheDocument();
+  expect(screen.getByText("Clip 0")).toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText("Choose your clips"),{target:{files:[new File([new Uint8Array(1024 * 1024)],"third.mp4")]}});
+  expect(screen.getByText("3 of 10 · 4.0 of 500 MiB")).toBeInTheDocument();
 });
