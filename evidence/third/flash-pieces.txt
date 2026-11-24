@@ -1,0 +1,28 @@
+== printed (truth montage)
+  piece 47-52 (5 f): mean   67.5 (before   20.1, after    8.6) std  55.7 (before  14.3, after  16.3) | before vs after: hist 0.56 edge 0.83
+  piece 52-57 (5 f): mean    8.6 (before   67.4, after    9.5) std  16.3 (before  55.7, after  17.4) | before vs after: hist 0.44 edge 0.87
+  piece 57-62 (5 f): mean    9.4 (before    8.6, after   66.2) std  17.4 (before  16.3, after  52.4) | before vs after: hist 0.67 edge 0.95
+  piece 62-67 (5 f): mean   66.2 (before    9.4, after   45.9) std  52.3 (before  17.4, after  35.8) | before vs after: hist 0.36 edge 0.92
+  piece 67-71 (4 f): mean   45.8 (before   66.1, after   52.9) std  35.8 (before  52.2, after  42.1) | before vs after: hist 0.20 edge 0.91
+  piece 71-75 (4 f): mean   52.9 (before   45.8, after   99.5) std  42.0 (before  35.8, after  55.0) | before vs after: hist 0.38 edge 1.02
+  piece 75-80 (5 f): mean   99.7 (before   52.9, after   44.6) std  54.9 (before  42.0, after  29.6) | before vs after: hist 0.26 edge 0.99
+  piece 80-84 (4 f): mean   44.3 (before   99.7, after   20.5) std  29.5 (before  54.9, after  16.4) | before vs after: hist 0.23 edge 1.01
+  piece 84-90 (6 f): mean   19.5 (before   44.2, after   52.2) std  15.8 (before  29.4, after  31.3) | before vs after: hist 0.27 edge 1.00
+  piece 90-94 (4 f): mean   52.3 (before   18.1, after   17.2) std  31.3 (before  14.8, after  10.6) | before vs after: hist 0.32 edge 0.92
+  piece 94-98 (4 f): mean   17.3 (before   52.2, after   38.0) std  10.6 (before  31.4, after  30.1) | before vs after: hist 0.34 edge 1.04
+  piece 98-102 (4 f): mean   37.4 (before   17.3, after   26.2) std  29.9 (before  10.6, after  12.1) | before vs after: hist 0.24 edge 1.05
+  piece 102-105 (3 f): mean   26.2 (before   36.9, after   34.6) std  12.1 (before  29.8, after  16.9) | before vs after: hist 0.29 edge 1.01
+  piece 105-109 (4 f): mean   34.6 (before   26.2, after   53.1) std  16.9 (before  12.1, after  35.8) | before vs after: hist 0.41 edge 0.92
+  piece 109-113 (4 f): mean   52.9 (before   34.6, after   47.7) std  35.8 (before  16.9, after  26.5) | before vs after: hist 0.19 edge 0.96
+  piece 113-117 (4 f): mean   47.5 (before   52.8, after   30.2) std  26.3 (before  35.8, after  21.3) | before vs after: hist 0.37 edge 1.05
+  piece 117-121 (4 f): mean   30.2 (before   47.3, after   11.9) std  21.3 (before  26.1, after  11.2) | before vs after: hist 0.45 edge 0.95
+  piece 121-125 (4 f): mean   11.9 (before   29.9, after   26.6) std  11.1 (before  20.8, after  26.3) | before vs after: hist 0.39 edge 1.00
+  piece 125-128 (3 f): mean   26.8 (before   11.7, after   21.8) std  26.3 (before  11.0, after  29.0) | before vs after: hist 0.42 edge 0.97
+== handwritten (truth)
+== third (app pacing cuts, main)
+  piece 356-360 (4 f): mean  193.8 (before  136.0, after  164.4) std  21.6 (before  55.0, after  36.5) | before vs after: hist 0.23 edge 1.05
+  piece 360-362 (2 f): mean  164.4 (before  215.4, after   81.5) std  36.5 (before  13.9, after  60.8) | before vs after: hist 0.51 edge 1.09
+  piece 616-622 (6 f): mean   89.6 (before   49.5, after  104.2) std 109.4 (before  64.9, after 123.0) | before vs after: hist 0.34 edge 0.73
+  piece 919-920 (1 f): mean  209.0 (before   72.0, after  124.4) std   9.4 (before  66.6, after  14.7) | before vs after: hist 0.35 edge 1.05
+  piece 1036-1039 (3 f): mean  176.9 (before  120.2, after  135.9) std  40.5 (before  56.3, after  57.6) | before vs after: hist 0.56 edge 0.98
+  piece 1084-1087 (3 f): mean  213.3 (before  104.7, after   94.0) std  13.3 (before  67.2, after  46.5) | before vs after: hist 0.29 edge 0.97

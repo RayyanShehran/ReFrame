@@ -1,0 +1,3 @@
+audio saved: mode reference offset 0.25 revision 2
+music at offset 0.25: {'mode': 'reference', 'offset_seconds': 0.25, 'clear_beats': False, 'moved_cuts': 0}
+slot boundaries identical to offset 0: True (25 slots)

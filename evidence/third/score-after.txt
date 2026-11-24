@@ -1,0 +1,49 @@
+== AFTER (branch) export ce1dec41
+phase          last line                                  C      W       M      E  timing (start err / end err)
+ 0.200- 0.400 I'm                                    0.000  0.000   0.200  0.000  MISSING
+ 0.400- 0.767 I'm always                             0.000  0.000   0.733  0.000  MISSING
+ 0.767- 1.033 I'm always gonna                       0.000  0.000   0.800  0.000  MISSING
+ 1.033- 1.233 I'm always gonna love                  0.000  0.000   0.800  0.000  MISSING
+ 1.233- 2.133 I'm always gonna love you.             2.533  0.633   1.333  0.000  partial: +0.270 / +0.370
+ 3.800- 4.033 Always                                 0.000  0.000   0.233  0.000  MISSING
+ 4.033- 4.233 Always gonna                           0.000  0.000   0.400  0.000  MISSING
+ 4.233- 4.467 Always gonna love                      0.000  0.000   0.700  0.000  MISSING
+ 4.467- 4.633 Always gonna love you                  0.000  0.000   0.666  0.000  MISSING
+ 4.633- 6.167 Always gonna love you too.             5.833  0.000   1.833  0.000  exact: +0.370 / +0.337
+ 6.167- 6.533 May                                    0.000  0.333   0.033  1.333  MISSING
+ 6.533- 6.833 Maybe                                  0.000  0.000   0.300  0.000  MISSING
+ 6.833- 7.067 Maybe we                               0.000  0.000   0.467  0.000  MISSING
+ 7.067- 7.233 Maybe we get                           0.000  0.000   0.500  0.000  MISSING
+ 7.233- 7.733 Maybe we get married                   0.000  0.000   2.000  0.000  MISSING
+ 7.733- 8.067 Maybe we get married one               0.000  0.000   1.667  0.000  MISSING
+ 8.067- 9.367 Maybe we get married one day           5.200  0.000   2.600  0.000  exact: +0.433 / +0.133
+ 9.367- 9.600 but                                    0.000  0.133   0.100  0.667  MISSING
+ 9.600- 9.900 but who                                0.000  0.000   0.600  0.000  MISSING
+ 9.900-11.933 but who knows                          0.000  0.000   6.100  0.000  MISSING
+14.100-14.367 Think                                  0.000  0.000   0.267  0.000  MISSING
+14.367-14.600 Think i'll                             0.000  0.000   0.467  0.000  MISSING
+14.600-14.800 Think i'll take                        0.000  0.000   0.600  0.000  MISSING
+14.800-15.133 Think i'll take that                   0.000  0.000   1.333  0.000  MISSING
+15.133-15.367 Think i'll take that thought           0.933  0.233   0.000  0.000  partial: +0.003 / +0.003
+15.367-15.567 to                                     0.000  0.000   0.200  0.000  MISSING
+15.567-15.800 to the                                 0.000  0.000   0.467  0.000  MISSING
+15.800-17.100 to the grave                           0.000  0.000   3.900  0.000  MISSING
+17.333-17.533 but                                    0.000  0.000   0.200  0.000  MISSING
+17.533-17.833 but who                                0.000  0.000   0.600  0.000  MISSING
+17.833-22.000 but who knows                          2.333  0.167  10.000  0.000  exact: +3.170 / -0.497
+22.033-22.200 I                                      0.000  0.000   0.167  0.000  MISSING
+22.200-22.533 I know                                 0.000  0.000   0.667  0.000  MISSING
+22.533-22.733 I know that                            0.000  0.000   0.600  0.000  MISSING
+22.733-22.933 I know that I'll                       0.000  0.000   0.800  0.000  MISSING
+22.933-23.300 I know that I'll love                  0.000  0.000   1.834  0.000  MISSING
+23.300-23.567 I know that I'll love you              0.000  0.000   1.600  0.000  MISSING
+23.567-25.033 I know that I'll love you always       6.200  0.000   4.066  0.000  partial: +0.433 / +0.467
+25.033-25.367 yeah                                   0.000  0.333   0.000  1.667  MISSING
+25.367-25.867 yeah girl                              0.000  0.267   0.733  0.533  MISSING
+25.867-26.967 yeah girl you                          2.900  0.000   0.400  0.000  exact: +0.133 / +0.033
+26.967-27.367 and                                    0.000  0.033   0.367  0.067  MISSING
+27.367-27.767 and I                                  0.000  0.000   0.800  0.000  MISSING
+27.767-28.233 and I like                             0.000  0.000   1.400  0.000  MISSING
+28.233-29.967 and I like that                        4.400  0.000   2.534  0.000  partial: +0.270 / +0.037
+TOTAL correct/wrong/missing/extra = 30.3336 / 2.1332 / 56.0669 / 4.2665
+boundaries within 0.2 s: 6/90
