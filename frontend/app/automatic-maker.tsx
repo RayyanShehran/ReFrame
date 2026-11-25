@@ -51,7 +51,7 @@ export function AutomaticMaker() {
   const [busy, setBusy] = useState(false), [error, setError] = useState(""), [customize, setCustomize] = useState(false);
   const [allowReuse, setAllowReuse] = useState(false), [replace, setReplace] = useState(false), [needsReplace, setNeedsReplace] = useState(false);
   const [customizeMounted, setCustomizeMounted] = useState(false), [acceptPartial, setAcceptPartial] = useState(false);
-  const [reviewTarget, setReviewTarget] = useState<HTMLDivElement | null>(null), [menuTarget, setMenuTarget] = useState<HTMLDivElement | null>(null);
+  const [reviewTarget, setReviewTarget] = useState<HTMLDivElement | null>(null), [menuTarget, setMenuTarget] = useState<HTMLDivElement | null>(null), [actionTarget, setActionTarget] = useState<HTMLDivElement | null>(null);
   const [reviewDirty, setReviewDirty] = useState(false), [replaceVerified, setReplaceVerified] = useState(false);
   const [outputId, setOutputId] = useState<string | null>(null);
   const [preview, setPreview] = useState<{ url: string; state: "checking" | "ready" | "failed"; title?: string | null; author?: string | null } | null>(null);
@@ -171,13 +171,13 @@ export function AutomaticMaker() {
     {/* Customize puts the editor's "Saved projects" menu in the header slot (a portal from Workspace). */}
     <AppHeader project={customize ? `${projectName} · Customize` : projectId ? projectName : "Reference in. Your video out."}
       menu={customize ? <div ref={setMenuTarget} /> : !!projects.length && <details className="project-switcher"><summary>Saved videos</summary><ul>{projects.map(project => <li key={project.id}><button onClick={() => void open(project.id)}>{project.name}</button></li>)}</ul></details>}
-      actions={customize ? <button onClick={() => setCustomize(false)}>Return to result</button> : <button onClick={() => void open(null)}>New video</button>} />
+      actions={customize ? <><Button variant="ghost" onClick={() => setCustomize(false)}>Close Customize</Button><div className="header-action-slot" ref={setActionTarget} /></> : <button onClick={() => void open(null)}>New video</button>} />
     <div className="page-title"><h1>{projectId ? projectName : "New video"}</h1><p>{projectId ? "Change your clips or choices, then generate again." : "Paste a TikTok reference, add your clips, then generate."}</p></div>
     {showResult && <section className="automatic-result" aria-label="Your video"><h2>Your video</h2>
       {operation?.status !== "ready" && <p className="hint">Your previous video stays available until a replacement succeeds.</p>}
       <video controls playsInline preload="metadata" src={`${apiBase}/api/projects/${projectId}/outputs/${outputId}/video`} aria-label="Generated video" />
       <div className="generate-controls">{confirmations}</div>
-      <div className="result-actions"><a className="button-link" href={`${apiBase}/api/projects/${projectId}/outputs/${outputId}/download`}>Download video</a><button onClick={() => { setCustomizeMounted(true); setCustomize(value => !value); }}>{customize ? "Close Customize" : "Customize"}</button>{generateButton}</div>
+      <div className="result-actions"><a className="button-link" href={`${apiBase}/api/projects/${projectId}/outputs/${outputId}/download`}>Download video</a>{!customize && <button onClick={() => { setCustomizeMounted(true); setCustomize(true); }}>Customize</button>}{generateButton}</div>
       {!!operation?.notices.length && <details className="result-notices"><summary>About this result</summary><ul>{Array.from(new Set(operation.notices)).map(note => <li key={note}>{note}</li>)}</ul></details>}
     </section>}
     {operation?.status === "running" && <section className="progress-panel" role="status" aria-label="Generation progress">
@@ -228,7 +228,7 @@ export function AutomaticMaker() {
       </li>)}</ul></section>}
     {operation?.status === "ready" && !!operation.caption_review?.unreadable_samples && !!operation.caption_review?.cues.length && <details><summary>Saved caption reading — incomplete</summary><p>These detected words were retained for review. Check the saved caption mode for this video.</p><ul>{operation.caption_review.cues.map((cue, i) => <li key={i}>{cue.start.toFixed(2)}–{cue.end.toFixed(2)}: {cue.text}</li>)}</ul></details>}
     {projectId && operation?.caption_review && <AutomaticCaptionReview portalTarget={customize ? reviewTarget : null} key={`${projectId}:${operation.revision}:${operation.status}`} projectId={projectId} revision={operation.revision} review={operation.caption_review} disabled={!!running} onSaved={generation.refresh} onDirty={setReviewDirty}>{(!!operation.caption_review.verified_cues?.length || !!operation.caption_review.corrected_cues?.length) && <label><input type="checkbox" checked={replaceVerified} disabled={!!running || reviewDirty} onChange={e => setReplaceVerified(e.target.checked)} /> Replace my verified or corrected cues on the next retry</label>}{customize && <div className="caption-recovery"><button disabled={!!running || reviewDirty} onClick={() => void generate(undefined, "reference", false, operation?.options?.audio ?? audio)}>Retry caption reading</button><button disabled={!!running || reviewDirty} onClick={() => void generate(undefined, "off", false, operation?.options?.audio ?? audio)}>Continue without captions</button></div>}</AutomaticCaptionReview>}
-    {!outputId && projectId && <button onClick={() => { setCustomizeMounted(true); setCustomize(value => !value); }}>{customize ? "Close Customize" : "Customize"}</button>}
-    {customizeMounted && <div hidden={!customize}><Workspace key={projectId} onCaptionReviewTarget={setReviewTarget} headerMenuTarget={customize ? menuTarget : null} captionReviewDirty={reviewDirty} captionReviewIssues={operation?.caption_review?.unreadable_samples ?? 0} onProjectChange={id => void open(id)} /></div>}
+    {!outputId && projectId && !customize && <button onClick={() => { setCustomizeMounted(true); setCustomize(true); }}>Customize</button>}
+    {customizeMounted && <div hidden={!customize}><Workspace key={projectId} onCaptionReviewTarget={setReviewTarget} headerMenuTarget={customize ? menuTarget : null} headerActionTarget={customize ? actionTarget : null} captionReviewDirty={reviewDirty} captionReviewIssues={operation?.caption_review?.unreadable_samples ?? 0} onProjectChange={id => void open(id)} /></div>}
   </div>;
 }

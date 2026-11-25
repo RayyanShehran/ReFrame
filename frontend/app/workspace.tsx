@@ -53,7 +53,7 @@ function ProposalDraftStatus({ dirty, issues }: { dirty: boolean; issues: number
   return null;
 }
 
-export function Workspace({ onProjectChange, onCaptionReviewTarget, headerMenuTarget = null, captionReviewDirty = false, captionReviewIssues = 0 }: { onProjectChange?: (id: string | null) => void; onCaptionReviewTarget?: (node: HTMLDivElement | null) => void; headerMenuTarget?: HTMLElement | null; captionReviewDirty?: boolean; captionReviewIssues?: number } = {}) {
+export function Workspace({ onProjectChange, onCaptionReviewTarget, headerMenuTarget = null, headerActionTarget = null, captionReviewDirty = false, captionReviewIssues = 0 }: { onProjectChange?: (id: string | null) => void; onCaptionReviewTarget?: (node: HTMLDivElement | null) => void; headerMenuTarget?: HTMLElement | null; headerActionTarget?: HTMLElement | null; captionReviewDirty?: boolean; captionReviewIssues?: number } = {}) {
   const [projectId, setProjectId] = useState<string | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [current, setCurrent] = useState<Project | null>(null);
@@ -178,7 +178,7 @@ export function Workspace({ onProjectChange, onCaptionReviewTarget, headerMenuTa
     </>}
     {current && <section className="footage-section" aria-label="Saved project workspace">
       <div className="project-heading"><p className="eyebrow">Editing workspace</p><h1>{current.name}</h1></div>
-      <GuidedWorkspace key={current.id} hasFootage={current.clip_status === "ready"} footageUnavailable={!["empty", "ready"].includes(current.clip_status)}>
+      <GuidedWorkspace key={current.id} hasFootage={current.clip_status === "ready"} footageUnavailable={!["empty", "ready"].includes(current.clip_status)} headerStatusTarget={headerMenuTarget} headerActionTarget={headerActionTarget}>
       <ProposalDraftStatus dirty={captionReviewDirty} issues={captionReviewIssues} />
       <WorkspaceSection section="reference"><div className="reference-card"><h3>{current.reference.title || "TikTok reference"}</h3>
         <p>Creator: {current.reference.author_name || "Unavailable"}</p>
