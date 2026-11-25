@@ -2,6 +2,7 @@
 
 import { useWorkspaceReport } from "./guided-workspace";
 import { useEffect, useRef, useState } from "react";
+import { Badge, Banner, Details } from "./ui";
 
 export type PlanState = { revision: number | null; ready: boolean; dirty: boolean; busy: boolean; duration?: number | null };
 type Segment = { source_start_frame: number; source_end_frame: number; output_start_frame: number; output_end_frame: number };
@@ -85,18 +86,18 @@ export function EditPlan({ projectId, recipeReady, onState }: { projectId: strin
   useWorkspaceReport("cut-plan", "cuts", busy ? "Working" : error || result?.status === "stale" ? "Needs attention" : ready ? "Ready" : "Needs input", "Saving or loading cut plan…", dirty);
   return <section className="reference-section" aria-label="Cut plan">
     <h3>Optional reference-paced cut plan</h3>
-    <p className="hint">Optional for whole-clip export. An experimental timing suggestion from estimated reference shot lengths, not semantic matching. Review the footage ranges. No transitions are added. Audio and manual captions are saved separately below.</p>
-    {!result && !error && <p role="status">Loading cut plan…</p>}
-    {result?.message && <p role={result.status === "stale" ? "alert" : "note"}>{result.message}</p>}
+    <p className="panel-scope">Optional for whole-clip export.</p>
+    {!result && !error && <Badge state="working" role="status">Loading cut plan…</Badge>}
+    {result?.message && <Banner tone={result.status === "stale" ? "warning" : "info"} role={result.status === "stale" ? "alert" : "note"}>{result.message}</Banner>}
     {!recipeReady && <p>Save a valid color mode and its required settings before generating or rendering cuts.</p>}
-    {error && <p role="alert">{error}</p>}
+    {error && <Banner tone="danger" role="alert">{error}</Banner>}
     <label htmlFor={`duration-${projectId}`}>Requested output duration (seconds)
       <input id={`duration-${projectId}`} type="number" min={1 / 30} max={result?.max_duration_seconds ?? 120} step="any" value={duration} disabled={busy} onChange={e => setDuration(e.target.value)} />
     </label>
     <p className="hint">Default: the shorter of reference and footage. Total duration rounds down to 30 fps; boundaries round to nearest frame. Sub-frame intervals merge with a neighbor. At most 60 segments.</p>
     {result?.status === "empty" && <button disabled={busy || !recipeReady} onClick={() => void run("generate")}>Generate cut plan</button>}
     {plan && <>
-      <p role="status">{ready ? dirty ? "Unsaved cut changes" : "Cut plan saved" : "Stale cut plan"} · Plan revision {plan.revision} · {plan.segments.length} segments · {(plan.output_frames / 30).toFixed(3)} seconds</p>
+      <Badge state={ready ? dirty ? "needs-input" : "ready" : "needs-attention"} role="status">{ready ? dirty ? "Unsaved cut changes" : "Cut plan saved" : "Stale cut plan"}</Badge>
       {result?.status === "stale" && <p>Saved ranges remain available for inspection. Restore sources and regenerate explicitly before rendering cuts.</p>}
       {plan.merged_subframe_intervals > 0 && <p>{plan.merged_subframe_intervals} sub-frame intervals merged.</p>}
       <fieldset disabled={busy || !ready}>
@@ -106,16 +107,18 @@ export function EditPlan({ projectId, recipeReady, onState }: { projectId: strin
             onChange={e => setStarts(previous => previous.map((value, j) => j === i ? e.target.value : value))} /></td>
             <td>{starts[i]?.trim() && Number.isFinite(Number(starts[i])) ? ((Math.round(Number(starts[i]) * 30) + s.output_end_frame - s.output_start_frame) / 30).toFixed(3) : "—"}</td>
             <td>{((s.output_end_frame - s.output_start_frame) / 30).toFixed(3)}</td></tr>)}</tbody></table></div>
-        {dirty && !valid && <p role="alert">Ranges must fit your footage in chronological order without overlap.</p>}
-        <button disabled={!dirty || !valid} onClick={() => void run("save")}>Save cut plan</button>
+        {dirty && !valid && <Banner tone="danger" role="alert">Ranges must fit your footage in chronological order without overlap.</Banner>}
+        <button className="button-primary" disabled={!dirty || !valid} onClick={() => void run("save")}>Save cut plan</button>
         <button onClick={() => setStarts(plan.suggested_source_starts.map(n => String(n / 30)))}>Reset cuts to suggestion</button>
       </fieldset>
-      {continuous && <p role="note">These ranges are continuous. Segment boundaries alone do not create visible jumps; cuts become visible when footage is skipped.</p>}
+      {continuous && <Banner tone="info" role="note">These ranges are continuous. Segment boundaries alone do not create visible jumps; cuts become visible when footage is skipped.</Banner>}
       <button disabled={busy || !recipeReady} onClick={() => setConfirm(true)}>Regenerate cut plan</button>
       {confirm && <div role="group" aria-label="Confirm cut plan replacement"><p>This replaces the saved ranges and your edits using the requested duration above.</p>
         <button disabled={busy} onClick={() => void run("generate")}>Replace saved cut plan</button><button disabled={busy} onClick={() => setConfirm(false)}>Cancel cut regeneration</button></div>}
     </>}
     <button disabled={busy} onClick={() => void run("reload")}>{dirty ? "Discard cut changes and reload" : "Reload saved cut plan"}</button>
-    {busy && <p role="status">Saving or loading cut plan…</p>}
+    {busy && <Badge state="working" role="status">Saving or loading cut plan…</Badge>}
+    <Details><p>An experimental timing suggestion from estimated reference shot lengths, not semantic matching. Review the footage ranges. No transitions are added. Audio and manual captions are saved separately below.</p>
+      {plan && <p>Plan revision {plan.revision} · {plan.segments.length} segments · {(plan.output_frames / 30).toFixed(3)} seconds</p>}</Details>
   </section>;
 }
