@@ -6,7 +6,7 @@ import { AssemblyReview, type Assignment } from "./assembly-review";
 import { WorkspaceSurface, useWorkspaceNavigation, useWorkspaceReport } from "./guided-workspace";
 
 type Slot = Assignment & { source_end_frame: number; output_start_frame: number; output_end_frame: number; source_hash: string | null };
-type Sequence = { schema_version: 1; revision: number; slots: Slot[]; output_frames: number };
+type Sequence = { schema_version: 1 | 2; revision: number; slots: Slot[]; output_frames: number };
 type Result = { status: "empty" | "incomplete" | "ready" | "stale"; sequence: Sequence | null; message: string | null };
 type Draft = { id: string; clip_id: string | null; start: string; duration: string; reference_start_frame?: number | null; reference_end_frame?: number | null };
 export type SequenceState = { revision: number | null; ready: boolean; dirty: boolean; busy: boolean; duration?: number };
@@ -15,7 +15,7 @@ const integer = (n: unknown, min: number, max: number) => Number.isSafeInteger(n
 function parse(data: unknown): Result {
   const r = data as Result, s = r?.sequence;
   if (!r || !["empty", "incomplete", "ready", "stale"].includes(r.status) || (r.status !== "empty" && !s)) throw new Error("Invalid sequence response.");
-  if (s && (s.schema_version !== 1 || !integer(s.revision, 1, Number.MAX_SAFE_INTEGER) || !integer(s.output_frames, 1, 3600) || !Array.isArray(s.slots) || !s.slots.length || s.slots.length > 60 || s.slots.some(v => !/^[0-9a-f-]{36}$/.test(v.id) || !integer(v.duration_frames, 1, 3600) || !integer(v.source_start_frame, 0, 3600)))) throw new Error("Invalid sequence response.");
+  if (s && (![1, 2].includes(s.schema_version) || !integer(s.revision, 1, Number.MAX_SAFE_INTEGER) || !integer(s.output_frames, 1, 3600) || !Array.isArray(s.slots) || !s.slots.length || s.slots.length > 60 || s.slots.some(v => !/^[0-9a-f-]{36}$/.test(v.id) || !integer(v.duration_frames, 1, 3600) || !integer(v.source_start_frame, 0, 3600)))) throw new Error("Invalid sequence response.");
   return r;
 }
 const drafts = (slots: Assignment[]): Draft[] => slots.map(s => ({ id: s.id, clip_id: s.clip_id, start: String(s.source_start_frame / 30), duration: String(s.duration_frames / 30), reference_start_frame: s.reference_start_frame, reference_end_frame: s.reference_end_frame }));

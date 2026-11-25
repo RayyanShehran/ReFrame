@@ -84,3 +84,15 @@ it("keeps the actual reference association when slots are reordered", async () =
   fireEvent.click(screen.getByRole("button", { name: "Save sequence" }));
   await waitFor(() => expect(fetcher.mock.calls.some(c => c[1].method === "POST")).toBe(true));
 });
+
+it("opens a schema 2 sequence (slots follow every pacing cut) and rejects unknown schema versions", async () => {
+  let result: unknown = { ...saved, sequence: { ...saved.sequence, schema_version: 2 } };
+  vi.stubGlobal("fetch", vi.fn(async (url: string) => ok(url.endsWith("/clips") ? library : result)));
+  const view = render(<SequenceEditor projectId="project" onState={vi.fn()} />);
+  expect(await screen.findByRole("button", { name: /Slot 3 ·/ })).toBeInTheDocument();
+  expect(screen.queryByText("Invalid sequence response.")).not.toBeInTheDocument();
+  view.unmount();
+  result = { ...saved, sequence: { ...saved.sequence, schema_version: 3 } };
+  render(<SequenceEditor projectId="project" onState={vi.fn()} />);
+  expect(await screen.findByText("Invalid sequence response.")).toBeInTheDocument();
+});
