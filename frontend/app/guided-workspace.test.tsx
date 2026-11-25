@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { GuidedWorkspace, WorkspaceSection, useWorkspaceNavigation, useWorkspaceReport } from "./guided-workspace";
 import { ColorRecipe } from "./color-recipe";
@@ -121,4 +121,45 @@ function PartialCaptionStatus() {
 it("flags incomplete recognition even when the separate saved caption track is valid", () => {
  render(<GuidedWorkspace hasFootage><PartialCaptionStatus /></GuidedWorkspace>);
  expect(screen.getByRole("button", {name:"Captions"})).toHaveAccessibleDescription("Needs attention");
+});
+
+function DirtyAudio() {
+ useWorkspaceReport("audio-settings", "audio", "Ready", undefined, true);
+ return null;
+}
+it("dots rail sections that need attention or hold unsaved edits and keeps their state as the description", () => {
+ const view = render(<GuidedWorkspace hasFootage><PartialCaptionStatus /><DirtyAudio /></GuidedWorkspace>);
+ const dot = (name: string) => screen.getByRole("button", {name}).querySelector(".rail-dot");
+ expect(dot("Captions")).toHaveAttribute("aria-hidden", "true");
+ expect(dot("Audio")).toBeInTheDocument();
+ expect(screen.getByRole("button", {name: "Audio"})).toHaveAccessibleDescription("Unsaved");
+ expect(dot("Media")).toBeNull();
+ expect(dot("Export")).toBeNull();
+ expect(view.container.querySelectorAll(".rail-dot")).toHaveLength(2);
+});
+
+it("shows the unsaved-edits banner only at the top of the affected section's inspector", () => {
+ const view = render(<GuidedWorkspace hasFootage><DirtyAudio /></GuidedWorkspace>);
+ expect(screen.queryByText(/Unsaved edits/)).not.toBeInTheDocument();
+ fireEvent.click(screen.getByRole("button", {name: "Audio"}));
+ const banner = screen.getByText(/Unsaved edits in Audio/);
+ expect(banner).toHaveClass("banner", "banner-warning");
+ expect(banner).toHaveAttribute("role", "status");
+ const body = view.container.querySelector(".editor-inspector-body")!;
+ expect(body.firstElementChild).toBe(banner);
+ expect(banner.compareDocumentPosition(screen.getByRole("heading", {name: "Audio"})) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+ fireEvent.click(screen.getByRole("button", {name: "Color"}));
+ expect(screen.queryByText(/Unsaved edits/)).not.toBeInTheDocument();
+});
+
+it("fills the header slots with a Working badge and a Render video shortcut that opens Export", async () => {
+ const status = document.body.appendChild(document.createElement("div")), action = document.body.appendChild(document.createElement("div"));
+ const view = render(<GuidedWorkspace hasFootage headerStatusTarget={status} headerActionTarget={action}><SourceStatus working /></GuidedWorkspace>);
+ expect(within(status).getByText("Working")).toHaveClass("badge-working");
+ fireEvent.click(within(action).getByRole("button", {name: "Render video"}));
+ await waitFor(() => expect(screen.getByRole("heading", {name: "Export"})).toHaveFocus());
+ expect(within(action).queryByRole("button", {name: "Render video"})).not.toBeInTheDocument();
+ view.rerender(<GuidedWorkspace hasFootage headerStatusTarget={status} headerActionTarget={action}><SourceStatus /></GuidedWorkspace>);
+ expect(within(status).queryByText("Working")).not.toBeInTheDocument();
+ status.remove(); action.remove();
 });
