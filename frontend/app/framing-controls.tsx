@@ -2,8 +2,9 @@
 
 import Image from "next/image";
 import type { GradingState } from "./grading-controls";
-import { useWorkspaceNavigation, useWorkspaceReport } from "./guided-workspace";
+import { WorkspaceSurface, useWorkspaceNavigation, useWorkspaceReport } from "./guided-workspace";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Badge, Banner, Details } from "./ui";
 
 export const formatLabels = { original: "Original", reference: "Reference aspect", portrait: "Portrait", square: "Square", landscape: "Landscape" };
 type Format = keyof typeof formatLabels;
@@ -118,11 +119,11 @@ export function FramingControls({ projectId, onState, grading }: { projectId: st
   useWorkspaceReport("framing-settings", "framing", busy ? "Working" : error ? "Needs attention" : !!result ? dirty ? "Needs input" : "Ready" : "Needs input", "Saving or loading framing…", dirty);
   return <section className="reference-section" aria-label="Output framing">
     <h3>Output framing</h3>
-    <p className="hint">Fit keeps the whole image with black padding. Fill can remove content at the edges. Fixed formats may upscale small footage; Original keeps the existing size limit without upscaling. Preview uses the saved slot settings below. Automatic uses a stable center crop and chooses Fit when Fill would remove over 28% of the active image. Black padding is consistent; its thickness can differ.</p>
-    {!result && !error && <p role="status">Loading framing…</p>}
-    {error && <p role="alert">{error}</p>}
+    <p className="panel-scope">Canvas size and how each clip fits it.</p>
+    {!result && !error && <Badge state="working" role="status">Loading framing…</Badge>}
+    {error && <Banner tone="danger" role="alert">{error}</Banner>}
     {result && <>
-      <p role="status">{dirty ? "Unsaved framing changes" : "Framing saved"} · Revision {result.settings.revision} · {formatLabels[result.settings.format]}{dimensions(result.settings, geometry) ? ` · ${dimensions(result.settings, geometry)}` : ""}</p>
+      <Badge state={dirty ? "needs-input" : "ready"} role="status">{dirty ? "Unsaved changes" : "Saved"}</Badge>
       <fieldset className="recipe-controls" disabled={busy}>
         <legend>Whole project: canvas and default framing</legend>
         <label>Output format <select value={draft.format} onChange={e => setDraft({ ...draft, format: e.target.value as Format })}>{Object.entries(formatLabels).map(([value, label]) => <option key={value} value={value}>{label}{value in sizes ? ` · ${sizes[value as keyof typeof sizes].join(" × ")}` : ""}</option>)}</select></label>
@@ -132,9 +133,8 @@ export function FramingControls({ projectId, onState, grading }: { projectId: st
           <label>Vertical crop position: {Math.round(draft.vertical * 100)}% (top to bottom)<input aria-label="Vertical crop position" type="range" min="0" max="100" step="1" value={draft.vertical * 100} disabled={movement[1] < 2} onChange={e => setDraft({ ...draft, vertical: Number(e.target.value) / 100 })} /></label>
           <p className="hint">An axis is disabled when there is no crop movement, or footage geometry is unavailable.</p>
         </>}
-        <label>Default embedded-bar removal <select value={draft.bars ?? "off"} onChange={e => setDraft({ ...draft, bars: e.target.value as "auto" | "off" })}><option value="auto">Auto (confident borders only)</option><option value="off">Off</option></select></label>
+        <fieldset><legend>Default embedded-bar removal</legend><div className="segmented">{([["auto", "Auto (confident borders only)"], ["off", "Off"]] as const).map(([value, label]) => <label key={value}><input type="radio" name={`framing-bars-${projectId}`} value={value} checked={(draft.bars ?? "off") === value} onChange={() => setDraft({ ...draft, bars: value })} />{label}</label>)}</div></fieldset>
         <p>Draft canvas: {dimensions({ ...draft, canvas: result.settings.canvas } as Settings, geometry) || (draft.format === "reference" ? "Save to resolve the retained reference aspect" : "Inspect footage to see Original dimensions")}</p>
-        <button className="button-primary" disabled={!dirty} onClick={() => void run(true)}>Save framing</button>
         <button onClick={() => setDraft({ ...defaults, bars: "off", slots: {} })}>Reset framing</button>
       </fieldset>
       {grading?.choices.length ? <fieldset className="recipe-controls" disabled={busy || previewBusy}>
@@ -149,15 +149,18 @@ export function FramingControls({ projectId, onState, grading }: { projectId: st
           <button onClick={() => { changeSlot({ ...automaticSlot, insets: null }); }}>Reset selected slot to automatic</button>
           <p>{result.settings.decisions?.[choice!.slotId!]?.note}</p>
         </>}
-        {dirty && <p role="status">Preview pending: save framing changes, then update preview. No old preview represents this draft.</p>}
+        {dirty && <Banner tone="warning" role="status">Preview pending: save framing changes, then update preview. No old preview represents this draft.</Banner>}
         <button disabled={dirty || !grading.ready || grading.dirty || grading.busy || grading.mode === "basic"} onClick={() => void updatePreview()}>{previewBusy ? "Updating framing preview×" : "Update saved framing preview"}</button>
         {grading.mode === "basic" && <p>Use the existing before/after preview in Color for Basic recipe mode.</p>}
         {!dirty && preview && preview.framing_revision === result.settings.revision && preview.grading_revision === grading.revision && preview.slot_id === (choice?.slotId ?? null) && preview.inspected === choice?.version && <figure><Image unoptimized src={`data:image/png;base64,${preview.edited.png_base64}`} width={preview.edited.width} height={preview.edited.height} alt="Actual selected footage with saved framing and color, before final captions" style={{ maxWidth: "100%", height: "auto" }} /><figcaption>{preview.framing_note} Saved revision {preview.framing_revision}. Final captions remain on the canvas.</figcaption></figure>}
       </fieldset> : null}
-      <p className="hint">Reset changes the draft to Original. Save to persist it. Captions stay on the final canvas; audio and cut timing stay unchanged.</p>
     </>}
-    {geometryError && <><p role="note">Framing dimensions need an explicit inspection after upload or a busy operation. Saved Original/Fit settings can still render; inspect before positioning a Fill crop.</p><details><summary>Framing inspection details</summary><p>{geometryError}</p></details></>}
+    {geometryError && <><Banner tone="info" role="note">Framing dimensions need an explicit inspection after upload or a busy operation. Saved Original/Fit settings can still render; inspect before positioning a Fill crop.</Banner><details><summary>Framing inspection details</summary><p>{geometryError}</p></details></>}
     <button disabled={busy || inspecting} onClick={() => void inspect()}>Inspect footage framing</button>
-    <button disabled={busy} onClick={() => void run(false)}>{dirty ? "Discard framing changes and reload" : "Reload saved framing"}</button>
+    <WorkspaceSurface name="footer"><button disabled={busy} onClick={() => void run(false)}>{dirty ? "Discard framing changes and reload" : "Reload saved framing"}</button>
+      {result && <button className="button-primary" disabled={busy || !dirty} onClick={() => void run(true)}>Save framing</button>}</WorkspaceSurface>
+    <Details><p className="hint">Fit keeps the whole image with black padding. Fill can remove content at the edges. Fixed formats may upscale small footage; Original keeps the existing size limit without upscaling. Preview uses the saved slot settings below. Automatic uses a stable center crop and chooses Fit when Fill would remove over 28% of the active image. Black padding is consistent; its thickness can differ.</p>
+      {result && <><p role="status">{dirty ? "Unsaved framing changes" : "Framing saved"} · Revision {result.settings.revision} · {formatLabels[result.settings.format]}{dimensions(result.settings, geometry) ? ` · ${dimensions(result.settings, geometry)}` : ""}</p>
+      <p className="hint">Reset changes the draft to Original. Save to persist it. Captions stay on the final canvas; audio and cut timing stay unchanged.</p></>}</Details>
   </section>;
 }
