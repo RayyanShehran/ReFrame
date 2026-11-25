@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { MediaOperation, useMediaOperation } from "./use-media-operation";
+import { Badge, Banner } from "./ui";
 
 type Cue = { start: number; end: number; text: string };
 type Draft = { start: string; end: string; text: string };
@@ -71,13 +72,13 @@ export function TranscriptionReview({ projectId, revision, hasText, draftToken, 
   }
   return <section aria-label="Automatic captions">
     <h4>Generate captions locally</h4>
-    <p className="hint">Transcribes a completed render’s audio, including cuts and your saved audio choices. Review every word and time: speech mixed with music can be missed or misheard, and silence can produce invented text. No translation or reference-caption extraction.</p>
+    <p className="hint panel-scope">Transcribes a completed render’s audio, including cuts and your saved audio choices. Review every word and time: speech mixed with music can be missed or misheard, and silence can produce invented text. No translation or reference-caption extraction.</p>
     <label>Speech language <select disabled={blocked} value={language ?? proposal?.requested_language ?? "auto"} onChange={e => setLanguage(e.target.value as "auto" | "en" | "ar")}><option value="auto">Auto-detect</option><option value="en">English</option><option value="ar">Arabic</option></select></label>
     <button disabled={blocked || !operation} onClick={() => { setActionError(""); void start({ language: language ?? proposal?.requested_language ?? "auto", replace: operation?.status === "ready" }); }}>
       {operation?.status === "failed" ? "Retry caption generation" : proposal ? "Regenerate caption proposal" : "Generate caption proposal"}
     </button>
-    {operation?.status === "running" && <p role="status">Generating a caption proposal… Saved captions are preserved.</p>}
-    {(error || actionError || operation?.message) && <p role="alert">{actionError || error || operation?.message}</p>}
+    {operation?.status === "running" && <Badge state="working" role="status">Generating a caption proposal… Saved captions are preserved.</Badge>}
+    {(error || actionError || operation?.message) && <Banner tone="danger" role="alert">{actionError || error || operation?.message}</Banner>}
     {proposal && <>
       <p role="status">{operation?.stale ? "Stale proposal: regenerate after rendering current audio and timeline." : `Review ${cues.length} proposed cues · Detected language: ${proposal.detected_language}`}</p>
       {!cues.length && <p>No speech detected. No captions were added.</p>}
@@ -89,7 +90,7 @@ export function TranscriptionReview({ projectId, revision, hasText, draftToken, 
               <input type="number" step="any" aria-label={`Proposed cue ${i + 1} ${key}`} value={c[key]} onChange={e => setDraft({ id, cues: cues.map((v, n) => n === i ? { ...v, [key]: e.target.value } : v) })} />}
           </label>)}
         </fieldset>)}
-        {invalid && !!cues.length && <p role="alert">Use ordered nonoverlapping times inside the output, nonempty text, at most 200 characters and two lines per cue.</p>}
+        {invalid && !!cues.length && <Banner tone="danger" role="alert">Use ordered nonoverlapping times inside the output, nonempty text, at most 200 characters and two lines per cue.</Banner>}
         <button disabled={invalid} onClick={() => { if (hasText) setConfirmation(target); else void act("apply"); }}>Use these captions</button>
         {confirmation === target && <div role="group" aria-label="Confirm caption draft replacement"><p>Replace the current caption draft? Style is preserved. This does not save captions.</p><button disabled={invalid} onClick={() => void act("apply", true)}>Replace draft with automatic captions</button><button onClick={() => setConfirmation(null)}>Cancel replacement</button></div>}
       </fieldset>

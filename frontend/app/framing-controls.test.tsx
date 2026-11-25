@@ -103,3 +103,23 @@ it("keeps selected-slot drafts, hides saved previews after edits, and restores o
   expect(screen.getByLabelText("Top border trim")).toBeDisabled();
 });
 
+
+it("chooses default embedded-bar removal from a segmented radio group and saves it", async () => {
+  const posts: unknown[] = [];
+  vi.stubGlobal("fetch", vi.fn(async (url: string, options: RequestInit) => {
+    if (url.endsWith("/source")) return ok(geometry);
+    if (options.method === "POST") { const body = JSON.parse(options.body as string); posts.push(body); return ok({ status: "ready", settings: { ...initial.settings, ...body, revision: 1 } }); }
+    return ok(initial);
+  }));
+  render(<FramingControls projectId="one" onState={vi.fn()} />);
+  const group = await screen.findByRole("group", { name: "Default embedded-bar removal" });
+  const off = screen.getByRole("radio", { name: "Off" }), auto = screen.getByRole("radio", { name: "Auto (confident borders only)" });
+  expect(group).toContainElement(auto);
+  expect(off).toBeChecked();
+  fireEvent.click(auto);
+  expect(auto).toBeChecked();
+  expect(screen.getByText("Unsaved changes")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Save framing" }));
+  await waitFor(() => expect(posts).toHaveLength(1));
+  expect(posts[0]).toMatchObject({ bars: "auto" });
+});

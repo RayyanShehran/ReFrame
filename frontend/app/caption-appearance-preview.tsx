@@ -10,6 +10,7 @@ import { emptySequence, type SequenceState } from "./sequence-editor";
 import type { PlanState } from "./edit-plan";
 import { fontLabel, validFont, type FontBinding, type FontChoice, type CaptionStyle } from "./caption-style-controls";
 import { useWorkspaceNavigation, useWorkspaceReport } from "./guided-workspace";
+import { Badge, Banner } from "./ui";
 
 type Picture = { width: number; height: number; png_base64: string };
 type Reference = { operation_id: string; status: string; media: { duration_seconds: number; sha256: string } | null };
@@ -76,7 +77,7 @@ export function CaptionAppearancePreview({ sourceKey = "", projectId, track, rea
   }
   useWorkspaceReport("caption-preview", "captions", busy ? "Working" : error ? "Needs attention" : "Ready", "Updating caption comparison…");
   return <section className="reference-section" aria-label="Caption appearance comparison"><h4>Reference / caption appearance</h4>
-    <p className="hint">Reference appearance not automatically verified. Inspect a caption-bearing source frame, confirm its text and compare available fonts. Visual similarity does not prove exact font identity; no reference scanning.</p>
+    <p className="hint panel-scope">Reference appearance not automatically verified. Inspect a caption-bearing source frame, confirm its text and compare available fonts. Visual similarity does not prove exact font identity; no reference scanning.</p>
     <label>Reference source time (seconds)<input type="number" min="0" max={reference?.media?.duration_seconds ?? 0} step="any" value={time} disabled={!reference?.media} onChange={e => { cancel(); setTime(e.target.value); setError(""); }} /></label>
     {reference?.media && <p>Retained reference: {reference.media.duration_seconds.toFixed(3)} seconds.</p>}
     {reference?.status !== "ready" && <p>Retrieve a ready reference in Reference to inspect its frames. Saved-caption preview can still work independently.</p>}
@@ -87,13 +88,13 @@ export function CaptionAppearancePreview({ sourceKey = "", projectId, track, rea
     {unsaved && <p role="status">Save your unsaved caption, color, framing or cut-plan changes before updating the caption preview. {context.recipeDirty && <button onClick={() => navigation?.open("style")}>Open Color</button>} {context.framing.dirty && <button onClick={() => navigation?.open("framing")}>Open Framing</button>}</p>}
     <button disabled={!canPreview || busy} onClick={() => void run("caption")}>Update caption preview</button>
     <p className="hint">Saved cue at a visible 30 fps output frame, using actual export font, color, framing and subtitle rendering. Stills may downscale to a 960-pixel edge; they do not preview encoded-video quality.</p>
-    {busy && <p role="status">Updating comparison… Previous images remain visible. Frame processing is capped at 30 seconds.</p>}{error && <p role="alert">{error}</p>}
+    {busy && <Badge state="working" role="status">Updating comparison… Previous images remain visible. Frame processing is capped at 30 seconds.</Badge>}{error && <Banner tone="danger" role="alert">{error}</Banner>}
     <div className="frame-preview-images">
       <figure><figcaption>Retained reference frame</figcaption>{referenceFrame ? <>{onFontChoice ? <RegionSelection frame={referenceFrame} rectangle={rectangle} onChange={setRectangle} disabled={busy || disabled} /> : <Image unoptimized src={`data:image/png;base64,${referenceFrame.image.png_base64}`} width={referenceFrame.image.width} height={referenceFrame.image.height} alt={`Retained reference frame at ${referenceFrame.timestamp_seconds.toFixed(3)} seconds`} />}<p>{referenceFrame.reference_operation_id !== reference?.operation_id || referenceFrame.source.media_sha256 !== reference?.media?.sha256 ? "Outdated reference frame · " : ""}Source {referenceFrame.timestamp_seconds.toFixed(3)}s</p></> : <p>Inspect a frame explicitly.</p>}</figure>
       <figure><figcaption>Saved caption preview</figcaption>{captionFrame ? <><Image unoptimized src={`data:image/png;base64,${captionFrame.image.png_base64}`} width={captionFrame.image.width} height={captionFrame.image.height} alt={`Actual saved caption preview, cue ${captionFrame.cue_index + 1}, output ${captionFrame.output_timestamp_seconds.toFixed(3)} seconds`} /><p role="status">{outdated ? "Outdated caption preview" : "Caption preview"} · Cue {captionFrame.cue_index + 1} · Output {captionFrame.output_timestamp_seconds.toFixed(3)}s · Footage source {captionFrame.source_timestamp_seconds.toFixed(3)}s</p><p>Caption revision {captionFrame.caption_revision} · Recipe {captionFrame.recipe_revision} · Framing {captionFrame.framing_revision}{captionFrame.sequence_revision ? ` · Sequence ${captionFrame.sequence_revision}` : captionFrame.plan_revision !== null ? ` · Cut plan ${captionFrame.plan_revision}` : " · Whole clip"}</p><p>{fontLabel(captionFrame.font, captionFrame.font_origin)} · Font hash {captionFrame.font.sha256.slice(0, 12)}</p></> : <p>Save a cue and update explicitly.</p>}</figure>
     </div>
     <details><summary>Caption motion preview</summary><MotionPreview projectId={projectId} track={track} cue={cue} context={context} plan={plan} sequence={sequence} ready={ready} dirty={dirty} disabled={disabled || busy} onBusy={onMotionBusy} /></details>
     {onFontChoice && <details><summary>Assisted fonts, appearance and motion matching</summary><FontMatching referenceDuration={reference?.media?.duration_seconds} projectId={projectId} frame={referenceFrame && referenceFrame.reference_operation_id === reference?.operation_id && referenceFrame.source.media_sha256 === reference?.media?.sha256 ? referenceFrame : null} rectangle={rectangle} onRectangle={setRectangle} disabled={busy || disabled} onChoose={onFontChoice} onBusy={onMatchBusy} draftStyle={draftStyle} onAppearance={onAppearance} onAnimation={onAnimation} onInspectTime={seconds => { setTime(String(seconds)); void run("reference", seconds); }} /></details>}
-    {[...new Set([...(referenceFrame?.warnings ?? []), ...(captionFrame?.warnings ?? [])])].map(w => <p role="note" key={w}>{w}</p>)}
+    {[...new Set([...(referenceFrame?.warnings ?? []), ...(captionFrame?.warnings ?? [])])].map(w => <Banner tone="info" role="note" key={w}>{w}</Banner>)}
   </section>;
 }

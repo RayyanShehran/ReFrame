@@ -8,6 +8,7 @@ import { useState } from "react";
 import { ColorRecipe } from "./color-recipe";
 import { ReferenceMedia } from "./reference-media";
 import { StyleBlueprint, type Blueprint } from "./style-blueprint";
+import { Details } from "./ui";
 
 export function colorDifferences(reference: Blueprint["color"], footage: Blueprint["color"]) {
   return [reference.brightness_p50 - footage.brightness_p50,
@@ -26,7 +27,7 @@ export function ProjectColors({ projectId, hasFootage, footageDuration = null, l
   const differences = ready ? colorDifferences(reference.color, footage.color) : [];
   return <Preparation key={projectId} hasFootage={hasFootage}>
     <WorkspaceSection section="reference"><ReferenceMedia projectId={projectId} onReady={setMediaReady} showAnalysis={false} onColorChange={setReference} /></WorkspaceSection>
-    <WorkspaceSection section="audio"><details><summary>Optional feature readiness</summary><OptionalFeatures key={projectId} projectId={projectId} /></details></WorkspaceSection>
+    <WorkspaceSection section="audio"><Details summary="Optional feature readiness"><OptionalFeatures key={projectId} projectId={projectId} /></Details></WorkspaceSection>
     <ColorRecipe key={projectId} projectId={projectId} analysesReady={!!ready} sourceKey={`${hasFootage}-${mediaReady}-${libraryKey}`} footageDuration={footageDuration} />
     <WorkspaceSection section="style">
     {mediaReady && <StyleBlueprint projectId={projectId} onChange={setReference} />}
@@ -37,11 +38,11 @@ export function ProjectColors({ projectId, hasFootage, footageDuration = null, l
       {!hasFootage && <p>Upload your footage, then select Analyze my footage.</p>}
       {hasFootage && !footage && <p>Analyze my footage successfully, or retry its failed analysis, to compare.</p>}
       {ready && <>
-        <details><summary>Compare sampled colors</summary><div className="color-comparison"><table><thead><tr><th scope="col">Sampled measurement</th><th scope="col">Reference</th><th scope="col">Your footage</th><th scope="col">Reference − footage (percentage points)</th></tr></thead>
+        <Details summary="Compare sampled colors"><div className="color-comparison"><table><thead><tr><th scope="col">Sampled measurement</th><th scope="col">Reference</th><th scope="col">Your footage</th><th scope="col">Reference − footage (percentage points)</th></tr></thead>
           <tbody><tr><th scope="row">Palette</th>{[reference, footage].map((b, index) => <td key={index}><ul className="palette">{b.color.palette.map(c => <li key={c.hex}><span className="palette-swatch" aria-hidden="true" style={{ backgroundColor: c.hex }} />{c.hex} · {(c.proportion * 100).toFixed(1)}%</li>)}</ul></td>)}<td>Color bins, no correction inferred</td></tr>
           {names.map((name, index) => <tr key={name}><th scope="row">{name}</th><td>{(values(reference)[index] * 100).toFixed(1)}%</td><td>{(values(footage)[index] * 100).toFixed(1)}%</td><td>{differences[index] > 0 ? "+" : ""}{differences[index].toFixed(1)} pp</td></tr>)}</tbody>
-        </table></div></details>
-        <p className="hint">Differences describe sampled pixels and can reflect different scene content. They are not exposure stops, white-balance corrections or a ready-to-apply grade.</p>
+        </table></div>
+        <p className="hint">Differences describe sampled pixels and can reflect different scene content. They are not exposure stops, white-balance corrections or a ready-to-apply grade.</p></Details>
       </>}
     </section>
     </WorkspaceSection><WorkspaceSection section="cuts">{mediaReady && <PacingBlueprint projectId={projectId} />}</WorkspaceSection>

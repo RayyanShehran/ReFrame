@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { useWorkspaceNavigation, useWorkspaceReport } from "./guided-workspace";
 import type { GradingState } from "./grading-controls";
 import type { FramingState } from "./framing-controls";
+import { Badge, Banner, Details } from "./ui";
 
 type Picture = { width: number; height: number; png_base64: string };
 type Preview = { inspectedVersion?: string; schema_version: 1; source: { project_id: string; clip_id: string; media_sha256: string }; requested_timestamp_seconds: number; timestamp_seconds: number; recipe_revision: number; framing_revision: number; grading_revision?: number; clip_id?: string; slot_id?: string | null; reference?: Picture | null; original: Picture; edited: Picture; warnings: string[]; ffmpeg_version: string };
@@ -59,22 +60,23 @@ export function FramePreview({ projectId, duration, revision, recipeReady, recip
   }
   return <section className="reference-section" aria-label="Before and after frame preview">
     <h3 id={`preview-${projectId}`} tabIndex={-1}>Reference / original / graded frame</h3>
-    <p className="hint">A still frame using saved color and framing. Review cuts, audio and captions through the video render. Images may downscale to a maximum edge of 960 pixels; this is not an encoded-video quality preview.</p>
+    <p className="panel-scope">A still frame using saved color and framing.</p>
     {grading && <label>Clip or slot to inspect<select value={choice?.key ?? ""} onChange={e => { setSelection({ key: e.target.value, slot: selectedSlot }); changeTime(""); setTime(null); }}>{grading.choices.map(c => <option key={c.key} value={c.key}>{c.name}</option>)}</select></label>}
     <label>Source time (seconds)<input type="number" min={rangeStart} max={rangeEnd ?? 0} step="any" value={time} disabled={duration === null} onChange={e => changeTime(e.target.value)} /></label>
     {duration === null ? <p>Save footage to choose a source frame.</p> : <p className="hint">Selected source range: {rangeStart.toFixed(3)}–{(rangeEnd ?? duration).toFixed(3)} seconds. The clip end selects its last available frame.</p>}
-    {duration !== null && !validTime && <p role="alert">Choose a finite time from {rangeStart} to {rangeEnd ?? duration} seconds.</p>}
+    {duration !== null && !validTime && <Banner tone="danger" role="alert">Choose a finite time from {rangeStart} to {rangeEnd ?? duration} seconds.</Banner>}
     {!recipeReady && <p>Save a valid color mode and its required matches before previewing.</p>}
-    {(recipeDirty || framing.dirty) && <p role="status">Preview excludes unsaved edits and uses saved settings. {recipeDirty && <button onClick={() => navigation?.open("style", `recipe-${projectId}-brightness`)}>{grading ? "Review and save color" : "Review and save recipe"}</button>} {framing.dirty && <button onClick={() => navigation?.open("framing")}>Review and save framing</button>}</p>}
-    <button disabled={!ready || !validTime || busy} onClick={() => void update()}>{busy ? "Updating preview…" : error ? "Retry preview" : "Update preview"}</button>
+    {(recipeDirty || framing.dirty) && <Banner tone="warning" role="status">Preview excludes unsaved edits and uses saved settings. {recipeDirty && <button onClick={() => navigation?.open("style", `recipe-${projectId}-brightness`)}>{grading ? "Review and save color" : "Review and save recipe"}</button>} {framing.dirty && <button onClick={() => navigation?.open("framing")}>Review and save framing</button>}</Banner>}
+    <button className="button-primary" disabled={!ready || !validTime || busy} onClick={() => void update()}>{busy ? "Updating preview…" : error ? "Retry preview" : "Update preview"}</button>
     {!preview && !busy && !error && <p>No preview yet. Select a time and update explicitly.</p>}
-    {busy && <p role="status">Decoding one footage frame… Previous images remain visible. Processing is capped at 30 seconds.</p>}
-    {error && <p role="alert">{error}</p>}
+    {busy && <Badge state="working" role="status">Decoding one footage frame… Previous images remain visible. Processing is capped at 30 seconds.</Badge>}
+    {error && <Banner tone="danger" role="alert">{error}</Banner>}
     {preview && <>
       <p role="status">{outdated ? "Outdated preview" : "Frame preview"} · Source {preview.timestamp_seconds.toFixed(3)} seconds (requested {preview.requested_timestamp_seconds.toFixed(3)}) · {grading ? `Color revision ${preview.grading_revision}` : `Recipe revision ${preview.recipe_revision}`} · Framing revision {preview.framing_revision}</p>
       {outdated && <p>Saved color/framing changed or a required match became unavailable. Update explicitly; previous images remain available.</p>}
       <div className="frame-preview-images">{preview.reference && <figure><figcaption>Reference look</figcaption><Image unoptimized src={`data:image/png;base64,${preview.reference.png_base64}`} width={preview.reference.width} height={preview.reference.height} alt="Reference color look" /></figure>}{(["original", "edited"] as const).map(key => <figure key={key}><figcaption>{key === "original" ? "Original" : "Graded"}</figcaption><Image unoptimized src={`data:image/png;base64,${preview[key].png_base64}`} width={preview[key].width} height={preview[key].height} alt={`${key === "original" ? "Original footage, entire normalized image without creative adjustments" : "Graded footage with saved color settings and framing"}, source ${preview.timestamp_seconds.toFixed(3)} seconds, recipe revision ${preview.recipe_revision}, framing revision ${preview.framing_revision}`} /></figure>)}</div>
-      {preview.warnings.map(warning => <p role="note" key={warning}>{warning}</p>)}
+      {preview.warnings.map(warning => <Banner tone="info" role="note" key={warning}>{warning}</Banner>)}
     </>}
+    <Details><p className="hint">Review cuts, audio and captions through the video render. Images may downscale to a maximum edge of 960 pixels; this is not an encoded-video quality preview.</p></Details>
   </section>;
 }

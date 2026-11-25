@@ -3,8 +3,9 @@
 import { useEffect, useRef, useState } from "react";
 import { clipRequest, readLibrary, type SourceClip } from "./clip-library";
 import { useMediaOperation, type MediaOperation } from "./use-media-operation";
-import { useWorkspaceNavigation, useWorkspaceReport } from "./guided-workspace";
+import { WorkspaceSurface, useWorkspaceNavigation, useWorkspaceReport } from "./guided-workspace";
 import type { SequenceState } from "./sequence-editor";
+import { Badge, Banner, Details } from "./ui";
 
 export const colorModes = { original: "Original / no color adjustment", basic: "Basic adjustments", transfer: "Reference color transfer" };
 export type ColorMode = keyof typeof colorModes;
@@ -73,19 +74,18 @@ export function GradingControls({ projectId, sourceKey, analysesReady, sequence,
     if (result) { setConfirm(null); setDraft(previous => previous ? { ...previous, mode: "transfer" } : { ...result.settings, mode: "transfer" }); }
   }
   return <section className="reference-section" aria-label="Reference color matching"><h3>Match reference colors</h3>
-    <p>Prepare the reference look, match each clip, save your choice, then preview and export. Analysis measurements alone do not activate a grade.</p>
-    <button className="button-primary" disabled={!analysesReady || busy || dirty} onClick={() => operation?.entries.some(e => e.valid) ? setConfirm("project") : void prepare(false)}>Match reference colors</button>
+    <p className="panel-scope">Prepare the reference look, match each clip, save your choice, then preview and export.</p>
+    <button className={operation?.entries.some(e => e.valid) ? undefined : "button-primary"} disabled={!analysesReady || busy || dirty} onClick={() => operation?.entries.some(e => e.valid) ? setConfirm("project") : void prepare(false)}>Match reference colors</button>
     {!analysesReady && <p>Prepare valid reference and original footage colors first. <button onClick={() => navigation?.open("reference", "prepare-workflow")}>Open preparation</button></p>}
     {confirm && <div role="group" aria-label="Confirm color rematching"><p>Re-estimate prepared transforms? Your saved per-clip strength and refinements remain. Review and save the mode explicitly.</p><button disabled={busy} onClick={() => void prepare(true, confirm === "shot")}>Re-estimate matches</button><button onClick={() => setConfirm(null)}>Keep matches</button></div>}
     {draft && <>
       <label>Color mode<select value={draft.mode} disabled={busy} onChange={e => setDraft({ ...draft, mode: e.target.value as ColorMode })}>{Object.entries(colorModes).map(([value, name]) => <option key={value} value={value}>{name}</option>)}</select></label>
-      <p role="status">{dirty ? "Unsaved color changes" : "Saved color mode"}: {colorModes[dirty ? draft!.mode : saved?.mode ?? "basic"]} · {dirty ? "Saved revision" : "Revision"} {saved?.revision ?? 0}</p>
-      <p className="hint">Original bypasses color adjustments. Basic uses the existing recipe below. Transfer uses a separate fixed match for each clip; Basic is not added on top.</p>
+      <Badge state={dirty ? "needs-input" : "ready"} role="status">{dirty ? "Unsaved color changes" : "Saved color mode"}: {colorModes[dirty ? draft!.mode : saved?.mode ?? "basic"]}</Badge>
       {draft.mode === "transfer" && <>
         <label>Clip or slot to refine<select value={key} onChange={e => { const choice = choices.find(c => c.key === e.target.value);
           setSelection({ key: e.target.value, slot: navigation ? e.target.value : selectedSlot });
           if (choice) navigation?.select({ kind: choice.slotId ? "slot" : "clip", id: choice.slotId ?? choice.clipId, label: choice.slotId ? choice.name : `Source clip · ${choice.name}`, time: choice.start }); }}>{choices.map(c => <option key={c.key} value={c.key}>{c.name}</option>)}</select></label>
-        <p className="editor-scope">Editing {chosenSlot ? "one sequence slot · assigned reference interval" : "one source clip · project reference look"}. These controls do not change other clips.</p><p role="status">{entry?.valid ? "Prepared match" : "Match required"}{entry?.message && ` · ${entry.message}`}</p>
+        <p className="editor-scope">Editing {chosenSlot ? "one sequence slot · assigned reference interval" : "one source clip · project reference look"}. These controls do not change other clips.</p><Badge state={entry?.valid ? "ready" : "needs-attention"} role="status">{entry?.valid ? "Prepared match" : "Match required"}{entry?.message && ` · ${entry.message}`}</Badge>
         {chosenSlot && <>
           <label><input type="checkbox" checked={draft.shot_slots.includes(chosenSlot.id)} disabled={!entry?.valid || busy} onChange={e => setDraft({ ...draft, shot_slots: e.target.checked ? [...draft.shot_slots, chosenSlot.id] : draft.shot_slots.filter(id => id !== chosenSlot.id) })} />Use assigned reference shot for this slot</label>
           <button disabled={busy || dirty || !sequence.ready || chosenSlot.reference_start_frame === null} onClick={() => entry ? setConfirm("shot") : void prepare(false, true)}>Match assigned reference shot</button>
@@ -97,16 +97,19 @@ export function GradingControls({ projectId, sourceKey, analysesReady, sequence,
           <details><summary>Advanced tone and color refinements</summary>{refinements.map(([name, label, min, max]) => <label key={name} htmlFor={`grade-${projectId}-${key}-${name}`}>{label}: <span>{controls[name].toFixed(2)}</span><input id={`grade-${projectId}-${key}-${name}`} type="range" min={min} max={max} step=".01" value={controls[name]} onChange={e => adjust(name, Number(e.target.value))} /></label>)}</details>
           <button onClick={() => setDraft({ ...draft, controls: { ...draft.controls, [key]: defaultControls } })}>Reset selected match</button>
         </fieldset>
-        {entry && <><p className="hint">Reference target: {entry.match.reference.source.canonical_url}</p><details><summary>Match method and source</summary><p className="hint">Source {entry.match.source_hash.slice(0, 12)} / {entry.match.model.algorithm}</p></details>{entry.match.model.warnings.map(w => <p role="note" key={w}>{w}</p>)}</>}
+        {entry && <><p className="hint">Reference target: {entry.match.reference.source.canonical_url}</p><Details summary="Match method and source"><p className="hint">Source {entry.match.source_hash.slice(0, 12)} / {entry.match.model.algorithm}</p></Details>{entry.match.model.warnings.map(w => <Banner tone="info" role="note" key={w}>{w}</Banner>)}</>}
         <ul aria-label="Prepared footage colors">{clips.map(c => <li key={c.id}>{c.name}: {validKeys.has(`clip:${c.id}`) ? "prepared project look" : "match required"}</li>)}</ul>
       </>}
-      <button className={dirty ? "button-primary" : undefined} disabled={!dirty || busy || (draft.mode === "transfer" && !primary)} onClick={() => void save()}>Save color mode and matches</button>
-      <button disabled={busy} onClick={() => setDraft(saved ?? null)}>Reset unsaved color changes</button>
-      <button disabled={busy} onClick={() => { initialized.current = false; refresh(); }}>Reload saved color settings</button>
+      <WorkspaceSurface name="footer"><button disabled={busy} onClick={() => { initialized.current = false; refresh(); }}>Reload saved color settings</button>
+        <button disabled={busy} onClick={() => setDraft(saved ?? null)}>Reset unsaved color changes</button>
+        <button className="button-primary" disabled={!dirty || busy || (draft.mode === "transfer" && !primary)} onClick={() => void save()}>Save color mode and matches</button></WorkspaceSurface>
     </>}
-    {busy && <p role="status">Preparing color matches {operation?.completed ?? 0}/{operation?.total ?? 0}… Processing is bounded to five minutes, one shared worker.</p>}
-    {operation?.status === "failed" && <p role="alert">{operation.message} Previous matches and settings remain. Retry matching explicitly.</p>}
-    {(error || loadError) && <p role="alert">{error || loadError}</p>}
-    <p className="hint">Statistical SDR approximation, not a recovered creator LUT or AI grading. Different scenes can give misleading suggestions. Review frames and the exported video.</p>
+    {busy && <Badge state="working" role="status">Preparing color matches {operation?.completed ?? 0}/{operation?.total ?? 0}… Processing is bounded to five minutes, one shared worker.</Badge>}
+    {operation?.status === "failed" && <Banner tone="danger" role="alert">{operation.message} Previous matches and settings remain. Retry matching explicitly.</Banner>}
+    {(error || loadError) && <Banner tone="danger" role="alert">{error || loadError}</Banner>}
+    <Details><p>Analysis measurements alone do not activate a grade.</p>
+      {draft && <><p className="hint">Original bypasses color adjustments. Basic uses the existing recipe below. Transfer uses a separate fixed match for each clip; Basic is not added on top.</p>
+      <p>{dirty ? "Saved revision" : "Revision"} {saved?.revision ?? 0}</p></>}
+      <p className="hint">Statistical SDR approximation, not a recovered creator LUT or AI grading. Different scenes can give misleading suggestions. Review frames and the exported video.</p></Details>
   </section>;
 }

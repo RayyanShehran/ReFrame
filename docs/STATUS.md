@@ -2,6 +2,28 @@
 
 Current default is automatic reference-video generation; Customize retains the advanced editor. Earlier sections record historical milestone boundaries. [Current workflow, verification and limits](AUTOMATIC_GENERATION.md).
 
+## UI redesign — 2026-11-25
+
+Four PRs rebuilt the interface on one set of design tokens (`globals.css` `@theme static`) and
+the `app/ui.tsx` primitives. Layout and visual changes only; no API changes.
+1. **Foundation:** tokens, Inter Tight, the primitives and a single `AppHeader`.
+2. **Create, Generating and Result:** one create card with three steps, a stage-by-stage
+   progress panel, one failure Banner with recovery grouped beneath, and a centred result.
+3. **Customize shell:** a section rail (state dots), the stage and a scrolling inspector with a
+   per-section sticky footer. Customize has one header with a single "Close Customize" exit.
+4. **Section panels:** flat panels split by hairlines, Badge statuses and Banner errors. Save
+   actions sit in the inspector footer. Long explanations and revision lines move into a closing
+   "Details" disclosure.
+
+PR 4 also fixed the Cuts panel rejecting schema 2 sequences ("Invalid sequence response.").
+
+Two backend problems found during the redesign are still open:
+- `grading.get_operation` returns colour matches for slots that are no longer in the
+  sequence. After repeated regeneration this passes the panel's 70-entry limit, so the panel
+  shows "Invalid color match response.".
+- `main.saved_still` rejects concurrent preview and status requests with 409
+  `reference_busy` instead of waiting for its lock.
+
 ## Third reference: generalisation test — 2026-11-24
 
 The pipeline was validated on a third reference: a 38.75 s, 1440×1080 HEVC 60 fps

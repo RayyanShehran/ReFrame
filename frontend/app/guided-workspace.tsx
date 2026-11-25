@@ -27,13 +27,18 @@ export function useWorkspaceReport(key: string, section: Section, state: Report[
   useEffect(() => { report?.(key, { section, state, message, dirty }); }, [report, key, section, state, message, dirty]);
   useEffect(() => () => report?.(key, null), [report, key]);
 }
+const SectionContext = createContext<Section | null>(null);
 export function WorkspaceSection({ section, children }: { section: Section; children: ReactNode }) {
   const workspace = useContext(Context);
-  return <div className="workspace-pane" hidden={!!workspace && workspace.active !== section}>{children}</div>;
+  return <SectionContext.Provider value={section}><div className="workspace-pane" hidden={!!workspace && workspace.active !== section}>{children}</div></SectionContext.Provider>;
 }
+/** Portals into the editor's preview, slot strip or inspector footer; renders inline outside the editor.
+ * The footer is shared, so it shows only the active section's buttons. */
 export function WorkspaceSurface({ name, children }: { name: "preview" | "strip" | "footer"; children: ReactNode }) {
-  const workspace = useContext(Context);
-  return workspace ? workspace[name] ? createPortal(children, workspace[name]) : null : <>{children}</>;
+  const workspace = useContext(Context), section = useContext(SectionContext);
+  if (!workspace || (name === "footer" && !section)) return <>{children}</>;
+  if (name === "footer" && workspace.active !== section) return null;
+  return workspace[name] ? createPortal(children, workspace[name]) : null;
 }
 /** The Customize editor: section rail, stage (preview and slot strip) and inspector. Inside the
  * automatic maker it also fills two header slots: a Working badge and a "Render video" shortcut. */

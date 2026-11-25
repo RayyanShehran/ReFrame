@@ -2,6 +2,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { MatchFrame, Rectangle } from "./font-matching";
+import { Badge, Banner } from "./ui";
 
 const apiBase = (process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000").replace(/\/$/, "");
 const method = "tesseract-fast-block-v1";
@@ -57,7 +58,7 @@ export function ReferenceOcr({projectId, frame, rectangle, polarity, disabled, o
   <button disabled={busy||disabled||!frame||!capability?.available||!validRegion} onClick={()=>void run("extract")}>{proposal?"Retry extraction":"Extract text from this region"}</button>
   <button disabled={busy||disabled} onClick={()=>void run("status")}>Reload OCR status</button>
   {!frame&&<p>Inspect the reference frame and select its caption region first. Manual entry remains available.</p>}
-  {busy&&<p role="status">Extracting or validating local text… One attempt, up to 30 seconds overall. Previous matching text is unchanged.</p>}{error&&<p role="alert">{error}</p>}
+  {busy&&<Badge state="working" role="status">Extracting or validating local text… One attempt, up to 30 seconds overall. Previous matching text is unchanged.</Badge>}{error&&<Banner tone="danger" role="alert">{error}</Banner>}
   {proposal&&<><p role="status">{current?"OCR proposal — review before applying":"Outdated OCR proposal — extract the current region/language before applying"}</p>
    <label>Review extracted reference text<textarea dir="auto" rows={3} value={edited} disabled={busy||disabled} aria-invalid={!plain(edited)} aria-describedby={`ocr-review-limits-${projectId}`} onChange={e=>setEdited(e.target.value)}/></label>
    <p id={`ocr-review-limits-${projectId}`}>{Array.from(edited).length}/80 characters · At most two lines and four letters/numbers minimum for font matching. Correct an overlong result; it is not truncated.</p>

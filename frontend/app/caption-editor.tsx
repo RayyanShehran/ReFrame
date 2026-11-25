@@ -1,6 +1,6 @@
 "use client";
 
-import { useWorkspaceNavigation, useWorkspaceReport } from "./guided-workspace";
+import { WorkspaceSurface, useWorkspaceNavigation, useWorkspaceReport } from "./guided-workspace";
 import { useEffect, useRef, useState } from "react";
 import { Application, TranscriptionReview } from "./transcription-review";
 import { emptySequence, type SequenceState } from "./sequence-editor";
@@ -9,6 +9,7 @@ import { defaultStyle, readStyle, validFont, FontPicker, StyleControls, type Cap
 import { CaptionAppearancePreview, type AppearanceContext } from "./caption-appearance-preview";
 
 import { AnimationControls, defaultAnimation, readAnimation, type Animation } from "./caption-animation";
+import { Badge, Banner, Details } from "./ui";
 
 type Mode = "whole" | "cuts" | "sequence";
 type CueAppearance = { style: CaptionStyle; animation: Animation; font_binding: FontBinding };
@@ -134,13 +135,13 @@ export function CaptionEditor({ projectId, planState, sequenceState = emptySeque
   useWorkspaceReport("caption-settings", "captions", busy || proposalBusy ? "Working" : error || (!!result && !ready) ? "Needs attention" : ready ? dirty ? "Needs input" : "Ready" : "Needs input", "Saving or loading caption…", dirty);
   return <section className="reference-section" aria-label="Captions">
     <h3>Captions</h3>
-    <p className="hint">Manual text, imported SRT, or reviewed automatic transcription. Optional reference OCR updates only matching text, never your cues. Times use the final output timeline after cuts: start inclusive, end exclusive. Saving does not create a video preview.</p>
-    {!result && !error && <p role="status">Loading captions…</p>}
-    {error && <p role="alert" id={`caption-save-error-${projectId}`}>{error}</p>}
+    <p className="panel-scope">Manual text, imported SRT, or reviewed automatic transcription.</p>
+    {!result && !error && <Badge state="working" role="status">Loading captions…</Badge>}
+    {error && <Banner tone="danger" role="alert" id={`caption-save-error-${projectId}`}>{error}</Banner>}
     {result && <>
-      <p role="status">{!ready ? result.font_available === false ? "Selected font unavailable" : "Stale caption timeline" : dirty ? "Unsaved caption changes" : track?.revision ? "Captions saved" : "Captions disabled by default"} · Caption revision {revision} · {provenance === "srt_import" ? "Imported SRT (editable)" : provenance === "automatic_transcription" ? "Automatic transcription (reviewed/editable)" : provenance === "automatic_reference" ? "Reference visible text (OCR, editable)" : provenance === "generated_output_audio" ? "Generated from assembled output audio (editable)" : "Manual text"}</p>
-      {result.message && <p role="alert">{result.message}</p>}
-      {result.font_warnings?.map(w => <p role="note" key={w}>{w}</p>)}
+      <Badge state={!ready ? "needs-attention" : dirty ? "needs-input" : "ready"} role="status">{!ready ? result.font_available === false ? "Selected font unavailable" : "Stale caption timeline" : dirty ? "Unsaved caption changes" : track?.revision ? "Saved" : "Disabled by default"}</Badge>
+      {result.message && <Banner tone="danger" role="alert">{result.message}</Banner>}
+      {result.font_warnings?.map(w => <Banner tone="info" role="note" key={w}>{w}</Banner>)}
       <details><summary>Recognition & evidence · transcription and review</summary><TranscriptionReview key={projectId} projectId={projectId} revision={revision ?? 0} hasText={!!(cues.length || track?.cues.length || dirty)} draftToken={JSON.stringify(cues)} busy={busy}
         onBusy={setProposalBusy} onApply={(value: Application) => { setCues(drafts(value.cues)); setMode(value.timeline.mode); setProvenance(value.provenance); setAutomaticId(value.automatic_proposal_id); setEnabled(true); setPreview(null); setConfirmation(null); setError(""); }} /></details>
       <fieldset className="recipe-controls" aria-describedby={error ? `caption-save-error-${projectId}` : undefined} disabled={busy || proposalBusy || fontBusy || matchBusy || motionBusy}>
@@ -170,15 +171,17 @@ export function CaptionEditor({ projectId, planState, sequenceState = emptySeque
           </details>}
           <span>{Array.from(c.text).length}/200 characters</span><button onClick={() => { setCues(all => all.filter((_, n) => n !== i)); setConfirm(false); }}>Delete cue {i + 1}</button>
         </fieldset>)}
-        {invalidIndex >= 0 && <p role="alert" id={`cue-error-${projectId}`}>Cue {invalidIndex + 1}: use finite ordered nonoverlapping times inside the output, nonempty text, at most 200 characters and three lines.</p>}
+        {invalidIndex >= 0 && <Banner tone="danger" role="alert" id={`cue-error-${projectId}`}>Cue {invalidIndex + 1}: use finite ordered nonoverlapping times inside the output, nonempty text, at most 200 characters and three lines.</Banner>}
         {enabled && !cues.length && <p>Add at least one cue before enabling captions.</p>}
         <button disabled={cues.length >= 200} onClick={() => { const start = cues.length ? Number(cues[cues.length - 1].end) : 0; setSelectedCue(cues.length); setCues(all => [...all, { start: String(Number.isFinite(start) ? start : 0), end: String(Math.min(duration ?? 120, (Number.isFinite(start) ? start : 0) + 1)), text: "" }]); setConfirm(false); }}>Add cue</button>
-        <button className="button-primary" disabled={!canSave || (!dirty && !needsRebind)} onClick={() => { if (needsRebind) setConfirm(true); else void run("save"); }}>Save captions</button>
         {confirm && <div role="group" aria-label="Confirm caption timeline rebind"><p>Rebind to {mode === "sequence" ? `sequence revision ${sequenceState.revision}` : mode === "cuts" ? `cut plan revision ${planState.revision}` : "the whole clip"}? Text and entered times are preserved and every cue is revalidated. No cue shifts or truncation.</p><button disabled={!canSave} onClick={() => void run("save")}>Confirm rebind and save</button><button onClick={() => setConfirm(false)}>Cancel rebind</button></div>}
       </fieldset>
       {appearance && track && <details><summary>Reference evidence & assisted appearance · selected cue</summary><CaptionAppearancePreview sourceKey={sourceKey} key={`appearance-${projectId}`} projectId={projectId} track={track} ready={ready} dirty={dirty} disabled={busy || proposalBusy || fontBusy || matchBusy || motionBusy} onMotionBusy={setMotionBusy} context={appearance} plan={planState} sequence={sequenceState} onFontChoice={font => setStyle(v => ({ ...v, font, font_origin: "assisted" }))} onMatchBusy={setMatchBusy} draftStyle={style} onAppearance={patch => setStyle(v => ({ ...v, ...patch }))} onAnimation={patch => setAnimation(v => readAnimation({ ...v, ...patch }))} /></details>}
     </>}
-    <button disabled={busy || proposalBusy || fontBusy || matchBusy || motionBusy} onClick={() => void run("reload")}>{dirty ? "Discard caption changes and reload" : "Reload saved captions"}</button>
-    {busy && <p role="status">Saving, importing or loading captions…</p>}
+    <WorkspaceSurface name="footer"><button disabled={busy || proposalBusy || fontBusy || matchBusy || motionBusy} onClick={() => void run("reload")}>{dirty ? "Discard caption changes and reload" : "Reload saved captions"}</button>
+      {result && <button className="button-primary" disabled={busy || proposalBusy || fontBusy || matchBusy || motionBusy || !canSave || (!dirty && !needsRebind)} onClick={() => { if (needsRebind) setConfirm(true); else void run("save"); }}>Save captions</button>}</WorkspaceSurface>
+    {busy && <Badge state="working" role="status">Saving, importing or loading captions…</Badge>}
+    <Details><p className="hint">Optional reference OCR updates only matching text, never your cues. Times use the final output timeline after cuts: start inclusive, end exclusive. Saving does not create a video preview.</p>
+      {result && <p>{!ready ? result.font_available === false ? "Selected font unavailable" : "Stale caption timeline" : dirty ? "Unsaved caption changes" : track?.revision ? "Captions saved" : "Captions disabled by default"} · Caption revision {revision} · {provenance === "srt_import" ? "Imported SRT (editable)" : provenance === "automatic_transcription" ? "Automatic transcription (reviewed/editable)" : provenance === "automatic_reference" ? "Reference visible text (OCR, editable)" : provenance === "generated_output_audio" ? "Generated from assembled output audio (editable)" : "Manual text"}</p>}</Details>
   </section>;
 }

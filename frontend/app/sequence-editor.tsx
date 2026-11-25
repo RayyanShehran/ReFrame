@@ -4,9 +4,10 @@ import { useEffect, useRef, useState } from "react";
 import { apiBase, clipRequest, readLibrary, type SourceClip } from "./clip-library";
 import { AssemblyReview, type Assignment } from "./assembly-review";
 import { WorkspaceSurface, useWorkspaceNavigation, useWorkspaceReport } from "./guided-workspace";
+import { Badge, Banner, Details } from "./ui";
 
 type Slot = Assignment & { source_end_frame: number; output_start_frame: number; output_end_frame: number; source_hash: string | null };
-type Sequence = { schema_version: 1; revision: number; slots: Slot[]; output_frames: number };
+type Sequence = { schema_version: 1 | 2; revision: number; slots: Slot[]; output_frames: number };
 type Result = { status: "empty" | "incomplete" | "ready" | "stale"; sequence: Sequence | null; message: string | null };
 type Draft = { id: string; clip_id: string | null; start: string; duration: string; reference_start_frame?: number | null; reference_end_frame?: number | null };
 export type SequenceState = { revision: number | null; ready: boolean; dirty: boolean; busy: boolean; duration?: number };
@@ -15,7 +16,7 @@ const integer = (n: unknown, min: number, max: number) => Number.isSafeInteger(n
 function parse(data: unknown): Result {
   const r = data as Result, s = r?.sequence;
   if (!r || !["empty", "incomplete", "ready", "stale"].includes(r.status) || (r.status !== "empty" && !s)) throw new Error("Invalid sequence response.");
-  if (s && (s.schema_version !== 1 || !integer(s.revision, 1, Number.MAX_SAFE_INTEGER) || !integer(s.output_frames, 1, 3600) || !Array.isArray(s.slots) || !s.slots.length || s.slots.length > 60 || s.slots.some(v => !/^[0-9a-f-]{36}$/.test(v.id) || !integer(v.duration_frames, 1, 3600) || !integer(v.source_start_frame, 0, 3600)))) throw new Error("Invalid sequence response.");
+  if (s && (![1, 2].includes(s.schema_version) || !integer(s.revision, 1, Number.MAX_SAFE_INTEGER) || !integer(s.output_frames, 1, 3600) || !Array.isArray(s.slots) || !s.slots.length || s.slots.length > 60 || s.slots.some(v => !/^[0-9a-f-]{36}$/.test(v.id) || !integer(v.duration_frames, 1, 3600) || !integer(v.source_start_frame, 0, 3600)))) throw new Error("Invalid sequence response.");
   return r;
 }
 const drafts = (slots: Assignment[]): Draft[] => slots.map(s => ({ id: s.id, clip_id: s.clip_id, start: String(s.source_start_frame / 30), duration: String(s.duration_frames / 30), reference_start_frame: s.reference_start_frame, reference_end_frame: s.reference_end_frame }));
@@ -71,13 +72,12 @@ export function SequenceEditor({ projectId, onState }: { projectId: string; onSt
     finally { clearTimeout(timer); action.current = null; setBusy(false); }
   }
   return <section className="reference-section" aria-label="Multi-clip sequence">
-    <h3>Multi-clip sequence</h3><p>Create editable slots from the reference’s estimated shots, then choose footage manually or review an automatic range proposal. Saved Original/Basic modes retain their existing behavior. Reference color transfer uses each clip’s prepared match, or its explicitly selected assigned-shot match. Review every source before export.</p>
+    <h3>Multi-clip sequence</h3><p className="panel-scope">Slots from the reference’s estimated shots, each assigned a range of your footage.</p>
     <button disabled={busy || !result} onClick={() => sequence || dirty ? setConfirm(true) : void run("generate")}>{sequence ? "Regenerate slots from reference pacing" : "Create slots from reference pacing"}</button>
     {confirm && <div role="group" aria-label="Confirm slot replacement"><p>Replace the saved slots and unsaved edits? This clears assignments and can make captions and transcription stale.</p><button disabled={busy} onClick={() => void run("generate")}>Confirm replace slots</button><button onClick={() => setConfirm(false)}>Keep slots</button></div>}
     {sequence && <>
       <details><summary>Automatic selection · proposals and locked ranges</summary><AssemblyReview projectId={projectId} revision={sequence.revision} savedSlots={sequence.slots} clips={clips} dirty={dirty} disabled={busy} onApply={v => { setReview(null); setSlots(drafts(v)); setSelected(v[0]?.id ?? ""); }} onPreview={v => { player.current?.pause(); setPlayingRange(false); setSelected(v.id); setReview(v); }} /></details>
-      <p>Saved revision {sequence.revision} · {sequence.output_frames / 30} seconds · 30 fps · at most 60 slots / 120 seconds</p>
-      {result?.message && <p role="status">{result.message}</p>}
+      {result?.message && <Banner tone="info" role="status">{result.message}</Banner>}
       <div className="sequence-editor">
         <div><WorkspaceSurface name="strip"><p className="eyebrow">Sequence · select a slot to edit</p><ol className="sequence-slots">{slots.map((s, i) => <li key={s.id}>
           <button aria-pressed={selected === s.id} onClick={() => select(s.id)}>Slot {i + 1} · {Number(s.duration).toFixed(3)} s · {clips.find(c => c.id === s.clip_id)?.name ?? "Unassigned"}</button>
@@ -100,16 +100,17 @@ export function SequenceEditor({ projectId, onState }: { projectId: string; onSt
             <button disabled={busy || !!review} onClick={() => patch({ start: String(Math.round((player.current?.currentTime ?? 0) * 30) / 30) })}>Use current playback position as start</button>
             <button disabled={busy || !rangeValid} onClick={() => { const video = player.current; if (video) { video.currentTime = start; setPlayingRange(true); void video.play().catch(() => { setPlayingRange(false); setError("Playback could not start. Use the native player controls."); }); } }}>Preview selected range</button>
           </>}
-          {problem(slot) && <p role="alert">{problem(slot)}</p>}
+          {problem(slot) && <Banner tone="danger" role="alert">{problem(slot)}</Banner>}
         </div>}
       </div>
-      {!bounded && <p role="alert">Keep 1–60 slots totaling at most 120 seconds.</p>}
-      {invalid >= 0 && <p role="alert">Slot {invalid + 1}: {problem(slots[invalid])}</p>}
-      {slots.some(s => !s.clip_id) && <p role="status">Assign every slot before rendering. You can save unassigned slots as a draft.</p>}
-      <button className="button-primary" disabled={busy || !dirty || invalid >= 0 || !bounded} onClick={() => void run("save")}>Save sequence</button>
-      <button disabled={busy} onClick={() => void run("reload")}>Reload saved sequence (discard draft)</button>
-      <p role="status">{busy ? "Working…" : dirty ? "Unsaved sequence changes" : "Saved sequence restored"}</p>
+      {!bounded && <Banner tone="danger" role="alert">Keep 1–60 slots totaling at most 120 seconds.</Banner>}
+      {invalid >= 0 && <Banner tone="danger" role="alert">Slot {invalid + 1}: {problem(slots[invalid])}</Banner>}
+      {slots.some(s => !s.clip_id) && <Banner tone="warning" role="status">Assign every slot before rendering. You can save unassigned slots as a draft.</Banner>}
+      <WorkspaceSurface name="footer"><Badge state={busy ? "working" : dirty ? "needs-input" : "ready"} role="status">{busy ? "Working…" : dirty ? "Unsaved sequence changes" : "Saved sequence restored"}</Badge>
+        <button disabled={busy} onClick={() => void run("reload")}>Reload saved sequence (discard draft)</button>
+        <button className="button-primary" disabled={busy || !dirty || invalid >= 0 || !bounded} onClick={() => void run("save")}>Save sequence</button></WorkspaceSurface>
     </>}
-    {error && <p role="alert">{error}</p>}
+    {error && <Banner tone="danger" role="alert">{error}</Banner>}
+    <Details><p>Create editable slots from the reference’s estimated shots, then choose footage manually or review an automatic range proposal. Saved Original/Basic modes retain their existing behavior. Reference color transfer uses each clip’s prepared match, or its explicitly selected assigned-shot match. Review every source before export.</p>{sequence && <p>Saved revision {sequence.revision} · {sequence.output_frames / 30} seconds · 30 fps · at most 60 slots / 120 seconds</p>}</Details>
   </section>;
 }

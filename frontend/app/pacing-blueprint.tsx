@@ -1,6 +1,7 @@
 "use client";
 
 import { useMediaOperation, type MediaOperation } from "./use-media-operation";
+import { Badge, Banner, Details } from "./ui";
 
 type Blueprint = {
   schema_version: 2; algorithm_version: string; analyzed_at: string;
@@ -55,16 +56,16 @@ export function PacingBlueprint({ projectId }: { projectId: string }) {
   const b = operation?.blueprint;
   return <section className="reference-section" aria-label="Style Blueprint — estimated cuts and pacing">
     <h3>Optional reference pacing</h3>
-    <p className="hint">Optional for whole-clip export. Read-only estimates from the retained reference, including the rhythm of its music. Transitions and captions are not analyzed here.</p>
-    {!operation && !error && <p role="status">Loading pacing status…</p>}
+    <p className="panel-scope">Optional for whole-clip export.</p>
+    {!operation && !error && <Badge state="working" role="status">Loading pacing status…</Badge>}
     {operation?.status === "idle" && <p>Pacing has not been analyzed. Color results are independent.</p>}
-    {operation?.status === "running" && <p role="status">Checking consecutive reference frames for likely cuts… Processing continues if you leave.</p>}
-    {operation?.status === "failed" && <p role="alert">{operation.message || "Pacing analysis failed."} ({operation.failure_code})</p>}
-    {error && <p role="alert" className="error">{error}</p>}
-    {operation && ["idle", "failed"].includes(operation.status) && <button disabled={starting} onClick={() => void start()}>{starting ? "Starting…" : operation.status === "failed" ? "Retry pacing analysis" : "Analyze pacing"}</button>}
+    {operation?.status === "running" && <Badge state="working" role="status">Checking consecutive reference frames for likely cuts… Processing continues if you leave.</Badge>}
+    {operation?.status === "failed" && <Banner tone="danger" role="alert">{operation.message || "Pacing analysis failed."} ({operation.failure_code})</Banner>}
+    {error && <Banner tone="danger" role="alert">{error}</Banner>}
+    {operation && ["idle", "failed"].includes(operation.status) && <button className="button-primary" disabled={starting} onClick={() => void start()}>{starting ? "Starting…" : operation.status === "failed" ? "Retry pacing analysis" : "Analyze pacing"}</button>}
     {operation?.status === "ready" && b && <>
-      <p role="status">Estimated cuts and pacing are ready and saved locally.</p>
-      <details><summary>Estimated pacing measurements and method</summary><dl className="clip-details">
+      <Badge state="ready" role="status">Estimated cuts and pacing are ready and saved locally.</Badge>
+      <Details summary="Estimated pacing measurements and method"><dl className="clip-details">
         <dt>Estimated cut count</dt><dd>{b.estimated_cut_count}</dd>
         <dt>Estimated shot count</dt><dd>{b.shot_count}</dd>
         <dt>Mean shot length</dt><dd>{b.mean_shot_seconds.toFixed(3)} seconds</dd>
@@ -79,16 +80,17 @@ export function PacingBlueprint({ projectId }: { projectId: string }) {
         <dt>Tools</dt><dd>{Object.entries(b.tool_versions).map(([name, version]) => `${name}: ${version}`).join(" · ")}</dd>
         <dt>Source SHA-256</dt><dd style={{ overflowWrap: "anywhere" }}>{b.source.media_sha256}</dd>
         <dt>Analyzed</dt><dd>{b.analyzed_at}</dd>
-      </dl></details>
-      <details><summary>Estimated shot durations ({b.shot_count} shots)</summary>
+      </dl></Details>
+      <Details summary={`Estimated shot durations (${b.shot_count} shots)`}>
         <div style={{ maxHeight: "16rem", overflow: "auto" }}><table>
           <caption>Contiguous estimated shots, in seconds</caption>
           <thead><tr><th scope="col">Shot</th><th scope="col">Start</th><th scope="col">End</th><th scope="col">Length</th></tr></thead>
           <tbody>{b.shots.map((s, i) => <tr key={i}><th scope="row">{i+1}</th><td>{s.start_seconds.toFixed(3)}</td><td>{s.end_seconds.toFixed(3)}</td><td>{s.duration_seconds.toFixed(3)}</td></tr>)}</tbody>
         </table></div>
-      </details>
-      <ul className="hint">{b.interpretation_limits.map(s => <li key={s}>{s}</li>)}</ul>
-      {b.color_metadata.warnings.map(s => <p role="note" key={s}>{s}</p>)}
+      </Details>
+      {b.color_metadata.warnings.map(s => <Banner tone="info" role="note" key={s}>{s}</Banner>)}
     </>}
+    <Details><p>Read-only estimates from the retained reference, including the rhythm of its music. Transitions and captions are not analyzed here.</p>
+      {operation?.status === "ready" && b && <ul className="hint">{b.interpretation_limits.map(s => <li key={s}>{s}</li>)}</ul>}</Details>
   </section>;
 }

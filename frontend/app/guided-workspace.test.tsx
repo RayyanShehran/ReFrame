@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
-import { GuidedWorkspace, WorkspaceSection, useWorkspaceNavigation, useWorkspaceReport } from "./guided-workspace";
+import { GuidedWorkspace, WorkspaceSection, WorkspaceSurface, useWorkspaceNavigation, useWorkspaceReport } from "./guided-workspace";
 import { ColorRecipe } from "./color-recipe";
 import { RenderVideo } from "./render-video";
 
@@ -162,4 +162,19 @@ it("fills the header slots with a Working badge and a Render video shortcut that
  view.rerender(<GuidedWorkspace hasFootage headerStatusTarget={status} headerActionTarget={action}><SourceStatus /></GuidedWorkspace>);
  expect(within(status).queryByText("Working")).not.toBeInTheDocument();
  status.remove(); action.remove();
+});
+
+it("shows only the active section's buttons in the inspector footer and keeps them inline outside the editor", () => {
+ const view = render(<GuidedWorkspace hasFootage><WorkspaceSection section="audio"><WorkspaceSurface name="footer"><button>Save audio</button></WorkspaceSurface></WorkspaceSection><WorkspaceSection section="framing"><WorkspaceSurface name="footer"><button>Save framing</button></WorkspaceSurface></WorkspaceSection></GuidedWorkspace>);
+ const footer = view.container.querySelector(".editor-inspector-footer")!;
+ expect(footer).toBeEmptyDOMElement();
+ fireEvent.click(screen.getByRole("button", {name: "Audio"}));
+ expect(within(footer as HTMLElement).getByRole("button", {name: "Save audio"})).toBeVisible();
+ expect(screen.queryByRole("button", {name: "Save framing"})).not.toBeInTheDocument();
+ fireEvent.click(screen.getByRole("button", {name: "Framing"}));
+ expect(within(footer as HTMLElement).getByRole("button", {name: "Save framing"})).toBeVisible();
+ expect(screen.queryByRole("button", {name: "Save audio"})).not.toBeInTheDocument();
+ view.unmount();
+ render(<WorkspaceSurface name="footer"><button>Save inline</button></WorkspaceSurface>);
+ expect(screen.getByRole("button", {name: "Save inline"})).toBeVisible();
 });

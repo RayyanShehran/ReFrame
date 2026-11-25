@@ -5,6 +5,7 @@ import type { AppearanceContext, PreviewTrack } from "./caption-appearance-previ
 import { validFont, type FontBinding } from "./caption-style-controls";
 import type { PlanState } from "./edit-plan";
 import { useWorkspaceReport } from "./guided-workspace";
+import { Badge, Banner } from "./ui";
 export type Animation = {schema_version:1;mode:"none"|"fade"|"pop"|"slide-up";entrance_seconds:number;exit_seconds:number;initial_scale:number;displacement:number};
 export const defaultAnimation:Animation={schema_version:1,mode:"none",entrance_seconds:.25,exit_seconds:.25,initial_scale:.7,displacement:.08};
 const bounded=(v:unknown,min:number,max:number)=>typeof v==="number"&&Number.isFinite(v)&&v>=min&&v<=max;
@@ -49,10 +50,10 @@ export function MotionPreview({projectId,track,cue,context,plan,sequence=emptySe
   }catch(e){if(version===generation.current)setError(e instanceof Error&&e.name!=="AbortError"?e.message:"Motion preview timed out. Previous preview is retained; retry explicitly.");}finally{clearTimeout(timer);if(action.current===c){action.current=null;setBusy(false);}}
  }
  return <section className="caption-cue" aria-label="Caption motion preview"><h4>Real caption motion</h4>
- <p className="hint">Silent, up to four seconds around the selected saved cue, at a 640-pixel maximum edge. Long cues show their entrance; their exit may be outside this preview. No automatic playback. Stills above cannot demonstrate motion.</p>
+ <p className="hint panel-scope">Silent, up to four seconds around the selected saved cue, at a 640-pixel maximum edge. Long cues show their entrance; their exit may be outside this preview. No automatic playback. Stills above cannot demonstrate motion.</p>
  <button disabled={!canRun||busy} onClick={()=>void run()}>{saved?"Update caption motion preview":"Preview caption motion"}</button>
  {unsaved&&<p role="status">Save caption, color, framing and cut-plan changes before updating motion.</p>}
- {busy&&<p role="status">Generating actual motion… Processing is capped at 30 seconds; previous preview remains available.</p>}{error&&<p role="alert">{error}</p>}
+ {busy&&<Badge state="working" role="status">Generating actual motion… Processing is capped at 30 seconds; previous preview remains available.</Badge>}{error&&<Banner tone="danger" role="alert">{error}</Banner>}
  {saved&&<><p role="status">{outdated?"Outdated motion preview":"Caption motion preview ready"} · Silent · Cue {saved.data.cue_index+1} · Output {(saved.data.start_frame/30).toFixed(3)}–{(saved.data.end_frame/30).toFixed(3)}s</p>
  <video className="rendered-video" key={saved.data.sha256} aria-label="Silent caption motion preview" controls playsInline preload="metadata" width={saved.data.width} height={saved.data.height} src={`data:video/mp4;base64,${saved.data.video_base64}`}/>
  <p>Caption revision {saved.data.spec.captions.revision} · {saved.data.spec.captions.animation?.mode??"none"} · Recipe {saved.data.spec.recipe_revision} · Framing {saved.data.spec.framing.revision}{saved.data.spec.captions.timeline.sequence_revision?` · Sequence ${saved.data.spec.captions.timeline.sequence_revision}`:saved.data.spec.captions.timeline.plan_revision!==null?` · Cut plan ${saved.data.spec.captions.timeline.plan_revision}`:" · Whole clip"}</p></>}

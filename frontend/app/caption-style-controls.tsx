@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { Badge, Banner, Details } from "./ui";
 
 export const fontChoices = ['default', 'custom', 'patrickhand-regular', 'amiri-regular', 'amiri-bold', 'anton-regular', 'barlowcondensed-regular', 'barlowcondensed-bold', 'barlowcondensed-italic', 'poppins-regular', 'poppins-bold', 'poppins-italic', 'varelaround-regular', 'spacemono-regular', 'spacemono-bold', 'spacemono-italic', 'crimsontext-regular', 'crimsontext-bold', 'crimsontext-italic'] as const;
 export type FontChoice = typeof fontChoices[number];
@@ -67,7 +68,7 @@ export function FontPicker({ projectId, revision, value, dirty, disabled, onChan
     {dirty && <p>Save or discard caption edits before uploading a font.</p>}
     <button disabled={!file || !saved || dirty || (!!saved.font && !replace)} onClick={() => void run(true)}>{saved?.font ? "Replace custom font" : "Upload font"}</button>
     <button onClick={() => void run()}>Reload font status</button>
-    {busy && <p role="status">Validating or loading font…</p>}{error && <p role="alert" id={`caption-font-error-${projectId}`}>{error}</p>}{saved?.message && <p role="alert">{saved.message}</p>}
+    {busy && <Badge state="working" role="status">Validating or loading font…</Badge>}{error && <Banner tone="danger" role="alert" id={`caption-font-error-${projectId}`}>{error}</Banner>}{saved?.message && <Banner tone="danger" role="alert">{saved.message}</Banner>}
   </fieldset>;
 }
 export function StyleControls({ value, onChange }: { value: CaptionStyle; onChange: (value: CaptionStyle) => void }) {
@@ -90,6 +91,6 @@ export function StyleControls({ value, onChange }: { value: CaptionStyle; onChan
     {range("vertical", "Vertical position (top to bottom)", 0, 1, .01, s.placement === "center" ? .5 : .94, true)}
     <label><input type="checkbox" checked={s.bold} onChange={e => set("bold", e.target.checked)} /> Bold</label>
     <label><input type="checkbox" checked={s.italic} onChange={e => set("italic", e.target.checked)} /> Italic</label>
-    <p className="hint">Position anchors the chosen alignment. Size, outline and shadow use final output height. Bold/italic may be synthesized for a static face; review the real preview and export. Very short cues can fall between 30 fps frames. Default-font unsupported glyphs may use system fallback.</p>
+    <Details><p className="hint">Position anchors the chosen alignment. Size, outline and shadow use final output height. Bold/italic may be synthesized for a static face; review the real preview and export. Very short cues can fall between 30 fps frames. Default-font unsupported glyphs may use system fallback.</p></Details>
   </fieldset>;
 }

@@ -1,7 +1,8 @@
 "use client";
 
-import { useWorkspaceReport } from "./guided-workspace";
+import { WorkspaceSurface, useWorkspaceReport } from "./guided-workspace";
 import { useEffect, useRef, useState } from "react";
+import { Badge, Banner, Details } from "./ui";
 
 export type AudioState = { revision: number | null; ready: boolean; dirty: boolean; busy: boolean; mode?: Mode };
 type Mode = "original" | "reference" | "mix" | "mute";
@@ -103,14 +104,14 @@ export function AudioChoices({ projectId, onState, sourceKey = "" }: { projectId
   useWorkspaceReport("audio-settings", "audio", busy ? "Working" : error || result?.status === "stale" ? "Needs attention" : ready ? dirty ? "Needs input" : "Ready" : "Needs input", "Saving or loading audio…", dirty);
   return <section className="reference-section" aria-label="Audio">
     <h3>Audio</h3>
-    <p className="hint">Reference audio may include speech and sound effects. Retrieval does not grant permission to reuse content.</p>
-    {!result && !error && <p role="status">Loading audio choices…</p>}
-    {error && <p role="alert">{error}</p>}
+    <p className="panel-scope">Reference audio may include speech and sound effects. Retrieval does not grant permission to reuse content.</p>
+    {!result && !error && <Badge state="working" role="status">Loading audio choices…</Badge>}
+    {error && <Banner tone="danger" role="alert">{error}</Banner>}
     {result && <>
-      <p role="status">{result.status === "stale" ? "Stale audio settings" : dirty ? "Unsaved audio changes" : result.status === "default" ? "Default original audio" : "Audio saved"} · Audio revision {revision}</p>
-      {result.status === "stale" && <p role="alert">{result.message || "Audio sources changed."} Saved choices are retained. Choose an available mode and explicitly save with current sources.</p>}
-      {!result.availability.reference_has_audio && <p>Reference audio is unavailable. Retrieve ready reference media containing audio, then reload audio choices.</p>}
-      {!result.availability.original_has_audio && <p>Footage has no available audio. Original mode remains valid and silent; Mix requires both audio streams.</p>}
+      <Badge state={result.status === "stale" ? "needs-attention" : dirty ? "needs-input" : "ready"} role="status">{result.status === "stale" ? "Stale audio settings" : dirty ? "Unsaved audio changes" : result.status === "default" ? "Default: original audio" : "Saved"}</Badge>
+      {result.status === "stale" && <Banner tone="warning" role="alert">{result.message || "Audio sources changed."} Saved choices are retained. Choose an available mode and explicitly save with current sources.</Banner>}
+      {!result.availability.reference_has_audio && <Banner tone="info">Reference audio is unavailable. Retrieve ready reference media containing audio, then reload audio choices.</Banner>}
+      {!result.availability.original_has_audio && <Banner tone="info">Footage has no available audio. Original mode remains valid and silent; Mix requires both audio streams.</Banner>}
       <fieldset className="recipe-controls" disabled={busy}>
         <legend>Saved audio choices</legend>
         <label>Audio mode <select value={draft.mode} onChange={e => mode(e.target.value as Mode)}>
@@ -127,10 +128,11 @@ export function AudioChoices({ projectId, onState, sourceKey = "" }: { projectId
           <label>Reference start offset (seconds)<input type="number" min="0" max={result.availability.reference_duration_seconds ?? 120} step="any" value={offset} onChange={e => { setOffset(e.target.value); if (finite(Number(e.target.value), 120)) setDraft(v => ({ ...v, reference_offset_seconds: Number(e.target.value) })); }} /></label>
           <p className="hint">Offset is inside the reference video’s timeline. Reference audio plays continuously from output time zero, including across cuts. Short tracks are padded with silence; they are not looped or stretched.</p>
         </>}
-        <button className="button-primary" disabled={!valid || (!dirty && result.status !== "stale")} onClick={() => void run(true)}>{result.status === "stale" ? "Save with current sources" : "Save audio"}</button>
       </fieldset>
     </>}
-    <button disabled={busy} onClick={() => void run(false)}>{dirty ? "Discard audio changes and reload" : "Reload audio choices"}</button>
-    {busy && <p role="status">Saving or loading audio…</p>}
+    <WorkspaceSurface name="footer"><button disabled={busy} onClick={() => void run(false)}>{dirty ? "Discard audio changes and reload" : "Reload audio choices"}</button>
+      {result && <button className="button-primary" disabled={busy || !valid || (!dirty && result.status !== "stale")} onClick={() => void run(true)}>{result.status === "stale" ? "Save with current sources" : "Save audio"}</button>}</WorkspaceSurface>
+    {busy && <Badge state="working" role="status">Saving or loading audio…</Badge>}
+    {result && <Details><p role="status">{result.status === "stale" ? "Stale audio settings" : dirty ? "Unsaved audio changes" : result.status === "default" ? "Default original audio" : "Audio saved"} · Audio revision {revision}</p></Details>}
   </section>;
 }

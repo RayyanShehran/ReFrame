@@ -2,6 +2,7 @@
 
 import { useWorkspaceReport } from "./guided-workspace";
 import { useEffect, useRef, useState, type FormEvent } from "react";
+import { Badge, Banner, Details } from "./ui";
 
 export type ClipDetails = {
   filename: string;
@@ -116,7 +117,7 @@ export function ClipUpload({ projectId, initialDetails = null, onSaved, onFilesS
   return <section className="reference-section footage-section" aria-labelledby="footage-title">
     <p className="eyebrow">Your footage</p>
     <h2 id="footage-title">{onFilesSelected ? "Choose footage" : projectId ? "Save original clip" : "Inspect one clip"}</h2>
-    <p className="reference-help">MP4 or MOV, up to 100 MiB, 120 seconds, and 4096 pixels in either dimension. Audio is optional.</p>
+    <p className="reference-help panel-scope">MP4 or MOV, up to 100 MiB, 120 seconds, and 4096 pixels in either dimension. Audio is optional.</p>
     {!(projectId && details) && (onFilesSelected ? <FootagePicker label="Video clip" disabled={selectionDisabled} onFilesSelected={onFilesSelected} /> : <form onSubmit={check}>
       <label htmlFor="clip-file">Video clip</label>
       <div className="reference-form-row">
@@ -126,8 +127,8 @@ export function ClipUpload({ projectId, initialDetails = null, onSaved, onFilesS
       </div>
       {file && <p className="hint">Selected: {file.name}</p>}
     </form>)}
-    {checking && <p role="status" aria-live="polite">Uploading and inspecting clip…</p>}
-    {error && <p className="error" role="alert">{error}</p>}
+    {checking && <Badge state="working" role="status" aria-live="polite">Uploading and inspecting clip…</Badge>}
+    {error && <Banner tone="danger" className="error" role="alert">{error}</Banner>}
     {details && <div className="reference-card" aria-label="Accepted clip details">
       <p className="eyebrow">Clip accepted</p>
       <h3>{details.filename}</h3>
@@ -136,6 +137,6 @@ export function ClipUpload({ projectId, initialDetails = null, onSaved, onFilesS
       <p>Audio: {details.has_audio ? details.audio_codec || "Present" : "None"} · Frame rate: {details.frame_rate === null ? "Unknown" : `${details.frame_rate} fps`}</p>
     </div>}
     {file && !(projectId && details) && <button className="clear-clip" type="button" onClick={() => { invalidate(); setFile(null); if (input.current) input.current.value = ""; }}>Clear clip</button>}
-    <p className="hint retention-note">{projectId ? details ? "Your original clip is saved locally; rendering creates a separate output. Add and manage other clips in the Footage library. This original stays the source for whole-clip output and color measurements." : onFilesSelected ? "Choose one or more clips to add to the queue below. The first successful upload becomes the source for whole-clip output and color measurements." : "Choose a clip to validate and save locally for this project. Add and manage other clips in the Footage library. This original stays the source for whole-clip output and color measurements." : "This clip is inspected, then deleted. It is not retained or edited. Upload it again after refresh or when persistent editing becomes available."}</p>
+    <Details><p className="hint retention-note">{projectId ? details ? "Your original clip is saved locally; rendering creates a separate output. Add and manage other clips in the Footage library. This original stays the source for whole-clip output and color measurements." : onFilesSelected ? "Choose one or more clips to add to the queue below. The first successful upload becomes the source for whole-clip output and color measurements." : "Choose a clip to validate and save locally for this project. Add and manage other clips in the Footage library. This original stays the source for whole-clip output and color measurements." : "This clip is inspected, then deleted. It is not retained or edited. Upload it again after refresh or when persistent editing becomes available."}</p></Details>
   </section>;
 }

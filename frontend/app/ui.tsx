@@ -52,3 +52,8 @@ export function ProgressSteps({ steps, current, className, ...props }: HTMLAttri
       {step}{i < at && <span className="visually-hidden"> (done)</span>}
     </li>)}</ol>;
 }
+
+/** A panel's closing "Details" disclosure for long explanations, revisions and saved-state lines. */
+export function Details({ summary = "Details", children, className, ...props }: HTMLAttributes<HTMLDetailsElement> & { summary?: ReactNode }) {
+  return <details className={join("panel-details", className)} {...props}><summary>{summary}</summary>{children}</details>;
+}

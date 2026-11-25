@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { apiBase, clipRequest, type SourceClip } from "./clip-library";
 import { useMediaOperation, type MediaOperation } from "./use-media-operation";
+import { Badge, Banner } from "./ui";
 
 export type Assignment = { id: string; clip_id: string | null; duration_frames: number; source_start_frame: number; reference_start_frame?: number | null; reference_end_frame?: number | null };
 type Choice = Assignment & { explanation: string; warnings: string[]; visual_similarity?: number | null; reference_image?: string | null; footage_image?: string | null; reference_sample_frames?: number[]; footage_sample_frames?: number[] };
@@ -63,17 +64,17 @@ export function AssemblyReview({ projectId, revision, savedSlots, clips, dirty, 
     </fieldset>
     {dirty && <p role="status">Save the slot structure and manual assignments before suggesting. Applying a completed proposal can replace unsaved draft edits after confirmation.</p>}
     <button disabled={disabled || applying || running || dirty || (mode === "subject_aware" && !model?.ready)} onClick={() => { setMessage(""); void start(settings); }}>{operation?.status === "failed" ? "Retry assembly suggestion" : "Suggest an assembly"}</button>
-    {running && <><p role="status">Analyzing sources: {operation?.completed_sources ?? 0}/{operation?.total_sources ?? 0}. Processing is capped at 120 seconds.</p><button disabled={applying} onClick={() => void command("cancel")}>Cancel selection</button></>}
+    {running && <><Badge state="working" role="status">Analyzing sources: {operation?.completed_sources ?? 0}/{operation?.total_sources ?? 0}. Processing is capped at 120 seconds.</Badge><button disabled={applying} onClick={() => void command("cancel")}>Cancel selection</button></>}
     {proposal && <><p>Saved proposal · sequence revision {proposal.sequence.revision} · {proposal.cached_sources} cached source measurements · {proposal.settings.matching_mode === "subject_aware" ? "Subject-aware visual matching" : "Measurements"}</p>
       {proposal.model_repository && <details><summary>Visual model details</summary><p className="hint">{proposal.model_repository} · model revision {proposal.model_revision}</p></details>}
-      {(operation?.proposal_stale || changed) && <p role="alert">Proposal is outdated or selection options changed. Save the current slots and suggest explicitly again.</p>}
+      {(operation?.proposal_stale || changed) && <Banner tone="danger" role="alert">Proposal is outdated or selection options changed. Save the current slots and suggest explicitly again.</Banner>}
       <ol>{proposal.choices.map((c,i) => <li key={c.id}><strong>Slot {i+1}: {clips.find(v => v.id === c.clip_id)?.name ?? "Unfilled"}</strong>{c.clip_id && <p>{(c.source_start_frame/30).toFixed(3)}–{((c.source_start_frame+c.duration_frames)/30).toFixed(3)} s · {c.duration_frames/30} s</p>}<p>{c.explanation}</p>
         {c.reference_image && c.footage_image && <div className="frame-preview-images assembly-samples"><figure><figcaption>Reference sample · {((c.reference_sample_frames?.[Math.floor((c.reference_sample_frames?.length ?? 0)/2)] ?? 0)/30).toFixed(3)}s</figcaption><Image unoptimized src={`data:image/jpeg;base64,${c.reference_image}`} width={128} height={128} alt={`Reference sample for slot ${i+1}`} /></figure><figure><figcaption>Selected footage sample · {((c.footage_sample_frames?.[Math.floor((c.footage_sample_frames?.length ?? 0)/2)] ?? 0)/30).toFixed(3)}s</figcaption><Image unoptimized src={`data:image/jpeg;base64,${c.footage_image}`} width={128} height={128} alt={`Selected footage sample for slot ${i+1}`} /></figure></div>}
-        {c.warnings.map(w => <p role="note" key={w}>{w}</p>)}<button disabled={!c.clip_id || disabled || running || operation?.proposal_stale || changed} onClick={() => onPreview(c)}>Review proposed range {i+1}</button></li>)}</ol>
+        {c.warnings.map(w => <Banner tone="info" role="note" key={w}>{w}</Banner>)}<button disabled={!c.clip_id || disabled || running || operation?.proposal_stale || changed} onClick={() => onPreview(c)}>Review proposed range {i+1}</button></li>)}</ol>
       {proposal.warnings.map(w => <p className="hint" key={w}>{w}</p>)}
       <button disabled={disabled || running || applying || operation?.proposal_stale || changed} onClick={() => dirty ? setConfirm(true) : void command("apply")}>Apply proposal to draft</button>
       {confirm && <div role="group" aria-label="Confirm proposal replacement"><p>Replace unsaved sequence edits with this proposal? Save remains explicit.</p><button onClick={() => void command("apply")}>Confirm replace draft</button><button onClick={() => setConfirm(false)}>Keep draft</button></div>}
     </>}
-    {(error || operation?.message) && <p role="alert">{error || operation?.message}</p>}{message && <p role="status">{message}</p>}
+    {(error || operation?.message) && <Banner tone="danger" role="alert">{error || operation?.message}</Banner>}{message && <p role="status">{message}</p>}
   </section>;
 }

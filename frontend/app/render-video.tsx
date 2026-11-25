@@ -10,6 +10,7 @@ import { AudioState, audioModeLabels } from "./audio-choices";
 import { CaptionState } from "./caption-editor";
 import { FramingState, formatLabels } from "./framing-controls";
 import { fontLabel, validFont, type FontBinding } from "./caption-style-controls";
+import { Badge, Banner, Details } from "./ui";
 
 type Spec = { grading?: { settings: { mode: keyof typeof colorModes; revision: number } } | null; recipe_revision: number; edit_plan?: { revision: number } | null; sequence?: { revision: number } | null; audio?: { revision: number; mode: keyof typeof audioModeLabels }; captions?: { revision: number; enabled: boolean; font_binding?: FontBinding; style?: { font_origin?: string } }; framing?: { revision: number; format: keyof typeof formatLabels }; camera_motion?: { revision: number; enabled: boolean } | null };
 type Output = { output_id: string; spec: Spec; width: number; height: number; duration_seconds: number; size_bytes: number; font_warnings?: string[] };
@@ -124,7 +125,7 @@ export function RenderVideo({ grading, savedStrength, savedValues, projectId, re
     <p className="hint">Not a live preview. Unsaved edits do not change this video.</p>
     </div></WorkspaceSurface><section className="reference-section" aria-label="Rendered video">
     <h3>Rendered video</h3>
-    <p className="hint">Uses the saved color mode, framing, audio choices and optional captions, with optional saved cuts. No transitions. Use the saved framing preview to inspect a slot; render to check the full video.</p>
+    <p className="panel-scope">Renders your saved settings into a new MP4.</p>
     {navigation && <button onClick={() => navigation.open("style", `preview-${projectId}`)}>Review before/after frame</button>}
     <label>Render mode <select value={mode} onChange={e => setMode(e.target.value)} disabled={starting || running}>
       <option value="whole">Whole clip (color + saved audio)</option><option value="cuts">Saved cut plan (cuts + color)</option><option value="sequence">Multi-clip sequence (saved slots)</option></select></label>
@@ -140,27 +141,29 @@ export function RenderVideo({ grading, savedStrength, savedValues, projectId, re
       {framingState.format && framingState.format !== "original" && <p>Saved fit: {framingState.fit === "automatic" ? "Automatic (per-slot Fill or Fit)" : framingState.fit === "fill" ? "Fill (crop edges)" : "Fit (whole image)"}</p>}
       <label><input type="checkbox" checked={motion?.enabled ?? true} disabled={!motion || motionBusy || running} onChange={() => void toggleMotion()} /> Copy camera motion from the reference</label>
       <p className="hint">Zooms, pans and shake per reference shot, applied to multi-clip sequence renders. {motion?.total ? `Measured: ${motion.moving} of ${motion.total} reference shots move.` : "Measured when you generate a video."}{motion?.stale ? " The reference changed since it was measured." : ""}</p>
-      {motionError && <p role="alert">{motionError}</p>}
-      {(dirty || audioState.dirty || captionState.dirty || framingState.dirty || (cuts && planState?.dirty) || (sequence && sequenceState.dirty)) && <p role="status">Unsaved drafts are not included. Save the changes below before rendering.</p>}
+      {motionError && <Banner tone="danger" role="alert">{motionError}</Banner>}
+      {(dirty || audioState.dirty || captionState.dirty || framingState.dirty || (cuts && planState?.dirty) || (sequence && sequenceState.dirty)) && <Banner tone="warning" role="status">Unsaved drafts are not included. Save the changes below before rendering.</Banner>}
     </div>
-    {blockers.map(({ section, message }) => <p key={message} role="status">{message}{navigation && <> <button onClick={() => navigation.open(section)}>Open {sections[section]}</button></>}</p>)}
-    <button className="button-primary" disabled={!!blockers.length || starting || running || current}
-      onClick={() => void start({ ...(grading ? { expected_grading_revision: grading.revision } : {}), expected_revision: revision, expected_audio_revision: audioState.revision, expected_caption_revision: captionState.revision, expected_framing_revision: framingState.revision, ...(motion?.revision ? { expected_motion_revision: motion.revision } : {}), ...(cuts ? { expected_plan_revision: planState?.revision } : sequence ? { expected_sequence_revision: sequenceState.revision } : {}) })}>{operation?.status === "failed" ? "Retry render" : "Render video"}</button>
-    {running && <p role="status">Rendering saved color settings{operation.spec?.edit_plan ? ` and cut plan revision ${operation.spec.edit_plan.revision}` : ""}… This can take up to five minutes.</p>}
-    {error && <p role="alert">{error}</p>}
-    {operation?.status === "failed" && <p role="alert">{operation.message || "Rendering failed. Retry explicitly."}</p>}
+    {blockers.map(({ section, message }) => <Banner tone="warning" key={message} role="status">{message}{navigation && <> <button onClick={() => navigation.open(section)}>Open {sections[section]}</button></>}</Banner>)}
+    <WorkspaceSurface name="footer"><button className="button-primary" disabled={!!blockers.length || starting || running || current}
+      onClick={() => void start({ ...(grading ? { expected_grading_revision: grading.revision } : {}), expected_revision: revision, expected_audio_revision: audioState.revision, expected_caption_revision: captionState.revision, expected_framing_revision: framingState.revision, ...(motion?.revision ? { expected_motion_revision: motion.revision } : {}), ...(cuts ? { expected_plan_revision: planState?.revision } : sequence ? { expected_sequence_revision: sequenceState.revision } : {}) })}>{operation?.status === "failed" ? "Retry render" : "Render video"}</button></WorkspaceSurface>
+    {running && <Badge state="working" role="status">Rendering saved color settings{operation.spec?.edit_plan ? ` and cut plan revision ${operation.spec.edit_plan.revision}` : ""}… This can take up to five minutes.</Badge>}
+    {error && <Banner tone="danger" role="alert">{error}</Banner>}
+    {operation?.status === "failed" && <Banner tone="danger" role="alert">{operation.message || "Rendering failed. Retry explicitly."}</Banner>}
     {output && <>
-      <p role="status">{outdated ? "Outdated output" : "Rendered output"} · {output.spec.grading ? `Color revision ${output.spec.grading.settings.revision}` : `Recipe revision ${output.spec.recipe_revision}`} · {output.width} × {output.height} · {output.duration_seconds.toFixed(2)} seconds</p>
+      <Badge state={outdated ? "needs-attention" : "ready"} role="status">{outdated ? "Outdated output" : "Rendered output"}</Badge>
+      {output.font_warnings?.map(w => <Banner tone="info" role="note" key={w}>{w}</Banner>)}
+      {outdated && <Banner tone="warning">{changed.length ? `Saved ${changed.join(", ")} changed since this output.` : "The saved settings or source no longer match this output."} This output stays playable and downloadable until replacement succeeds.</Banner>}
+
+    </>}
+    {!operation && !error && <Badge state="working" role="status">Loading render status…</Badge>}
+    <Details><p className="hint">Uses the saved color mode, framing, audio choices and optional captions, with optional saved cuts. No transitions. Use the saved framing preview to inspect a slot; render to check the full video.</p>
+      {output && <><p>{output.spec.grading ? `Color revision ${output.spec.grading.settings.revision}` : `Recipe revision ${output.spec.recipe_revision}`} · {output.width} × {output.height} · {output.duration_seconds.toFixed(2)} seconds</p>
       {output.spec.grading && <p>{colorModes[output.spec.grading.settings.mode]} · Color revision {output.spec.grading.settings.revision}</p>}
       <p>{output.spec.sequence ? `Multi-clip sequence revision ${output.spec.sequence.revision} · Saved color mode applied per source` : output.spec.edit_plan ? `Cut plan revision ${output.spec.edit_plan.revision}` : "Whole clip"}</p>
       <p>{audioModeLabels[output.spec.audio?.mode ?? "original"]} · Audio revision {output.spec.audio?.revision ?? 0}</p>
       <p>{formatLabels[output.spec.framing?.format ?? "original"]} · Framing revision {output.spec.framing?.revision ?? 0}</p>
       <p>Captions {output.spec.captions?.enabled ? "enabled" : "disabled"} · Caption revision {output.spec.captions?.revision ?? 0}</p>
-      {output.spec.captions?.enabled && <p>{fontLabel(output.spec.captions.font_binding, output.spec.captions.style?.font_origin)} · Reference appearance not automatically verified</p>}
-      {output.font_warnings?.map(w => <p role="note" key={w}>{w}</p>)}
-      {outdated && <p className="hint">{changed.length ? `Saved ${changed.join(", ")} changed since this output.` : "The saved settings or source no longer match this output."} This output stays playable and downloadable until replacement succeeds.</p>}
-
-    </>}
-    {!operation && !error && <p role="status">Loading render status…</p>}
+      {output.spec.captions?.enabled && <p>{fontLabel(output.spec.captions.font_binding, output.spec.captions.style?.font_origin)} · Reference appearance not automatically verified</p>}</>}</Details>
   </section></>;
 }
