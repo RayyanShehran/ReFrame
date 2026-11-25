@@ -4,6 +4,7 @@ import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
 import { readStyle, validFont, fontChoice, type CaptionStyle, type FontBinding } from "./caption-style-controls";
 import type { Picture, Selection } from "./font-matching";
+import { Badge, Banner } from "./ui";
 
 export type AppearancePatch = Partial<Pick<CaptionStyle, "size_percent" | "horizontal" | "vertical" | "color" | "outline_color" | "outline_percent">>;
 type Field = keyof AppearancePatch;
@@ -64,18 +65,18 @@ export function AppearanceSuggestions({projectId,currentKey,baseStyle,disabled,o
  }
  const suggestion=saved?.suggestion;
  return <section className="caption-cue" aria-label="Reference-caption appearance suggestions"><h4>Suggest caption appearance</h4>
-  <p className="hint">Uses the saved reference region, confirmed text and reviewed font. No OCR or animation matching. Suggestions never change your captions automatically.</p>
+  <p className="hint panel-scope">Uses the saved reference region, confirmed text and reviewed font. No OCR or animation matching. Suggestions never change your captions automatically.</p>
   {!currentKey&&<p>Confirm the current crop/text and choose a font in Find similar fonts above. Compare again after changing that selection.</p>}
   {currentKey && saved?.current_selection && fontChoice(saved.current_selection.font) !== baseStyle.font && <p>Choose the reviewed face in Caption font before suggesting. Font choice is manually confirmed.</p>}
-  {saved?.message&&<p role="note">{saved.message}</p>}
+  {saved?.message&&<Banner tone="info" role="note">{saved.message}</Banner>}
   <button disabled={busy||disabled||!prerequisites} onClick={()=>void run("suggest")}>{suggestion?"Update appearance suggestion":"Suggest appearance"}</button>
   <button disabled={busy||disabled} onClick={()=>void run("reload")}>Reload saved appearance suggestion</button>
-  {busy&&<p role="status">Fitting actual rendered glyphs… At most four fitting attempts and 30 seconds. Previous comparison remains visible.</p>}{error&&<p role="alert">{error}</p>}
+  {busy&&<Badge state="working" role="status">Fitting actual rendered glyphs… At most four fitting attempts and 30 seconds. Previous comparison remains visible.</Badge>}{error&&<Banner tone="danger" role="alert">{error}</Banner>}
   {suggestion&&<><p role="status">{current?"Measured appearance suggestions":"Outdated appearance suggestions — suggest again before applying"} · Revision {saved!.revision}</p>
    <p>Outline: {suggestion.outline_status==="measured"?"Measured suggestion":suggestion.outline_status==="none_detected"?"No outline detected":"Outline could not be estimated"}.</p>
    <fieldset disabled={busy||disabled||!current}><legend>Choose properties to apply</legend>{fields.map(f=>{const value=suggestion.values[f];return <label key={f}><input type="checkbox" aria-label={`Apply ${labels[f]}`} disabled={value===null} checked={selected.includes(f)&&value!==null} onChange={e=>setSelected(v=>e.target.checked?[...v,f]:v.filter(k=>k!==f))}/>{labels[f]}: {value===null?"Not estimated":typeof value==="number"?["horizontal","vertical"].includes(f)?`${(value*100).toFixed(2)}%`:`${value.toFixed(3)}%`:value}</label>;})}
     <button disabled={!selected.length} onClick={()=>void run("apply")}>Apply appearance to draft</button>
-   </fieldset><p className="hint">Applying changes only checked properties in your draft. Save captions, then use the existing caption preview to inspect your own words on your footage before exporting.</p>{suggestion.notes.map(n=><p role="note" key={n}>{n}</p>)}</>}
+   </fieldset><p className="hint">Applying changes only checked properties in your draft. Save captions, then use the existing caption preview to inspect your own words on your footage before exporting.</p>{suggestion.notes.map(n=><Banner tone="info" role="note" key={n}>{n}</Banner>)}</>}
   {images?.reference&&images.reconstruction&&<><p role="status">{picturesCurrent?"Reconstruction comparison":"Outdated reconstruction comparison"} · Confirmed reference text: <span className="caption-text" dir="auto">{images.suggestion?.selection.text}</span></p><div className="frame-preview-images"><figure><figcaption>Full normalized reference canvas · Selected caption</figcaption><Image unoptimized src={`data:image/png;base64,${images.reference.png_base64}`} width={images.reference.width} height={images.reference.height} alt="Reference caption on the full normalized canvas"/></figure><figure><figcaption>Real subtitle reconstruction · Neutral gray background is a comparison aid</figcaption><Image unoptimized src={`data:image/png;base64,${images.reconstruction.png_base64}`} width={images.reconstruction.width} height={images.reconstruction.height} alt="Actual proposed caption reconstruction on a neutral gray full canvas"/></figure></div></>}
   {suggestion&&!images&&<p>Saved values and bindings restored. Update explicitly to recreate transient comparison images.</p>}
  </section>;
