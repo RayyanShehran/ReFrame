@@ -17,12 +17,12 @@ the `app/ui.tsx` primitives. Layout and visual changes only; no API changes.
 
 PR 4 also fixed the Cuts panel rejecting schema 2 sequences ("Invalid sequence response.").
 
-Two backend problems found during the redesign are still open:
-- `grading.get_operation` returns colour matches for slots that are no longer in the
-  sequence. After repeated regeneration this passes the panel's 70-entry limit, so the panel
-  shows "Invalid color match response.".
-- `main.saved_still` rejects concurrent preview and status requests with 409
-  `reference_busy` instead of waiting for its lock.
+Two backend problems found during the redesign were fixed in a follow-up PR:
+- Colour matches for slots removed by a sequence regeneration or save are now pruned with the
+  sequence write, and at startup for older projects. Before, they accumulated past the colour
+  panel's 70-entry limit ("Invalid color match response.").
+- Overlapping preview and status requests now wait their turn. Before, `main.saved_still`
+  returned 409 `reference_busy` whenever another short request held the lock.
 
 ## Third reference: generalisation test — 2026-11-24
 

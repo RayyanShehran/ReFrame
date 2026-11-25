@@ -70,6 +70,7 @@ async def lifespan(_app: FastAPI):
     await projects.storage_call(video_render.recover)
     await projects.storage_call(transcription.recover)
     await projects.storage_call(grading.recover)
+    await projects.storage_call(sequence.prune_stale_slot_colors)
     await projects.storage_call(generation.recover)
     try:
         yield
@@ -434,11 +435,13 @@ async def review_font_match(project_id: str, request: font_match.Review):
 
 
 async def saved_still(project_id, request, generate):
-    if reference_jobs.start_lock.locked() or reference_jobs.active or reference_jobs.stopping:
-        raise ReferenceError(
-            409, "reference_busy", "Wait for the current media job, then update preview."
-        )
+    # Short preview and status requests queue on the lock; only a running media job (or
+    # shutdown) refuses them. Checked after acquiring, so a job that started meanwhile wins.
     async with reference_jobs.start_lock:
+        if reference_jobs.active or reference_jobs.stopping:
+            raise ReferenceError(
+                409, "reference_busy", "Wait for the current media job, then update preview."
+            )
         async with projects.operation_lock:
             await projects.storage_call(reference_jobs.check_quarantine)
             return await projects.storage_call(generate, project_id, request)

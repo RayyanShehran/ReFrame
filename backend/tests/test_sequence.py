@@ -271,3 +271,88 @@ def test_real_multisource_order_reuse_silence_and_outdated(local):
         )
     assert path.is_file()
     assert client.get(f"/api/projects/{pid}/outputs/{output.output_id}/video").status_code == 200
+
+
+def seed_slot_colors(pid, slot_ids, primary_id, revision=3):
+    """Saved colour matches and settings keyed by the given slot ids, plus the original clip."""
+    import color_transfer as transfer
+    import grading
+
+    controls = {f"slot:{id}": transfer.Controls(strength=0.7) for id in slot_ids}
+    controls[f"clip:{primary_id}"] = transfer.Controls(strength=0.6)
+    settings = grading.Settings(
+        mode="transfer", revision=revision, controls=controls, shot_slots=slot_ids, updated_at="x"
+    )
+    with projects.database() as db:
+        for key in [f"slot:{id}" for id in slot_ids] + [f"clip:{primary_id}"]:
+            db.execute("INSERT INTO color_matches VALUES(?,?,?)", (pid, key, "{}"))
+        db.execute(
+            "INSERT INTO grading_settings VALUES(?,?,?) ON CONFLICT(project_id) "
+            "DO UPDATE SET revision=excluded.revision,settings=excluded.settings",
+            (pid, revision, settings.model_dump_json()),
+        )
+
+
+def slot_colors(pid):
+    with projects.database() as db:
+        keys = sorted(
+            k for (k,) in db.execute("SELECT key FROM color_matches WHERE project_id=?", (pid,))
+        )
+        row = db.execute(
+            "SELECT revision, settings FROM grading_settings WHERE project_id=?", (pid,)
+        ).fetchone()
+    return keys, row[0], json.loads(row[1])
+
+
+def test_sequence_writes_prune_colour_matches_for_removed_slots(local):
+    client, directory, _ = local
+    pid, _, url, saved = setup(client, directory)
+    primary = clip_library.read(pid).clips[0]
+    old = [s["id"] for s in saved["slots"]]
+    seed_slot_colors(pid, old, primary.id)
+
+    # Saving without slot 3 drops only its match, control and shot-slot entry.
+    slots = [
+        {"id": s["id"], "clip_id": str(primary.id), "duration_frames": 30, "source_start_frame": 0}
+        for s in saved["slots"][:2]
+    ]
+    assert client.post(url, json={"expected_revision": 1, "slots": slots}).status_code == 200
+    keys, revision, settings = slot_colors(pid)
+    assert keys == sorted([f"clip:{primary.id}", f"slot:{old[0]}", f"slot:{old[1]}"])
+    assert revision == settings["revision"] == 4
+    assert set(settings["controls"]) == {f"clip:{primary.id}", f"slot:{old[0]}", f"slot:{old[1]}"}
+    assert settings["shot_slots"] == old[:2] and settings["mode"] == "transfer"
+    assert settings["controls"][f"clip:{primary.id}"]["strength"] == 0.6
+
+    # A save that removes nothing leaves the colour settings revision alone.
+    assert client.post(url, json={"expected_revision": 2, "slots": slots[::-1]}).status_code == 200
+    assert slot_colors(pid)[1] == 4
+
+    # Regenerating replaces every slot id, so every slot match goes; clip matches stay.
+    regenerated = client.post(url + "/generate", json={"expected_revision": 3, "replace": True})
+    assert regenerated.status_code == 200, regenerated.text
+    keys, revision, settings = slot_colors(pid)
+    assert keys == [f"clip:{primary.id}"]
+    assert revision == 5 and settings["shot_slots"] == []
+    assert set(settings["controls"]) == {f"clip:{primary.id}"}
+    import grading
+
+    restored = grading.read_settings(pid)  # the rewritten settings still validate
+    assert restored.revision == 5 and restored.mode == "transfer" and restored.shot_slots == []
+
+
+def test_startup_cleanup_prunes_colour_matches_left_by_earlier_regenerations(local):
+    import sequence
+
+    client, directory, _ = local
+    pid, _, _, saved = setup(client, directory)
+    primary = clip_library.read(pid).clips[0]
+    current = [s["id"] for s in saved["slots"]]
+    stale = ["11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222"]
+    seed_slot_colors(pid, current + stale, primary.id)
+    sequence.prune_stale_slot_colors()
+    keys, revision, settings = slot_colors(pid)
+    assert keys == sorted([f"clip:{primary.id}"] + [f"slot:{id}" for id in current])
+    assert revision == 4 and settings["shot_slots"] == current
+    sequence.prune_stale_slot_colors()
+    assert slot_colors(pid)[1] == 4
