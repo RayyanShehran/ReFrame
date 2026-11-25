@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { useMediaOperation, type MediaOperation } from "./use-media-operation";
+import { Badge, Banner, Details } from "./ui";
 
 export type Blueprint = {
   schema_version: 1; algorithm_version: string; analyzed_at: string;
@@ -42,16 +43,16 @@ export function StyleBlueprint({ projectId, footage = false, onChange }: { proje
   const subject = footage ? "Your footage" : "Style Blueprint";
   return <section className="reference-section" aria-label={`${subject} — color analysis`}>
     <h3>{subject} — color analysis</h3>
-    <p className="hint">{footage ? "Read-only color observations. Transitions, captions and audio remain not analyzed." : "Read-only color observations. Pacing has a separate analysis below; transitions, captions and audio remain not analyzed."}</p>
-    {!operation && !error && <p role="status">Loading color analysis…</p>}
+    <p className="panel-scope">{footage ? "Read-only color observations. Transitions, captions and audio remain not analyzed." : "Read-only color observations. Pacing has a separate analysis below; transitions, captions and audio remain not analyzed."}</p>
+    {!operation && !error && <Badge state="working" role="status">Loading color analysis…</Badge>}
     {operation?.status === "idle" && <p>The saved media is ready for color analysis.</p>}
-    {operation?.status === "running" && <p role="status">Sampling {footage ? "footage" : "reference"} frames and measuring color… Processing continues if you leave.</p>}
-    {operation?.status === "failed" && <p role="alert">{operation.message || "Color analysis failed."} ({operation.failure_code})</p>}
-    {error && <p role="alert" className="error">{error}</p>}
-    {operation && ["idle", "failed"].includes(operation.status) && <button disabled={starting} onClick={() => void start()}>{starting ? "Starting…" : operation.status === "failed" ? footage ? "Retry footage analysis" : "Retry color analysis" : footage ? "Analyze my footage" : "Analyze reference"}</button>}
+    {operation?.status === "running" && <Badge state="working" role="status">Sampling {footage ? "footage" : "reference"} frames and measuring color… Processing continues if you leave.</Badge>}
+    {operation?.status === "failed" && <Banner tone="danger" role="alert">{operation.message || "Color analysis failed."} ({operation.failure_code})</Banner>}
+    {error && <Banner tone="danger" role="alert">{error}</Banner>}
+    {operation && ["idle", "failed"].includes(operation.status) && <button className="button-primary" disabled={starting} onClick={() => void start()}>{starting ? "Starting…" : operation.status === "failed" ? footage ? "Retry footage analysis" : "Retry color analysis" : footage ? "Analyze my footage" : "Analyze reference"}</button>}
     {operation?.status === "ready" && b && <>
-      <p role="status">Color analysis is ready and saved locally.</p>
-      <details><summary>Color measurements and sampling details</summary><h4>Representative palette</h4>
+      <Badge state="ready" role="status">Color analysis is ready and saved locally.</Badge>
+      <Details summary="Color measurements and sampling details"><h4>Representative palette</h4>
       <ul className="palette">{b.color.palette.map(c => <li key={c.hex}>
         <span aria-hidden="true" className="palette-swatch" style={{ backgroundColor: c.hex }} />
         <span>{c.hex} · {percent(c.proportion)} of sampled pixels</span>
@@ -68,11 +69,11 @@ export function StyleBlueprint({ projectId, footage = false, onChange }: { proje
         <dt>Version</dt><dd>Schema {b.schema_version} · {b.algorithm_version}</dd>
         <dt>Analyzed</dt><dd>{b.analyzed_at}</dd>
         <dt>Tools</dt><dd>{Object.entries(b.tool_versions).map(([name, version]) => `${name}: ${version}`).join(" · ")}</dd>
-      </dl></details>
-      {b.color_metadata.warnings.map(w => <p role="note" className="error" key={w}>{w}</p>)}
-      <details><summary>Measurement interpretation</summary><p className="hint">{b.color_metadata.assumption}</p>
-      <ul className="hint">{b.interpretation_limits.map(limit => <li key={limit}>{limit}</li>)}</ul></details>
-      <p>These measurements are read-only. Saved color settings, cut planning and rendering are separate below. Experimental visual matching is available in Automatic assembly; review its images and limitations.</p>
+      </dl></Details>
+      {b.color_metadata.warnings.map(w => <Banner tone="warning" role="note" key={w}>{w}</Banner>)}
+      <Details summary="Measurement interpretation"><p className="hint">{b.color_metadata.assumption}</p>
+      <ul className="hint">{b.interpretation_limits.map(limit => <li key={limit}>{limit}</li>)}</ul>
+      <p>These measurements are read-only. Saved color settings, cut planning and rendering are separate below. Experimental visual matching is available in Automatic assembly; review its images and limitations.</p></Details>
     </>}
   </section>;
 }

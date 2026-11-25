@@ -10,6 +10,7 @@ import { EditPlan, PlanState } from "./edit-plan";
 import { AudioChoices, AudioState } from "./audio-choices";
 import { CaptionEditor, CaptionState } from "./caption-editor";
 import { FramingControls, FramingState } from "./framing-controls";
+import { Badge, Banner, Details } from "./ui";
 
 type Values = { brightness: number; contrast: number; saturation: number };
 type Recipe = { schema_version: 1; suggestion_algorithm_version: string; suggested: Values;
@@ -117,14 +118,13 @@ export function ColorRecipe({ projectId, analysesReady, footageDuration = null, 
     </div>
     <details open={grading.mode === "basic"}><summary>Basic adjustment recipe</summary><section className="reference-section" aria-label="Color recipe">
     <h3>Color recipe</h3>
-    <p className="hint">Experimental creative settings, not exposure stops, recovered LUTs or a guarantee of matching appearance. White balance is not inferred. Changing these controls does not produce a live video preview. Save, then render to see the result.</p>
-    {!result && !error && <p role="status">Loading recipe…</p>}
+    <p className="panel-scope">Brightness, contrast and saturation for Basic mode.</p>
+    {!result && !error && <Badge state="working" role="status">Loading recipe…</Badge>}
     {!analysesReady && <p>Prepare valid reference and footage colors before generating or regenerating a suggestion. <button onClick={() => navigation?.open("reference", "prepare-workflow")}>Open preparation</button></p>}
-    {error && <p role="alert">{error}</p>}
+    {error && <Banner tone="danger" role="alert">{error}</Banner>}
     {result?.status === "empty" && <button disabled={busy || !analysesReady} onClick={() => void run("generate")}>Generate suggestion</button>}
-    {result?.status === "stale" && <p role="alert">{result.message || "Recipe is stale."} Saved settings remain available for inspection; explicit regeneration is required before future rendering.</p>}
+    {result?.status === "stale" && <Banner tone="danger" role="alert">{result.message || "Recipe is stale."} Saved settings remain available for inspection; explicit regeneration is required before future rendering.</Banner>}
     {recipe && <>
-      <p role="status">{result?.status === "ready" ? dirty ? "Unsaved changes" : "Recipe saved" : "Stale saved recipe"} · Revision {recipe.revision}</p>
       <fieldset className="recipe-controls" disabled={busy || result?.status !== "ready"}>
         <legend>Selected settings</legend>
         {fields.map(f => <label key={f.name} htmlFor={`recipe-${projectId}-${f.name}`}>{f.label}: <output>{draft.selected[f.name].toFixed(2)}</output>
@@ -134,19 +134,21 @@ export function ColorRecipe({ projectId, analysesReady, footageDuration = null, 
         <label htmlFor={`recipe-${projectId}-strength`}>Strength: <output>{Math.round(draft.strength * 100)}%</output>
           <input id={`recipe-${projectId}-strength`} type="range" min="0" max="100" step="1" value={Math.round(draft.strength * 100)} onChange={event => setDraft(previous => ({ ...previous, strength: Number(event.target.value) / 100 }))} />
         </label>
-        <button disabled={!dirty} onClick={() => void run("save")}>Save recipe</button>
+        <button className="button-primary" disabled={!dirty} onClick={() => void run("save")}>Save recipe</button>
         <button onClick={() => setDraft({ selected: recipe.suggested, strength: .5 })}>Reset to suggestion</button>
         <button onClick={() => setDraft({ selected: neutral, strength: 0 })}>Reset to neutral</button>
       </fieldset>
-      <p className="hint">Saved {recipe.updated_at} · {recipe.suggestion_algorithm_version}</p>
-      {recipe.explanations.map(note => <p role="note" key={note}>{note}</p>)}
+      {recipe.explanations.map(note => <Banner tone="info" role="note" key={note}>{note}</Banner>)}
       <button disabled={busy || !analysesReady} onClick={() => setConfirmRegenerate(true)}>Regenerate suggestion</button>
       {confirmRegenerate && <div role="group" aria-label="Confirm recipe replacement"><p>Regeneration replaces the saved recipe and your edits with a new suggestion at 50% strength.</p>
         <button disabled={busy} onClick={() => void run("generate")}>Replace saved recipe</button><button disabled={busy} onClick={() => setConfirmRegenerate(false)}>Cancel regeneration</button>
       </div>}
     </>}
     <button disabled={busy} onClick={() => void run("reload")}>{dirty ? "Discard changes and reload" : "Reload saved recipe"}</button>
-    {busy && <p role="status">Saving or loading recipe…</p>}
+    {busy && <Badge state="working" role="status">Saving or loading recipe…</Badge>}
+    <Details><p className="hint">Experimental creative settings, not exposure stops, recovered LUTs or a guarantee of matching appearance. White balance is not inferred. Changing these controls does not produce a live video preview. Save, then render to see the result.</p>
+      {recipe && <><p role="status">{result?.status === "ready" ? dirty ? "Unsaved changes" : "Recipe saved" : "Stale saved recipe"} · Revision {recipe.revision}</p>
+      <p className="hint">Saved {recipe.updated_at} · {recipe.suggestion_algorithm_version}</p></>}</Details>
     </section></details>
 
     </WorkspaceSection><WorkspaceSection section="cuts"><details><summary>Single-clip cut plan</summary><EditPlan key={`plan-${projectId}`} projectId={projectId} recipeReady={activeReady && !activeDirty && !activeBusy} onState={setPlanState} /></details><SequenceEditor projectId={projectId} onState={setSequenceState} /></WorkspaceSection>
