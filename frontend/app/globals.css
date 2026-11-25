@@ -436,7 +436,7 @@ footer { color: var(--secondary); padding-top: 40px; font-size: 12px; }
 .shell .panel-details > summary { font-size:var(--text-sm); color:var(--color-text-muted); }
 .shell .panel-details p { font-size:var(--text-sm); }
 .shell .editor-inspector .banner { margin:12px 0; }
-.shell .editor-inspector .badge { margin:4px 0; }
+.shell .editor-inspector .badge { margin:4px 0; border-radius:var(--radius-md); align-items:baseline; padding:4px 8px; line-height:1.4; }
 .segmented { display:inline-flex; flex-wrap:wrap; border:1px solid var(--color-border-strong); border-radius:var(--radius-md); overflow:hidden; }
 .shell .segmented label { display:flex; align-items:center; gap:0; min-height:36px; margin:0; padding:6px 12px; font-size:var(--text-md); cursor:pointer; }
 .shell .segmented label + label { border-left:1px solid var(--color-border-strong); }

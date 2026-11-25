@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { useMediaOperation } from "./use-media-operation";
 import { StyleBlueprint, type Blueprint } from "./style-blueprint";
 import { PacingBlueprint } from "./pacing-blueprint";
+import { Badge, Banner, Details } from "./ui";
 
 type Operation = {
   operation_id: string | null; status: "idle" | "running" | "ready" | "failed";
@@ -26,16 +27,16 @@ export function ReferenceMedia({ projectId, onColorChange, onReady, showAnalysis
   useEffect(() => { if (error || operation?.status !== "ready") onColorChange?.(null); }, [operation, error, onColorChange]);
   return <section className="reference-section" aria-labelledby={`media-${projectId}`}>
     <h3 id={`media-${projectId}`}>Reference media</h3>
-    <p className="hint">Experimental: TikTok access may fail or change. Retrieval does not grant permission to reuse content.</p>
-    {!operation && !error && <p role="status">Loading reference status…</p>}
+    <p className="panel-scope">Experimental: TikTok access may fail or change. Retrieval does not grant permission to reuse content.</p>
+    {!operation && !error && <Badge state="working" role="status">Loading reference status…</Badge>}
     {operation?.status === "idle" && <p>Reference media has not been retrieved.</p>}
-    {operation?.status === "running" && <p role="status">Retrieving and validating reference media… You can leave this project; processing continues.</p>}
-    {operation?.status === "failed" && <p role="alert">{operation.message || "Reference retrieval failed."} ({operation.failure_code})</p>}
-    {error && <p role="alert" className="error">{error}</p>}
-    {operation && ["idle", "failed"].includes(operation.status) && <button disabled={starting} onClick={() => void start()}>{starting ? "Starting…" : operation.status === "failed" ? "Retry reference retrieval" : "Retrieve reference"}</button>}
+    {operation?.status === "running" && <Badge state="working" role="status">Retrieving and validating reference media… You can leave this project; processing continues.</Badge>}
+    {operation?.status === "failed" && <Banner tone="danger" role="alert">{operation.message || "Reference retrieval failed."} ({operation.failure_code})</Banner>}
+    {error && <Banner tone="danger" role="alert" className="error">{error}</Banner>}
+    {operation && ["idle", "failed"].includes(operation.status) && <button className="button-primary" disabled={starting} onClick={() => void start()}>{starting ? "Starting…" : operation.status === "failed" ? "Retry reference retrieval" : "Retrieve reference"}</button>}
     {operation?.status === "ready" && media && <>
-      <p role="status">Reference media is available for color and pacing analysis.</p>
-      <details><summary>Reference media details</summary><dl className="clip-details">
+      <Badge state="ready" role="status">Reference media is available for color and pacing analysis.</Badge>
+      <Details summary="Reference media details"><dl className="clip-details">
         <dt>Duration</dt><dd>{media.duration_seconds} seconds</dd>
         <dt>Dimensions</dt><dd>{media.width} × {media.height}</dd>
         <dt>Size</dt><dd>{media.size_bytes} bytes</dd>
@@ -44,7 +45,7 @@ export function ReferenceMedia({ projectId, onColorChange, onReady, showAnalysis
         <dt>Retrieved</dt><dd>{media.retrieved_at}</dd>
         <dt>SHA-256</dt><dd style={{ overflowWrap: "anywhere" }}>{media.sha256}</dd>
         <dt>Tools</dt><dd>{Object.entries(media.versions).map(([tool, version]) => `${tool}: ${version}`).join(" · ")}</dd>
-      </dl></details>
+      </dl></Details>
       {showAnalysis && <><StyleBlueprint key={projectId} projectId={projectId} onChange={onColorChange} />
       <PacingBlueprint key={`pacing-${projectId}`} projectId={projectId} /></>}
     </>}

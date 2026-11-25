@@ -8,6 +8,7 @@ import { parseClipDetails, type ClipDetails } from "./clip-upload";
 import { ReferenceSelection } from "./reference-selection";
 import { GuidedWorkspace, WorkspaceSection, useWorkspaceReport } from "./guided-workspace";
 import { ProjectColors } from "./project-colors";
+import { Details } from "./ui";
 
 type Project = {
   id: string; name: string; created_at: string; updated_at: string;
@@ -181,9 +182,9 @@ export function Workspace({ onProjectChange, onCaptionReviewTarget, headerMenuTa
       <GuidedWorkspace key={current.id} hasFootage={current.clip_status === "ready"} footageUnavailable={!["empty", "ready"].includes(current.clip_status)} headerStatusTarget={headerMenuTarget} headerActionTarget={headerActionTarget}>
       <ProposalDraftStatus dirty={captionReviewDirty} issues={captionReviewIssues} />
       <WorkspaceSection section="reference"><div className="reference-card"><h3>{current.reference.title || "TikTok reference"}</h3>
-        <p>Creator: {current.reference.author_name || "Unavailable"}</p>
+        <p className="panel-scope">Creator: {current.reference.author_name || "Unavailable"}</p>
         <a href={current.reference.canonical_url} target="_blank" rel="noreferrer">Open reference on TikTok</a>
-        <p className="hint">Saved metadata snapshot from {current.reference_inspected_at}. The reference is fixed for this project.</p>
+        <Details><p className="hint">Saved metadata snapshot from {current.reference_inspected_at}. The reference is fixed for this project.</p></Details>
       </div></WorkspaceSection>
       {current.status === "active" && <ProjectColors key={current.id} projectId={current.id} hasFootage={current.clip_status === "ready"} footageDuration={current.clip?.duration_seconds ?? null} libraryKey={current.updated_at} />}
       <WorkspaceSection section="captions"><div ref={onCaptionReviewTarget} /></WorkspaceSection>
