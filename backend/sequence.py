@@ -1,5 +1,6 @@
 """Explicit, frame-grid multi-source sequences. No automatic footage selection."""
 
+import json
 import uuid
 from decimal import ROUND_FLOOR
 from typing import Literal
@@ -211,7 +212,57 @@ def write(project_id, sequence, expected):
             "revision=excluded.revision,sequence=excluded.sequence",
             (project_id, sequence.revision, sequence.model_dump_json()),
         )
+        prune_slot_colors(db, project_id, [slot.id for slot in sequence.slots])
         db.execute("UPDATE projects SET updated_at=? WHERE id=?", (projects.now(), project_id))
+
+
+def prune_slot_colors(db, project_id, slot_ids):
+    """Drop colour matches, controls and shot-slot choices for slots no longer in the sequence.
+
+    Slot ids change on every regeneration, so without this the matches (and the colour panel's
+    response) grow with each one. Saved colour settings get a new revision only when they lose an
+    entry. `grading` imports this module, so this works on its tables directly.
+    """
+    keep = {f"slot:{id}" for id in slot_ids}
+    keys = db.execute(
+        "SELECT key FROM color_matches WHERE project_id=? AND key LIKE 'slot:%'", (project_id,)
+    ).fetchall()
+    db.executemany(
+        "DELETE FROM color_matches WHERE project_id=? AND key=?",
+        [(project_id, key) for (key,) in keys if key not in keep],
+    )
+    row = db.execute(
+        "SELECT revision, settings FROM grading_settings WHERE project_id=?", (project_id,)
+    ).fetchone()
+    if not row:
+        return
+    settings = json.loads(row[1])
+    controls = {
+        key: value
+        for key, value in settings.get("controls", {}).items()
+        if not key.startswith("slot:") or key in keep
+    }
+    shots = [id for id in settings.get("shot_slots", []) if f"slot:{id}" in keep]
+    if controls == settings.get("controls", {}) and shots == settings.get("shot_slots", []):
+        return
+    revision = row[0] + 1
+    settings |= {"controls": controls, "shot_slots": shots, "revision": revision}
+    settings["updated_at"] = projects.now()
+    db.execute(
+        "UPDATE grading_settings SET revision=?, settings=? WHERE project_id=?",
+        (revision, json.dumps(settings), project_id),
+    )
+
+
+def prune_stale_slot_colors():
+    """Startup cleanup for colour matches left by regenerations before pruning existed."""
+    with projects.database() as db:
+        for (project_id,) in db.execute("SELECT id FROM projects").fetchall():
+            row = db.execute(
+                "SELECT sequence FROM sequences WHERE project_id=?", (project_id,)
+            ).fetchone()
+            slots = json.loads(row[0])["slots"] if row else []
+            prune_slot_colors(db, project_id, [slot["id"] for slot in slots])
 
 
 def music(project_id):

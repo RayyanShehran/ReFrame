@@ -70,6 +70,7 @@ async def lifespan(_app: FastAPI):
     await projects.storage_call(video_render.recover)
     await projects.storage_call(transcription.recover)
     await projects.storage_call(grading.recover)
+    await projects.storage_call(sequence.prune_stale_slot_colors)
     await projects.storage_call(generation.recover)
     try:
         yield
