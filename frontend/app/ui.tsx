@@ -43,3 +43,12 @@ export function Field({ label, hint, children, className }: { label: ReactNode; 
 export function EmptyState({ title, children, action, className, ...props }: HTMLAttributes<HTMLDivElement> & { title: ReactNode; action?: ReactNode }) {
   return <div className={join("empty-state", className)} {...props}><p className="empty-state-title">{title}</p>{children && <div className="hint">{children}</div>}{action}</div>;
 }
+
+/** Ordered steps with the current one marked; earlier steps read as done. */
+export function ProgressSteps({ steps, current, className, ...props }: HTMLAttributes<HTMLOListElement> & { steps: readonly string[]; current: string }) {
+  const at = steps.indexOf(current);
+  return <ol className={join("progress-steps", className)} {...props}>{steps.map((step, i) =>
+    <li key={step} data-state={i < at ? "done" : i === at ? "current" : "upcoming"} aria-current={i === at ? "step" : undefined}>
+      {step}{i < at && <span className="visually-hidden"> (done)</span>}
+    </li>)}</ol>;
+}

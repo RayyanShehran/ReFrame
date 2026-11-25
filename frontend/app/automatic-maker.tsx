@@ -7,11 +7,17 @@ import { useMediaOperation, type MediaOperation } from "./use-media-operation";
 import { AutomaticCaptionReview, type CaptionReview } from "./automatic-caption-review";
 import { Workspace } from "./workspace";
 import { AppHeader } from "./app-header";
+import { Badge, Banner, Button, ProgressSteps } from "./ui";
+import { fetchReference } from "./reference-selection";
+
+const MiB = 1024 * 1024;
+// The stage strings generation reports, in order (backend generation.STAGES).
+const STAGES = ["Reading reference", "Choosing your clips", "Matching the look", "Recreating captions", "Rendering"] as const;
 
 type Options = { audio: "reference" | "original" | "mix" | "mute"; captions: "reference" | "output_audio" | "off"; allow_reused_ranges: boolean; matching_mode?: "subject_aware" | "measurements" };
 type Generation = MediaOperation & { project_id: string; revision: number; operation_id: string | null; stage: string | null; output_id: string | null; notices: string[]; options: Options | null; caption_review?: CaptionReview | null };
 type Item = { id: string; file: File; url: string; status: "pending" | "uploading" | "succeeded" | "failed"; progress: number; error: string };
-type SavedProject = { id: string; name: string; reference: { canonical_url: string } };
+type SavedProject = { id: string; name: string; reference: { canonical_url: string }; status?: "active" | "deleting" };
 function parse(value: unknown): Generation {
   const g = value as Generation;
   if (!g || typeof g.project_id !== "string" || !Number.isSafeInteger(g.revision) || g.revision < 0 || !["idle", "running", "ready", "failed"].includes(g.status) || !Array.isArray(g.notices) || g.notices.length > 30 || g.notices.some(n => typeof n !== "string" || n.length > 2000)) throw new Error("Generation status could not be read.");
@@ -48,6 +54,7 @@ export function AutomaticMaker() {
   const [reviewTarget, setReviewTarget] = useState<HTMLDivElement | null>(null), [menuTarget, setMenuTarget] = useState<HTMLDivElement | null>(null);
   const [reviewDirty, setReviewDirty] = useState(false), [replaceVerified, setReplaceVerified] = useState(false);
   const [outputId, setOutputId] = useState<string | null>(null);
+  const [preview, setPreview] = useState<{ url: string; state: "checking" | "ready" | "failed"; title?: string | null; author?: string | null } | null>(null);
   const items = useRef<Item[]>([]), action = useRef<AbortController | null>(null), currentId = useRef<string | null>(null);
   const urls = useRef(new Set<string>());
   const generation = useMediaOperation(projectId ?? "", "generation", parse, 1200);
@@ -102,6 +109,21 @@ export function AutomaticMaker() {
     if (operation.options) { setAudio(operation.options.audio); setCaptionMode(operation.options.captions); setAllowReuse(operation.options.allow_reused_ranges); }
     if (operation.output_id) setOutputId(operation.output_id);
   }, [operation?.revision, operation?.status, operation?.output_id]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Optional title/creator preview for a new project's link: debounced, aborted on any change and
+  // shown only for the link it was fetched for. A failure is a hint; it never blocks Generate.
+  const previewUrl = !projectId && !running && /^https:\/\/([a-z0-9-]+\.)*tiktok\.com\//i.test(link.trim()) ? link.trim() : "";
+  useEffect(() => {
+    if (!previewUrl) return;
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      setPreview({ url: previewUrl, state: "checking" });
+      fetchReference(previewUrl, controller.signal)
+        .then(details => setPreview({ url: previewUrl, state: "ready", title: details.title, author: details.author_name }))
+        .catch(() => { if (!controller.signal.aborted) setPreview({ url: previewUrl, state: "failed" }); });
+    }, 500);
+    return () => { clearTimeout(timer); controller.abort(); };
+  }, [previewUrl]);
+  const shownPreview = preview && preview.url === previewUrl ? preview : null;
   async function generate(matchingMode: "subject_aware" | "measurements" = operation?.options?.matching_mode ?? "subject_aware", captions = captionMode, partial = false, audioMode = audio) {
     if (action.current || running || reviewDirty || (!projectId && !link.trim())) return;
     const controller = new AbortController(); action.current = controller; setBusy(true); setError("");
@@ -131,38 +153,79 @@ export function AutomaticMaker() {
     finally { if (action.current === controller) { action.current = null; setBusy(false); } }
   }
   const projectName = projects.find(p => p.id === projectId)?.name || "Your project";
+  // Usage counts saved clips plus files still waiting to upload, as footageRejection does.
+  const waiting = queue.filter(item => item.status === "pending" || item.status === "uploading");
+  const usage = `${(library?.clips.length ?? 0) + waiting.length} of ${library?.max_clips ?? 10} · ${(((library?.total_bytes ?? 0) + waiting.reduce((sum, item) => sum + item.file.size, 0)) / MiB).toFixed(1)} of ${Math.round((library?.max_bytes ?? 500 * MiB) / MiB)} MiB`;
+  // One Generate button: at the card's foot before a result exists, in the result's action row after.
+  const showResult = !!outputId && !!projectId;
+  const confirmations = <>
+    {(operation?.failure_code === "footage_shortage" || allowReuse) && <label><input type="checkbox" checked={allowReuse} disabled={!!running} onChange={e => setAllowReuse(e.target.checked)} /> Allow reused footage ranges</label>}
+    {needsReplace && <label><input type="checkbox" checked={replace} onChange={e => setReplace(e.target.checked)} /> Replace my saved sequence, color, audio and caption choices for this generation</label>}
+  </>;
+  const generateButton = <Button variant="primary" size="lg" className="generate-button" disabled={!!running || (!projectId && (!link.trim() || !queue.some(item => item.status === "pending"))) || (needsReplace && !replace)} onClick={() => void generate()}>{busy ? "Saving your clips…" : operation?.status === "failed" ? "Retry generation" : outputId ? "Generate again" : "Generate video"}</Button>;
+  const failureMessage = error || generation.error || operation?.message;
+  const visualRecovery = operation?.status === "failed" && ["sample_limit", "inference_failed", "cache_limit", "analysis_limit", "processing_timeout", "timeout", "deadline", "model_unavailable", "visual_setup", "dimension_limit"].includes(operation.failure_code ?? "") && (operation.stage === "Choosing your clips" || operation.failure_code === "visual_setup") && <><p>Visual matching could not finish within its limits. Your clips and completed work are saved.</p><button disabled={!!running} onClick={() => void generate("measurements", operation?.options?.captions ?? captionMode, false, operation?.options?.audio ?? audio)}>Continue using motion and scenes</button></>;
+  const captionRecovery = ((operation?.status === "ready" && !!operation.caption_review?.unreadable_samples) || operation?.status === "failed" && (["caption_setup", "caption_unreadable", "caption_partial", "caption_review_required", "caption_cue_limit", "ocr_unavailable", "caption_work_limit", "caption_region_limit", "caption_style_limit", "caption_appearance_limit", "no_useful_font_match", "appearance_unusable", "ocr_failed", "ocr_output_invalid", "handwriting_unavailable"].includes(operation.failure_code ?? "") || (operation.failure_code === "generation_failed" && operation.stage === "Recreating captions"))) && <div className="caption-recovery"><button disabled={!!running || reviewDirty} onClick={() => void generate(undefined, "reference", false, operation?.options?.audio ?? audio)}>Retry caption reading</button><button disabled={!!running || reviewDirty} onClick={() => void generate(undefined, "off", false, operation?.options?.audio ?? audio)}>Continue without captions</button>{!!operation.caption_review?.cues.length && <><details><summary>{operation.caption_review.cues.length} detected cues — incomplete</summary><ul>{operation.caption_review.cues.map((cue, i) => <li key={i}>{cue.start.toFixed(2)}–{cue.end.toFixed(2)}: {cue.text}</li>)}</ul></details><label><input type="checkbox" checked={acceptPartial} onChange={e => setAcceptPartial(e.target.checked)} /> I want to export these incomplete captions; some words may be missing or misread.</label><button disabled={!!running || reviewDirty || !acceptPartial} onClick={() => void generate(undefined, "reference", true, operation?.options?.audio ?? audio)}>Use detected captions</button></>}</div>;
+  const setupDetails = (operation?.failure_code?.includes("setup") || operation?.failure_code === "handwriting_unavailable") && <details><summary>Setup details</summary><p>Install both local feature sets in backend: <code>uv sync --locked --extra visual --extra transcription</code>. Follow the local visual, OCR and transcription setup guides in the repository’s docs. No assets download during Generate.</p><p>Optional English handwriting reader: from the project folder run backend\.venv\Scripts\python.exe backend\handwriting_ocr.py setup --download. This explicitly installs the MIT-labelled TrOCR-base checkpoint (1.34 GB) in the isolated CPU environment. It can still misread text and is limited to 16 requests per generation. The earlier small checkpoint stays unused; installed assets and saved readings are preserved.</p></details>;
   return <div className={customize ? "customize-open" : undefined}>
     {/* Customize puts the editor's "Saved projects" menu in the header slot (a portal from Workspace). */}
     <AppHeader project={customize ? `${projectName} · Customize` : projectId ? projectName : "Reference in. Your video out."}
       menu={customize ? <div ref={setMenuTarget} /> : !!projects.length && <details className="project-switcher"><summary>Saved videos</summary><ul>{projects.map(project => <li key={project.id}><button onClick={() => void open(project.id)}>{project.name}</button></li>)}</ul></details>}
       actions={customize ? <button onClick={() => setCustomize(false)}>Return to result</button> : <button onClick={() => void open(null)}>New video</button>} />
-    <section className="hero"><p className="eyebrow">Your reference. Your footage.</p><h1>Make it <em>your own.</em></h1><p className="intro">Paste a reference. Add your clips. Generate your video.</p></section>
-    <section className="reference-section automatic-creation" aria-label="Create video">
-      <label>TikTok reference link<input aria-label="TikTok reference link" type="url" placeholder="https://www.tiktok.com/…" value={link} disabled={running || !!projectId} onChange={e => setLink(e.target.value)} /></label>
-      <FootagePicker actionLabel="Generate video" label="Choose your clips" disabled={!!running} onFilesSelected={files} />
-      <p className="hint">MP4/MOV · 100 MiB per file · 10 clips and 500 MiB per project. You can choose clips before adding the link.</p>
-      <ul className="automatic-clips">{queue.map(item => <li key={item.id}>
-        {item.url && <video src={item.url} preload="metadata" muted aria-label={`Thumbnail: ${item.file.name}`} />}
-        <span>{item.file.name}<small>{item.status}{item.status === "uploading" ? ` · ${item.progress}% uploaded` : ""}</small></span>
-        {item.error && <p role="alert">{item.error}</p>}
-        {item.status === "failed" && <button disabled={!!running} onClick={() => mark(item.id, { status: "pending", error: "" })}>Retry {item.file.name}</button>}
-        {item.status !== "succeeded" && <button disabled={!!running} onClick={() => { if (item.url) { URL.revokeObjectURL(item.url); urls.current.delete(item.url); } update(items.current.filter(value => value.id !== item.id)); }}>Remove {item.file.name}</button>}
-      </li>)}</ul>
-      {!!library?.clips.length && <details><summary>{library.clips.length} saved clips</summary><ul>{library.clips.map(clip => <li key={clip.id}>{clip.name}{!clip.available && " · unavailable"}</li>)}</ul></details>}
-      <div className="automatic-options"><label>Audio<select value={audio} disabled={!!running} onChange={e => setAudio(e.target.value as Options["audio"])}><option value="reference">Reference audio</option><option value="original">My footage</option><option value="mix">Mix</option><option value="mute">Mute</option></select></label>
-      <label>Captions<select value={captionMode} disabled={!!running} onChange={e => setCaptionMode(e.target.value as Options["captions"])}><option value="reference">Recreate reference captions</option><option value="output_audio">Caption my audio in reference style</option><option value="off">Off</option></select></label></div>
-      <p className="hint">{captionMode === "reference" ? "Read the reference’s visible words and estimated timing. This is text recognition, not speech transcription." : captionMode === "output_audio" ? "Generate words from your chosen output audio, borrowing the reference appearance." : "Export without captions."}</p>
-      {audio !== "original" && audio !== "mute" && <p className="hint">Reference audio can include speech and sound effects. Only reuse content you have permission to use.</p>}
-      {(operation?.failure_code === "footage_shortage" || allowReuse) && <label><input type="checkbox" checked={allowReuse} disabled={!!running} onChange={e => setAllowReuse(e.target.checked)} /> Allow reused footage ranges</label>}
-      {needsReplace && <label><input type="checkbox" checked={replace} onChange={e => setReplace(e.target.checked)} /> Replace my saved sequence, color, audio and caption choices for this generation</label>}
-      <button className="button-primary" disabled={!!running || (!projectId && (!link.trim() || !queue.some(item => item.status === "pending"))) || (needsReplace && !replace)} onClick={() => void generate()}>{busy ? "Saving your clips…" : operation?.status === "failed" ? "Retry generation" : outputId ? "Generate again" : "Generate video"}</button>
-      {operation?.status === "running" && <div role="status" className="automatic-progress"><span className="brand-dot">●</span> {operation.stage}<button onClick={() => void generation.start({}, "/cancel")}>Cancel</button></div>}
-      {(error || generation.error || operation?.message) && <p role="alert">{error || generation.error || operation?.message}</p>}
-      {operation?.status === "failed" && ["sample_limit", "inference_failed", "cache_limit", "analysis_limit", "processing_timeout", "timeout", "deadline", "model_unavailable", "visual_setup", "dimension_limit"].includes(operation.failure_code ?? "") && (operation.stage === "Choosing your clips" || operation.failure_code === "visual_setup") && <><p>Visual matching could not finish within its limits. Your clips and completed work are saved.</p><button disabled={!!running} onClick={() => void generate("measurements", operation?.options?.captions ?? captionMode, false, operation?.options?.audio ?? audio)}>Continue using motion and scenes</button></>}
-      {((operation?.status === "ready" && !!operation.caption_review?.unreadable_samples) || operation?.status === "failed" && (["caption_setup", "caption_unreadable", "caption_partial", "caption_review_required", "caption_cue_limit", "ocr_unavailable", "caption_work_limit", "caption_region_limit", "caption_style_limit", "caption_appearance_limit", "no_useful_font_match", "appearance_unusable", "ocr_failed", "ocr_output_invalid", "handwriting_unavailable"].includes(operation.failure_code ?? "") || (operation.failure_code === "generation_failed" && operation.stage === "Recreating captions"))) && <div className="caption-recovery"><button disabled={!!running || reviewDirty} onClick={() => void generate(undefined, "reference", false, operation?.options?.audio ?? audio)}>Retry caption reading</button><button disabled={!!running || reviewDirty} onClick={() => void generate(undefined, "off", false, operation?.options?.audio ?? audio)}>Continue without captions</button>{!!operation.caption_review?.cues.length && <><details><summary>{operation.caption_review.cues.length} detected cues — incomplete</summary><ul>{operation.caption_review.cues.map((cue, i) => <li key={i}>{cue.start.toFixed(2)}–{cue.end.toFixed(2)}: {cue.text}</li>)}</ul></details><label><input type="checkbox" checked={acceptPartial} onChange={e => setAcceptPartial(e.target.checked)} /> I want to export these incomplete captions; some words may be missing or misread.</label><button disabled={!!running || reviewDirty || !acceptPartial} onClick={() => void generate(undefined, "reference", true, operation?.options?.audio ?? audio)}>Use detected captions</button></>}</div>}
-      {(operation?.failure_code?.includes("setup") || operation?.failure_code === "handwriting_unavailable") && <details><summary>Setup details</summary><p>Install both local feature sets in backend: <code>uv sync --locked --extra visual --extra transcription</code>. Follow the local visual, OCR and transcription setup guides in the repository’s docs. No assets download during Generate.</p><p>Optional English handwriting reader: from the project folder run backend\.venv\Scripts\python.exe backend\handwriting_ocr.py setup --download. This explicitly installs the MIT-labelled TrOCR-base checkpoint (1.34 GB) in the isolated CPU environment. It can still misread text and is limited to 16 requests per generation. The earlier small checkpoint stays unused; installed assets and saved readings are preserved.</p></details>}
+    <div className="page-title"><h1>{projectId ? projectName : "New video"}</h1><p>{projectId ? "Change your clips or choices, then generate again." : "Paste a TikTok reference, add your clips, then generate."}</p></div>
+    {showResult && <section className="automatic-result" aria-label="Your video"><h2>Your video</h2>
+      {operation?.status !== "ready" && <p className="hint">Your previous video stays available until a replacement succeeds.</p>}
+      <video controls playsInline preload="metadata" src={`${apiBase}/api/projects/${projectId}/outputs/${outputId}/video`} aria-label="Generated video" />
+      <div className="generate-controls">{confirmations}</div>
+      <div className="result-actions"><a className="button-link" href={`${apiBase}/api/projects/${projectId}/outputs/${outputId}/download`}>Download video</a><button onClick={() => { setCustomizeMounted(true); setCustomize(value => !value); }}>{customize ? "Close Customize" : "Customize"}</button>{generateButton}</div>
+      {!!operation?.notices.length && <details className="result-notices"><summary>About this result</summary><ul>{Array.from(new Set(operation.notices)).map(note => <li key={note}>{note}</li>)}</ul></details>}
+    </section>}
+    {operation?.status === "running" && <section className="progress-panel" role="status" aria-label="Generation progress">
+      <h2>Generating your video</h2>
+      {(STAGES as readonly string[]).includes(operation.stage ?? "") ? <ProgressSteps aria-label="Generation stages" steps={STAGES} current={operation.stage!} /> : <p>{operation.stage}</p>}
+      <Button onClick={() => void generation.start({}, "/cancel")}>Cancel</Button>
+    </section>}
+    {/* One danger banner, with every recovery path for the failure grouped beneath it. */}
+    {(failureMessage || visualRecovery || captionRecovery || setupDetails) && <section className="status-panel">
+      {failureMessage && <Banner tone="danger" role="alert">{failureMessage}</Banner>}
+      {(visualRecovery || captionRecovery || setupDetails) && <div className="recovery" role="group" aria-label="Recovery options">{visualRecovery}{captionRecovery}{setupDetails}</div>}
+    </section>}
+    <section className="create-card" aria-label="Create video">
+      <ol className="create-steps" aria-label="Create steps">
+        <li><h2>Reference link</h2>
+          <label>TikTok reference link<input aria-label="TikTok reference link" type="url" placeholder="https://www.tiktok.com/…" value={link} disabled={running || !!projectId} onChange={e => setLink(e.target.value)} /></label>
+          <div aria-live="polite">{shownPreview?.state === "checking" ? <p className="hint">Checking reference…</p>
+            : shownPreview?.state === "ready" ? <p className="reference-preview">{shownPreview.title || "TikTok video"} · {shownPreview.author || "Unknown creator"}</p>
+            : shownPreview?.state === "failed" ? <p className="hint">Reference details could not be loaded. You can still generate.</p> : null}</div>
+        </li>
+        <li><h2>Clips</h2>
+          <p className="clip-usage">{usage}</p>
+          <ul className="automatic-clips">{queue.map(item => <li key={item.id}>
+            {item.url && <video src={item.url} preload="metadata" muted aria-label={`Thumbnail: ${item.file.name}`} />}
+            <span>{item.file.name}<small>{item.status}{item.status === "uploading" ? ` · ${item.progress}% uploaded` : ""}</small></span>
+            {item.error && <p role="alert">{item.error}</p>}
+            {item.status === "failed" && <button disabled={!!running} onClick={() => mark(item.id, { status: "pending", error: "" })}>Retry {item.file.name}</button>}
+            {item.status !== "succeeded" && <button disabled={!!running} onClick={() => { if (item.url) { URL.revokeObjectURL(item.url); urls.current.delete(item.url); } update(items.current.filter(value => value.id !== item.id)); }}>Remove {item.file.name}</button>}
+          </li>)}
+          {library?.clips.map(clip => <li key={clip.id} className="saved-clip"><span>{clip.name}<small>{clip.available ? "saved" : "unavailable"}</small></span></li>)}
+          <li className="clip-add"><span className="clip-add-title">Add clips</span><FootagePicker actionLabel="Generate video" label="Choose your clips" disabled={!!running} onFilesSelected={files} /></li></ul>
+          <p className="hint">MP4 or MOV, up to 100 MiB each. You can add clips before the link.</p>
+        </li>
+        <li><h2>Audio and captions</h2>
+          <div className="automatic-options"><label>Audio<select value={audio} disabled={!!running} onChange={e => setAudio(e.target.value as Options["audio"])}><option value="reference">Reference audio</option><option value="original">My footage</option><option value="mix">Mix</option><option value="mute">Mute</option></select></label>
+          <label>Captions<select value={captionMode} disabled={!!running} onChange={e => setCaptionMode(e.target.value as Options["captions"])}><option value="reference">Recreate reference captions</option><option value="output_audio">Caption my audio in reference style</option><option value="off">Off</option></select></label></div>
+          <p className="hint">{captionMode === "reference" ? "Reads the reference’s on-screen words (text recognition, not speech)." : captionMode === "output_audio" ? "Transcribes your chosen audio in the reference’s caption style." : "No captions."}{audio !== "original" && audio !== "mute" && " Only reuse reference audio you have permission to use."}</p>
+        </li>
+      </ol>
+      {!showResult && <div className="generate-controls">{confirmations}{generateButton}</div>}
     </section>
-    {outputId && projectId && <section className="reference-section automatic-result" aria-label="Your video"><h2>Your video</h2>{operation?.status !== "ready" && <p className="hint">Your previous video stays available until a replacement succeeds.</p>}<video controls playsInline preload="metadata" src={`${apiBase}/api/projects/${projectId}/outputs/${outputId}/video`} aria-label="Generated video" /><a className="button-link" href={`${apiBase}/api/projects/${projectId}/outputs/${outputId}/download`}>Download video</a><button onClick={() => { setCustomizeMounted(true); setCustomize(value => !value); }}>{customize ? "Close Customize" : "Customize"}</button>{!!operation?.notices.length && <details><summary>About this result</summary><ul>{Array.from(new Set(operation.notices)).map(note => <li key={note}>{note}</li>)}</ul></details>}</section>}
+    {!projectId && !!projects.length && <section className="recent-projects" aria-labelledby="recent-projects-title"><h2 id="recent-projects-title">Recent projects</h2>
+      <ul>{projects.map(project => <li key={project.id}>
+        <span className="recent-name">{project.name}</span>
+        <small>{project.reference.canonical_url.match(/@[^/?#]+/)?.[0] ?? "TikTok reference"}</small>
+        {project.status === "deleting" && <Badge state="needs-attention">Deletion incomplete</Badge>}
+        <button onClick={() => void open(project.id)}>Open {project.name}</button>
+      </li>)}</ul></section>}
     {operation?.status === "ready" && !!operation.caption_review?.unreadable_samples && !!operation.caption_review?.cues.length && <details><summary>Saved caption reading — incomplete</summary><p>These detected words were retained for review. Check the saved caption mode for this video.</p><ul>{operation.caption_review.cues.map((cue, i) => <li key={i}>{cue.start.toFixed(2)}–{cue.end.toFixed(2)}: {cue.text}</li>)}</ul></details>}
     {projectId && operation?.caption_review && <AutomaticCaptionReview portalTarget={customize ? reviewTarget : null} key={`${projectId}:${operation.revision}:${operation.status}`} projectId={projectId} revision={operation.revision} review={operation.caption_review} disabled={!!running} onSaved={generation.refresh} onDirty={setReviewDirty}>{(!!operation.caption_review.verified_cues?.length || !!operation.caption_review.corrected_cues?.length) && <label><input type="checkbox" checked={replaceVerified} disabled={!!running || reviewDirty} onChange={e => setReplaceVerified(e.target.checked)} /> Replace my verified or corrected cues on the next retry</label>}{customize && <div className="caption-recovery"><button disabled={!!running || reviewDirty} onClick={() => void generate(undefined, "reference", false, operation?.options?.audio ?? audio)}>Retry caption reading</button><button disabled={!!running || reviewDirty} onClick={() => void generate(undefined, "off", false, operation?.options?.audio ?? audio)}>Continue without captions</button></div>}</AutomaticCaptionReview>}
     {!outputId && projectId && <button onClick={() => { setCustomizeMounted(true); setCustomize(value => !value); }}>{customize ? "Close Customize" : "Customize"}</button>}

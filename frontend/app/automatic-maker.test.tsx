@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { AutomaticMaker } from "./automatic-maker";
 vi.mock("./workspace", () => ({ Workspace: () => <div>Advanced editor<input aria-label="Custom caption draft" defaultValue="Saved" /></div> }));
@@ -106,4 +106,144 @@ it.each(["Retry caption reading", "Continue without captions", "Use detected cap
   expect(starts[0]).toMatchObject({expected_revision:3,captions:action==="Continue without captions"?"off":"reference",accept_partial_captions:action==="Use detected captions"});
   expect(screen.queryByText("Advanced editor")).not.toBeInTheDocument();
   expect(screen.getByLabelText("Generated video")).toHaveAttribute("src",expect.stringContaining("previous-output"));
+});
+
+it("shows three numbered create steps and usage from saved and queued clips", async () => {
+  window.history.replaceState(null,"",`/?project=${pid}`);
+  vi.stubGlobal("URL", Object.assign(URL, { createObjectURL: vi.fn(()=>"blob:fixture"), revokeObjectURL: vi.fn() }));
+  const saved = { ...library(2), total_bytes: 3 * 1024 * 1024 };
+  vi.stubGlobal("fetch",vi.fn(async (url:string)=> {
+    if(url.endsWith("/clips")) return ok(saved);
+    if(url.endsWith("/render")) return ok({output:null});
+    if(url.endsWith("/generation")) return ok({project_id:pid,revision:0,status:"idle",stage:null,output_id:null,options:null,notices:[],failure_code:null,message:null});
+    if(url.endsWith(pid)) return ok({id:pid,reference:{canonical_url:"https://www.tiktok.com/@fixture/video/6718335390845095173"}});
+    return ok([]);
+  }));
+  render(<AutomaticMaker />);
+  const steps = within(screen.getByRole("list", { name: "Create steps" })).getAllByRole("heading", { level: 2 });
+  expect(steps.map(step => step.textContent)).toEqual(["Reference link", "Clips", "Audio and captions"]);
+  expect(await screen.findByText("2 of 10 · 3.0 of 500 MiB")).toBeInTheDocument();
+  expect(screen.getByText("Clip 0")).toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText("Choose your clips"),{target:{files:[new File([new Uint8Array(1024 * 1024)],"third.mp4")]}});
+  expect(screen.getByText("3 of 10 · 4.0 of 500 MiB")).toBeInTheDocument();
+});
+
+it("previews a valid link's title and creator after a pause, aborting requests for links that changed", async () => {
+  const inspected: { url: string; signal: AbortSignal }[] = [];
+  let answer: ((value: Response) => void) | null = null;
+  vi.stubGlobal("fetch", vi.fn((url: string, init: RequestInit = {}) => {
+    if (url.endsWith("/api/references/inspect")) {
+      inspected.push({ url: JSON.parse(init.body as string).url, signal: init.signal! });
+      return new Promise<Response>(resolve => { answer = resolve; });
+    }
+    return Promise.resolve(ok([]));
+  }));
+  render(<AutomaticMaker />);
+  await act(async () => {});  // Let the mount-time open(null) reset finish before typing.
+  const input = screen.getByLabelText("TikTok reference link");
+  fireEvent.change(input, { target: { value: "https://www.tiktok.com/@a/video/1" } });
+  fireEvent.change(input, { target: { value: "https://www.tiktok.com/@b/video/2" } });
+  await waitFor(() => expect(inspected).toHaveLength(1));
+  expect(inspected[0].url).toBe("https://www.tiktok.com/@b/video/2");  // The first link was never requested.
+  fireEvent.change(input, { target: { value: "https://www.tiktok.com/@c/video/3" } });
+  expect(inspected[0].signal.aborted).toBe(true);  // An in-flight request for a changed link is aborted.
+  await waitFor(() => expect(inspected).toHaveLength(2));
+  answer!(ok({ provider: "tiktok", video_id: "3", canonical_url: "https://www.tiktok.com/@c/video/3", title: "Sunset edit", author_name: "C", metadata_status: "available", analysis_status: "not_started" }));
+  expect(await screen.findByText("Sunset edit · C")).toBeInTheDocument();
+});
+
+it("shows a hint when the reference preview fails and still allows Generate", async () => {
+  vi.stubGlobal("URL", Object.assign(URL, { createObjectURL: vi.fn(()=>"blob:fixture"), revokeObjectURL: vi.fn() }));
+  vi.stubGlobal("fetch", vi.fn(async (url: string) => url.endsWith("/api/references/inspect")
+    ? ({ ok: false, json: async () => ({ error: { message: "Reference unavailable" } }) } as Response) : ok([])));
+  render(<AutomaticMaker />);
+  await act(async () => {});
+  fireEvent.change(screen.getByLabelText("Choose your clips"),{target:{files:[new File(["fixture"],"first.mp4")]}});
+  fireEvent.change(screen.getByLabelText("TikTok reference link"), { target: { value: "https://www.tiktok.com/@a/video/1" } });
+  expect(await screen.findByText("Reference details could not be loaded. You can still generate.")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Generate video" })).toBeEnabled();
+});
+
+it("shows generation progress as steps from the reported stage, with Cancel", async () => {
+  window.history.replaceState(null,"",`/?project=${pid}`);
+  const cancels: string[] = [];
+  vi.stubGlobal("fetch",vi.fn(async (url:string, init:RequestInit={})=> {
+    if(url.endsWith("/clips")) return ok(library(2));
+    if(url.endsWith("/render")) return ok({output:null});
+    if(url.endsWith("/generation/cancel")) { cancels.push(init.method ?? "GET"); return ok({project_id:pid,revision:4,status:"failed",stage:"Choosing your clips",output_id:null,options:null,notices:[],failure_code:"cancelled",message:"Generation stopped."}); }
+    if(url.endsWith("/generation")) return ok({project_id:pid,revision:4,status:"running",stage:"Choosing your clips",output_id:null,options:null,notices:[],failure_code:null,message:null});
+    if(url.endsWith(pid)) return ok({id:pid,reference:{canonical_url:"https://www.tiktok.com/@fixture/video/6718335390845095173"}});
+    return ok([]);
+  }));
+  render(<AutomaticMaker />);
+  const progress = await screen.findByRole("status", { name: "Generation progress" });
+  const steps = within(progress).getAllByRole("listitem");
+  expect(steps.map(step => step.dataset.state)).toEqual(["done", "current", "upcoming", "upcoming", "upcoming"]);
+  expect(within(progress).getByText("Choosing your clips")).toHaveAttribute("aria-current", "step");
+  fireEvent.click(within(progress).getByRole("button", { name: "Cancel" }));
+  await waitFor(() => expect(cancels).toEqual(["POST"]));
+});
+
+it("groups a failure's recovery options beneath one danger banner", async () => {
+  window.history.replaceState(null,"",`/?project=${pid}`);
+  vi.stubGlobal("fetch",vi.fn(async (url:string)=> {
+    if(url.endsWith("/clips")) return ok(library(3));
+    if(url.endsWith("/render")) return ok({output:{output_id:"previous-output"}});
+    if(url.endsWith("/generation")) return ok({project_id:pid,revision:3,status:"failed",stage:"Recreating captions",output_id:null,options:{audio:"reference",captions:"reference",allow_reused_ranges:false},notices:[],failure_code:"caption_setup",message:"Caption reading needs setup.",caption_review:null});
+    if(url.endsWith(pid)) return ok({id:pid,reference:{canonical_url:"https://www.tiktok.com/@fixture/video/6718335390845095173"}});
+    return ok([]);
+  }));
+  render(<AutomaticMaker />);
+  const alert = await screen.findByRole("alert");
+  expect(alert).toHaveTextContent("Caption reading needs setup.");
+  expect(alert).toHaveClass("banner", "banner-danger");
+  const recovery = screen.getByRole("group", { name: "Recovery options" });
+  expect(within(recovery).getByRole("button", { name: "Retry caption reading" })).toBeInTheDocument();
+  expect(within(recovery).getByRole("button", { name: "Continue without captions" })).toBeInTheDocument();
+  expect(within(recovery).getByText("Setup details")).toBeInTheDocument();
+});
+
+it("puts Download, Customize and the single Generate again button in the result's action row", async () => {
+  window.history.replaceState(null,"",`/?project=${pid}`);
+  vi.stubGlobal("fetch",vi.fn(async (url:string)=> {
+    if(url.endsWith("/clips")) return ok(library(2));
+    if(url.endsWith("/render")) return ok({output:{output_id:"saved-output"}});
+    if(url.endsWith("/generation")) return ok({project_id:pid,revision:3,status:"ready",stage:"Rendering",output_id:"saved-output",options:{audio:"mute",captions:"off",allow_reused_ranges:false},notices:["Estimated cuts.","Estimated cuts."],failure_code:null,message:null});
+    if(url.endsWith(pid)) return ok({id:pid,reference:{canonical_url:"https://www.tiktok.com/@fixture/video/6718335390845095173"}});
+    return ok([]);
+  }));
+  render(<AutomaticMaker />);
+  const result = await screen.findByRole("region", { name: "Your video" });
+  await waitFor(() => expect(screen.getAllByRole("button", { name: "Generate again" })).toHaveLength(1));
+  const download = within(result).getByRole("link", { name: "Download video" });
+  expect(download.tagName).toBe("A");
+  const row = download.parentElement!;
+  expect(within(row).getByRole("button", { name: "Customize" })).toBeInTheDocument();
+  expect(within(row).getByRole("button", { name: "Generate again" })).toBeInTheDocument();
+  expect(within(result).getAllByRole("listitem")).toHaveLength(1);  // Notices are de-duplicated.
+});
+
+it("lists recent projects on the Create screen with known status and opens one", async () => {
+  const other = "22222222-2222-4222-8222-222222222222";
+  vi.stubGlobal("fetch",vi.fn(async (url:string)=> {
+    if(url.endsWith("/api/projects")) return ok([
+      {id:pid,name:"Beach edit",reference:{canonical_url:"https://www.tiktok.com/@fixture/video/1"},status:"active"},
+      {id:other,name:"Old edit",reference:{canonical_url:"https://www.tiktok.com/@older/video/2"},status:"deleting"}]);
+    if(url.endsWith("/clips")) return ok(library(1));
+    if(url.endsWith("/render")) return ok({output:null});
+    if(url.endsWith("/generation")) return ok({project_id:pid,revision:0,status:"idle",stage:null,output_id:null,options:null,notices:[],failure_code:null,message:null});
+    if(url.endsWith(pid)) return ok({id:pid,name:"Beach edit",reference:{canonical_url:"https://www.tiktok.com/@fixture/video/1"}});
+    return ok([]);
+  }));
+  render(<AutomaticMaker />);
+  const recent = await screen.findByRole("region", { name: "Recent projects" });
+  const items = within(recent).getAllByRole("listitem");
+  expect(items).toHaveLength(2);
+  expect(items[0]).toHaveTextContent("Beach edit");
+  expect(items[0]).toHaveTextContent("@fixture");
+  expect(within(items[0]).queryByText("Deletion incomplete")).not.toBeInTheDocument();
+  expect(within(items[1]).getByText("Deletion incomplete")).toHaveClass("badge-needs-attention");
+  fireEvent.click(within(recent).getByRole("button", { name: "Open Beach edit" }));
+  await waitFor(() => expect(new URLSearchParams(window.location.search).get("project")).toBe(pid));
+  expect(screen.queryByRole("region", { name: "Recent projects" })).not.toBeInTheDocument();
 });
