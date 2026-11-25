@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
-import { Badge, Banner, Button, EmptyState, Field, Panel, ProgressSteps } from "./ui";
+import { Badge, Banner, Button, Details, EmptyState, Field, Panel, ProgressSteps } from "./ui";
 
 it("renders a native button that passes every prop through and defaults to type=button", () => {
   const click = vi.fn();
@@ -56,4 +56,13 @@ it("marks progress steps before the current one as done and the current one with
   expect(items[0]).toHaveTextContent("Reading reference (done)");
   expect(items[1]).toHaveAttribute("aria-current", "step");
   expect(items[2]).not.toHaveAttribute("aria-current");
+});
+
+it("closes a panel's Details disclosure by default and keeps its text in the document", () => {
+  render(<Details><p>Saved audio · Revision 6</p></Details>);
+  const summary = screen.getByText("Details");
+  expect(summary.tagName).toBe("SUMMARY");
+  expect(summary.parentElement).toHaveClass("panel-details");
+  expect(summary.parentElement).not.toHaveAttribute("open");
+  expect(screen.getByText("Saved audio · Revision 6")).not.toBeVisible();
 });
