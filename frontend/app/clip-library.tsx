@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { ClipUpload, FootagePicker, parseClipDetails, type ClipDetails } from "./clip-upload";
+import { Badge, Banner, Details } from "./ui";
 
 export const apiBase = (process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000").replace(/\/$/, "");
 export type SourceClip = { id: string; name: string; primary: boolean; available: boolean; metadata: ClipDetails; sha256: string };
@@ -131,8 +132,9 @@ function LibraryContents({ projectId, sourceKey, onSaved, initialDetails, showOr
   return <>
     {showOriginal && <ClipUpload key={original?.id ?? "empty"} projectId={projectId} initialDetails={initialDetails ?? original?.metadata ?? null} onFilesSelected={enqueue} selectionDisabled={busy || !library} />}
     <section className="reference-section" aria-label="Footage library">
-    <h3>Footage library</h3><p>Up to 10 clips · 100 MiB per file · 500 MiB total. The original clip remains the source for color measurements, whole-clip output and legacy cuts.</p>
-    {library && <p role="status">{library.clips.length}/10 clips · {(library.total_bytes / 1024 / 1024).toFixed(1)}/500 MiB retained</p>}
+    <h3>Footage library</h3><p className="panel-scope">Up to 10 clips · 100 MiB per file · 500 MiB total.</p>
+    {library && <Badge state="ready" role="status">{library.clips.length}/10 clips · {(library.total_bytes / 1024 / 1024).toFixed(1)}/500 MiB retained</Badge>}
+    <p className="panel-group-label">Add clips</p>
     <FootagePicker label="Add footage" disabled={busy || !library} onFilesSelected={enqueue} />
     <button className="button-primary" disabled={busy || !library || !queue.some(item => item.status === "pending")} onClick={() => void uploadQueue()}>{busy ? "Working…" : "Upload queued files"}</button>
     <ul className="upload-queue" aria-label="Upload queue" aria-live="polite">
@@ -142,7 +144,7 @@ function LibraryContents({ projectId, sourceKey, onSaved, initialDetails, showOr
         {item.status === "failed" && <button disabled={busy || !library} aria-label={`Retry ${item.file.name}`} onClick={() => void uploadQueue(item.id)}>Retry</button>}
       </li>)}
     </ul>
-    <p className="hint">Successful files stay saved if another fails. Switching projects stops further submissions; an in-flight file may already have been saved. The queue is temporary and clears on refresh.</p>
+    {!!library?.clips.length && <p className="panel-group-label">Saved clips</p>}
     {library?.clips.map(c => <div className="clip-library-row" key={c.id}>
       <label>Clip name <input value={names[c.id] ?? c.name} maxLength={80} disabled={busy} onChange={e => setNames(v => ({ ...v, [c.id]: e.target.value }))} /></label>
       <p>{c.primary ? "Original · " : ""}{c.metadata.duration_seconds.toFixed(2)} s · {c.metadata.width} × {c.metadata.height} · {c.metadata.has_audio ? "Audio" : "Silent"}{!c.available ? " · Unavailable" : ""}</p>
@@ -150,6 +152,7 @@ function LibraryContents({ projectId, sourceKey, onSaved, initialDetails, showOr
       <button disabled={busy} onClick={() => setRemove(c.id)}>Remove clip</button>
       {remove === c.id && <div role="group" aria-label="Confirm clip removal"><p>Remove {c.name} from this computer? Saved slot assignments must be removed or replaced first. Removing the original makes its measurements, recipe and legacy cut plan stale. Previous output remains playable.</p><button disabled={busy} onClick={() => void run("remove", c.id)}>Confirm removal</button><button onClick={() => setRemove(null)}>Keep clip</button></div>}
     </div>)}
-    {error && <p role="alert">{error}</p>}
+    {error && <Banner tone="danger" role="alert">{error}</Banner>}
+    <Details><p>The original clip remains the source for color measurements, whole-clip output and legacy cuts.</p><p className="hint">Successful files stay saved if another fails. Switching projects stops further submissions; an in-flight file may already have been saved. The queue is temporary and clears on refresh.</p></Details>
   </section></>;
 }
